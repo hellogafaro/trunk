@@ -116,4 +116,4 @@ ENV CRAFT_MESSAGING_NODE_BIN=node
 
 EXPOSE 9100
 
-ENTRYPOINT ["bun", "run", "packages/server/src/index.ts", "--allow-insecure-bind"]
+ENTRYPOINT ["sh", "-c", "rm -f /home/craftagents/.craft-agent/.server.lock; exec bun run packages/server/src/index.ts --allow-insecure-bind \"$@\"", "--"]
