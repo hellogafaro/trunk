@@ -34,7 +34,7 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 # upgrades are explicit — must match the --target in scripts/build-wa-worker.ts.
 ARG NODE_MAJOR=20
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates git ripgrep curl gnupg && \
+    apt-get install -y --no-install-recommends ca-certificates git ripgrep curl gnupg jq && \
     curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
@@ -67,6 +67,14 @@ COPY apps/viewer/package.json apps/viewer/
 COPY apps/webui/package.json apps/webui/
 
 RUN bun install --frozen-lockfile
+
+# Gafaro: Playwright MCP for remote-CDP browsing via self-hosted Steel Browser.
+RUN bun add -g @playwright/mcp@latest
+
+# Gafaro: wrapper that creates a Steel session + launches Playwright MCP against
+# its CDP endpoint, and releases the session on exit.
+COPY scripts/steel-pw-mcp.sh /usr/local/bin/steel-pw-mcp
+RUN chmod 755 /usr/local/bin/steel-pw-mcp
 
 # Copy source
 COPY . .
@@ -111,4 +119,4 @@ ENV CRAFT_MESSAGING_NODE_BIN=node
 
 EXPOSE 9100
 
-ENTRYPOINT ["bun", "run", "packages/server/src/index.ts"]
+ENTRYPOINT ["bun", "run", "packages/server/src/index.ts", "--allow-insecure-bind"]
