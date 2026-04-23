@@ -48,6 +48,8 @@ import { SessionManager, setSessionPlatform, setSessionRuntimeHooks } from '@cra
 import { initModelRefreshService, setFetcherPlatform } from '@craft-agent/server-core/model-fetchers'
 import { setSearchPlatform, setImageProcessor } from '@craft-agent/server-core/services'
 import type { HandlerDeps } from '@craft-agent/server-core/handlers'
+import { createTerminalManager, registerTerminalHandlers } from './terminal-handlers'
+import { isTerminalRuntimeSupported, type TerminalManager } from './terminal-manager'
 
 process.env.CRAFT_IS_PACKAGED ??= 'false'
 
@@ -125,6 +127,8 @@ const serverToken = process.env.CRAFT_SERVER_TOKEN
 // ---------------------------------------------------------------------------
 
 let webuiHandler: WebuiHandler | null = null
+let terminalManager: TerminalManager | null = null
+let terminalRuntimeSupported = false
 let webuiNodeHandler: ReturnType<typeof nodeHttpAdapter> | undefined
 
 // Health check is injected lazily — the session manager isn't ready until
@@ -225,7 +229,12 @@ const instance = await (async () => {
           messagingRegistry: messagingHandle.registry,
         }
       },
-      registerAllRpcHandlers: registerCoreRpcHandlers,
+      registerAllRpcHandlers: (server, deps, serverCtx) => {
+        registerCoreRpcHandlers(server, deps, serverCtx)
+        if (!terminalRuntimeSupported) return
+        terminalManager = createTerminalManager(server)
+        registerTerminalHandlers(server, deps, terminalManager)
+      },
       setSessionEventSink: (sessionManager, sink) => {
         if (!messagingHandle) {
           // createHandlerDeps always runs before setSessionEventSink, but be
@@ -242,10 +251,14 @@ const instance = await (async () => {
         try {
           await sessionManager.flushAllSessions()
         } finally {
+          terminalManager?.cleanup()
           sessionManager.cleanup()
         }
       },
-      cleanupClientResources: cleanupSessionFileWatchForClient,
+      cleanupClientResources: (clientId) => {
+        cleanupSessionFileWatchForClient(clientId)
+        terminalManager?.cleanupClient(clientId)
+      },
     })
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))

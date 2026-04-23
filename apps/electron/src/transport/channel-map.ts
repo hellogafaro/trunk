@@ -352,6 +352,15 @@ export const CHANNEL_MAP = {
   'browserPane.onRemoved': listener(RPC_CHANNELS.browserPane.REMOVED),
   'browserPane.onInteracted': listener(RPC_CHANNELS.browserPane.INTERACTED),
 
+  // Terminal management
+  'terminal.createTab': invoke(RPC_CHANNELS.terminal.CREATE_TAB),
+  'terminal.write': invoke(RPC_CHANNELS.terminal.WRITE),
+  'terminal.resize': invoke(RPC_CHANNELS.terminal.RESIZE),
+  'terminal.closeTab': invoke(RPC_CHANNELS.terminal.CLOSE_TAB),
+  'terminal.closeSession': invoke(RPC_CHANNELS.terminal.CLOSE_SESSION),
+  'terminal.onData': listener(RPC_CHANNELS.terminal.DATA),
+  'terminal.onTabsChanged': listener(RPC_CHANNELS.terminal.TABS_CHANGED),
+
   // LLM Connections
   listLlmConnections: invoke(RPC_CHANNELS.llmConnections.LIST),
   listLlmConnectionsWithStatus: invoke(RPC_CHANNELS.llmConnections.LIST_WITH_STATUS),

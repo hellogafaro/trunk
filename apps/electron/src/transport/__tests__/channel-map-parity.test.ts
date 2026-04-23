@@ -9,6 +9,7 @@ type FunctionKeys<T> = {
 }[keyof T] & string
 
 type BrowserPaneKeys = `browserPane.${FunctionKeys<ElectronAPI['browserPane']>}`
+type TerminalKeys = `terminal.${FunctionKeys<ElectronAPI['terminal']>}`
 
 // Methods excluded from CHANNEL_MAP because they are implemented directly in the preload
 // (no IPC round-trip to the main process). Each reads local state or orchestrates client-side.
@@ -28,6 +29,7 @@ type ApiToChannelMapKeys = Exclude<
   | 'onTransferProgress' // direct IPC listener — chunk upload progress
   | 'changeLanguage' // direct IPC to main process — syncs i18n language
 > | BrowserPaneKeys
+  | TerminalKeys
 type ChannelMapKeys = keyof typeof CHANNEL_MAP & string
 
 type AssertNever<T extends never> = true

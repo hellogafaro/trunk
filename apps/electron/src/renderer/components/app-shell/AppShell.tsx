@@ -84,7 +84,7 @@ import { useFocusZone } from "@/hooks/keyboard"
 import { useFocusContext } from "@/context/FocusContext"
 import { getSessionTitle } from "@/utils/session"
 import { useSetAtom } from "jotai"
-import type { Session, Workspace, FileAttachment, PermissionRequest, LoadedSource, LoadedSkill, PermissionMode, SourceFilter, AutomationFilter } from "../../../shared/types"
+import { RPC_CHANNELS, type Session, type Workspace, type FileAttachment, type PermissionRequest, type LoadedSource, type LoadedSkill, type PermissionMode, type SourceFilter, type AutomationFilter, type TerminalTab } from "../../../shared/types"
 import { sessionMetaMapAtom, sendToWorkspaceAtom, type SessionMeta } from "@/atoms/sessions"
 import { sourcesAtom } from "@/atoms/sources"
 import { skillsAtom } from "@/atoms/skills"
@@ -138,6 +138,7 @@ import {
 import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
+import { TerminalDock } from "@/components/terminal/terminal-dock"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -163,6 +164,12 @@ interface AppShellProps {
 
 /** Filter mode for tri-state filtering: include shows only matching, exclude hides matching */
 type FilterMode = 'include' | 'exclude'
+
+interface TerminalSessionState {
+  isOpen: boolean
+  activeTabId: string | null
+  tabs: TerminalTab[]
+}
 
 const altClickTooltipLabel = isMac ? '⌥ click to exclude' : 'Alt click to exclude'
 
@@ -1078,6 +1085,142 @@ function AppShellContent({
   // Shift+Tab cycles permission mode through enabled modes (textarea handles its own, this handles when focus is elsewhere)
   // In multi-panel, targets the focused panel's session
   const effectiveSessionId = focusedSessionId ?? session.selected
+  const [terminalSessions, setTerminalSessions] = useState<Record<string, TerminalSessionState>>({})
+  const hasTerminalSupport = useMemo(
+    () => window.electronAPI.isChannelAvailable(RPC_CHANNELS.terminal.CREATE_TAB),
+    [activeWorkspaceId],
+  )
+  const activeTerminalState = effectiveSessionId ? terminalSessions[effectiveSessionId] : undefined
+
+  const reconcileTerminalTabs = useCallback((sessionId: string, tabs: TerminalTab[]) => {
+    setTerminalSessions((prev) => {
+      const current = prev[sessionId]
+      if (tabs.length === 0) {
+        if (!current) return prev
+        const next = { ...prev }
+        delete next[sessionId]
+        return next
+      }
+
+      const activeTabId = current?.activeTabId && tabs.some((tab) => tab.id === current.activeTabId)
+        ? current.activeTabId
+        : tabs[0]?.id ?? null
+
+      return {
+        ...prev,
+        [sessionId]: {
+          isOpen: current?.isOpen ?? true,
+          activeTabId,
+          tabs,
+        },
+      }
+    })
+  }, [])
+
+  const createTerminalTab = useCallback(async (sessionId: string) => {
+    if (!hasTerminalSupport) return
+
+    try {
+      const tab = await window.electronAPI.terminal.createTab(sessionId)
+      setTerminalSessions((prev) => {
+        const current = prev[sessionId]
+        const existingTabs = current?.tabs ?? []
+        const tabs = existingTabs.some((existingTab) => existingTab.id === tab.id)
+          ? existingTabs
+          : [...existingTabs, tab]
+
+        return {
+          ...prev,
+          [sessionId]: {
+            isOpen: true,
+            activeTabId: tab.id,
+            tabs,
+          },
+        }
+      })
+    } catch (error) {
+      console.error('[terminal] failed to create tab', error)
+      toast.error('Failed to open terminal')
+    }
+  }, [hasTerminalSupport])
+
+  const closeTerminalSession = useCallback(async (sessionId: string) => {
+    setTerminalSessions((prev) => {
+      if (!prev[sessionId]) return prev
+      const next = { ...prev }
+      delete next[sessionId]
+      return next
+    })
+
+    if (!hasTerminalSupport) return
+
+    try {
+      await window.electronAPI.terminal.closeSession(sessionId)
+    } catch (error) {
+      console.error('[terminal] failed to close session terminals', error)
+    }
+  }, [hasTerminalSupport])
+
+  const closeTerminalTab = useCallback(async (sessionId: string, tabId: string) => {
+    setTerminalSessions((prev) => {
+      const current = prev[sessionId]
+      if (!current) return prev
+
+      const tabs = current.tabs.filter((tab) => tab.id !== tabId)
+      if (tabs.length === 0) {
+        const next = { ...prev }
+        delete next[sessionId]
+        return next
+      }
+
+      return {
+        ...prev,
+        [sessionId]: {
+          isOpen: true,
+          activeTabId: current.activeTabId === tabId ? tabs[0]?.id ?? null : current.activeTabId,
+          tabs,
+        },
+      }
+    })
+
+    if (!hasTerminalSupport) return
+
+    try {
+      await window.electronAPI.terminal.closeTab(tabId)
+    } catch (error) {
+      console.error('[terminal] failed to close tab', error)
+    }
+  }, [hasTerminalSupport])
+
+  const toggleTerminalForSession = useCallback(async (sessionId: string | null | undefined) => {
+    if (!sessionId || !hasTerminalSupport) return
+
+    const current = terminalSessions[sessionId]
+    if (current?.isOpen && current.tabs.length > 0) {
+      await closeTerminalSession(sessionId)
+      return
+    }
+
+    await createTerminalTab(sessionId)
+  }, [closeTerminalSession, createTerminalTab, hasTerminalSupport, terminalSessions])
+
+  useEffect(() => {
+    if (!hasTerminalSupport) return
+
+    return window.electronAPI.terminal.onTabsChanged((event) => {
+      reconcileTerminalTabs(event.sessionId, event.tabs)
+    })
+  }, [hasTerminalSupport, reconcileTerminalTabs])
+
+  useEffect(() => {
+    const handleToggleTerminal = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail
+      void toggleTerminalForSession(detail?.sessionId ?? effectiveSessionId)
+    }
+
+    window.addEventListener('craft:toggle-terminal', handleToggleTerminal as EventListener)
+    return () => window.removeEventListener('craft:toggle-terminal', handleToggleTerminal as EventListener)
+  }, [effectiveSessionId, toggleTerminalForSession])
 
   // Focus chat input for the target session only (multi-panel safe).
   const focusChatInputForSession = useCallback((targetSessionId?: string | null) => {
@@ -1112,6 +1255,9 @@ function AppShellContent({
 
   // Focus mode toggle (CMD+.) - hides both sidebars
   useAction('view.toggleFocusMode', () => setIsSidebarAndNavigatorHidden(v => !v))
+  useAction('view.toggleTerminal', () => {
+    void toggleTerminalForSession(effectiveSessionId)
+  }, { enabled: () => !!effectiveSessionId && hasTerminalSupport }, [effectiveSessionId, hasTerminalSupport, toggleTerminalForSession])
 
   // Panel focus navigation (CMD+SHIFT+[ / ])
   const focusNextPanel = useSetAtom(focusNextPanelAtom)
@@ -2169,6 +2315,9 @@ function AppShellContent({
     })
   }, [sessionFilter, labelCounts, activeWorkspace?.id, handleLabelClick, isExpanded, toggleExpanded, openConfigureLabels, handleAddLabel, handleDeleteLabel])
 
+  const showTerminalDock = !!(effectiveSessionId && activeTerminalState?.isOpen && activeTerminalState.tabs.length > 0)
+  const hasMountedTerminalSessions = Object.values(terminalSessions).some((state) => state.isOpen && state.tabs.length > 0)
+
   return (
     <AppShellProvider value={appShellContextValue}>
         {/* === TOP BAR === */}
@@ -2200,10 +2349,14 @@ function AppShellContent({
       {/* === OUTER LAYOUT: Unified Panel Stack | Right Sidebar === */}
       <div
         ref={shellRef}
-        className="flex items-stretch relative"
-        style={{ height: '100%', paddingRight: PANEL_EDGE_INSET, paddingBottom: PANEL_EDGE_INSET, paddingLeft: 0, gap: PANEL_GAP }}
+        className="flex h-full flex-col relative"
+        style={{ paddingRight: PANEL_EDGE_INSET, paddingBottom: PANEL_EDGE_INSET, paddingLeft: 0 }}
       >
-        <PanelStackContainer
+        <div
+          className="flex-1 min-h-0 flex items-stretch relative"
+          style={{ gap: PANEL_GAP }}
+        >
+          <PanelStackContainer
           sidebarSlot={
             <div
               ref={sidebarRef}
@@ -3299,6 +3452,39 @@ function AppShellContent({
         </div>
         )}
 
+        </div>
+
+        {hasMountedTerminalSessions && (
+          <div className={cn('pt-2', showTerminalDock ? 'block' : 'hidden')}>
+            {Object.entries(terminalSessions).map(([sessionId, terminalState]) => (
+              <div
+                key={sessionId}
+                className={sessionId === effectiveSessionId && terminalState.isOpen && terminalState.tabs.length > 0 ? 'block' : 'hidden'}
+              >
+                <TerminalDock
+                  sessionId={sessionId}
+                  visible={sessionId === effectiveSessionId && terminalState.isOpen && terminalState.tabs.length > 0}
+                  tabs={terminalState.tabs}
+                  activeTabId={terminalState.activeTabId}
+                  onSelectTab={(tabId) => {
+                    setTerminalSessions((prev) => ({
+                      ...prev,
+                      [sessionId]: {
+                        ...(prev[sessionId] ?? terminalState),
+                        isOpen: true,
+                        activeTabId: tabId,
+                        tabs: prev[sessionId]?.tabs ?? terminalState.tabs,
+                      },
+                    }))
+                  }}
+                  onNewTab={() => { void createTerminalTab(sessionId) }}
+                  onCloseTab={(tabId) => { void closeTerminalTab(sessionId, tabId) }}
+                  onCloseDock={() => { void closeTerminalSession(sessionId) }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ============================================================================

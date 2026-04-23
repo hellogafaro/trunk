@@ -12,7 +12,8 @@
     "esbuild",
     "koffi",
     "protobufjs",
-    "sharp"
+    "sharp",
+    "node-pty"
   ],
   "workspaces": [
     "packages/*",

@@ -245,6 +245,15 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.sessions.EXPORT_REMOTE_TRANSFER,
   RPC_CHANNELS.sessions.IMPORT_REMOTE_TRANSFER,
 
+  // terminal — server-backed interactive shells
+  RPC_CHANNELS.terminal.CREATE_TAB,
+  RPC_CHANNELS.terminal.WRITE,
+  RPC_CHANNELS.terminal.RESIZE,
+  RPC_CHANNELS.terminal.CLOSE_TAB,
+  RPC_CHANNELS.terminal.CLOSE_SESSION,
+  RPC_CHANNELS.terminal.DATA,
+  RPC_CHANNELS.terminal.TABS_CHANGED,
+
   // transfer — chunked large-payload import (sessions, resources)
   RPC_CHANNELS.transfer.START,
   RPC_CHANNELS.transfer.CHUNK,

@@ -568,6 +568,24 @@ export interface BrowserInstanceInfo {
   themeColor: string | null
 }
 
+export interface TerminalTab {
+  id: string
+  sessionId: string
+  title: string
+  cwd: string
+}
+
+export interface TerminalDataEvent {
+  sessionId: string
+  tabId: string
+  data: string
+}
+
+export interface TerminalTabsChangedEvent {
+  sessionId: string
+  tabs: TerminalTab[]
+}
+
 export interface DeepLinkNavigation {
   view?: string
   tabType?: string

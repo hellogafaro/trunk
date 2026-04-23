@@ -205,6 +205,9 @@ import type {
   PermissionModeState,
   BrowserInstanceInfo,
   DeepLinkNavigation,
+  TerminalTab,
+  TerminalDataEvent,
+  TerminalTabsChangedEvent,
   TestAutomationPayload,
   TestAutomationResult,
   WindowCloseRequest,
@@ -608,6 +611,17 @@ export interface ElectronAPI {
     onStateChanged(callback: (info: BrowserInstanceInfo) => void): () => void
     onRemoved(callback: (id: string) => void): () => void
     onInteracted(callback: (id: string) => void): () => void
+  }
+
+  // Server-backed terminal management
+  terminal: {
+    createTab(sessionId: string): Promise<TerminalTab>
+    write(tabId: string, data: string): Promise<void>
+    resize(tabId: string, cols: number, rows: number): Promise<void>
+    closeTab(tabId: string): Promise<void>
+    closeSession(sessionId: string): Promise<void>
+    onData(callback: (event: TerminalDataEvent) => void): () => void
+    onTabsChanged(callback: (event: TerminalTabsChangedEvent) => void): () => void
   }
 
   // LLM Connections (provider configurations)

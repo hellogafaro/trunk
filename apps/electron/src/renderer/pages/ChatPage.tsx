@@ -8,7 +8,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertCircle, Globe, Copy, RefreshCw, Link2Off, Info } from 'lucide-react'
+import { AlertCircle, Globe, Copy, RefreshCw, Link2Off, Info, SquareTerminal } from 'lucide-react'
 import { ChatDisplay, type ChatDisplayHandle } from '@/components/app-shell/ChatDisplay'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { SessionMenu } from '@/components/app-shell/SessionMenu'
@@ -25,6 +25,7 @@ import { ensureSessionMessagesLoadedAtom, loadedSessionsAtom, sessionMetaMapAtom
 import { getSessionTitle } from '@/utils/session'
 // Model resolution: connection.defaultModel (no hardcoded defaults)
 import { resolveEffectiveConnectionSlug, isSessionConnectionUnavailable } from '@config/llm-connections'
+import { RPC_CHANNELS } from '../../shared/types'
 
 export interface ChatPageProps {
   sessionId: string
@@ -487,6 +488,26 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     </DropdownMenu>
   ), [sharedUrl, handleShare, handleOpenInBrowser, handleCopyLink, handleUpdateShare, handleRevokeShare])
 
+  const hasTerminalSupport = React.useMemo(
+    () => window.electronAPI.isChannelAvailable(RPC_CHANNELS.terminal.CREATE_TAB),
+    [sessionId],
+  )
+
+  const terminalButton = React.useMemo(() => {
+    if (isCompactMode || !hasTerminalSupport) return undefined
+
+    return (
+      <PanelHeaderCenterButton
+        icon={<SquareTerminal className="h-4 w-4" />}
+        aria-label="Open terminal"
+        tooltip="Open terminal"
+        onClick={() => {
+          window.dispatchEvent(new CustomEvent('craft:toggle-terminal', { detail: { sessionId } }))
+        }}
+      />
+    )
+  }, [hasTerminalSupport, isCompactMode, sessionId])
+
   const compactInfoButton = React.useMemo(() => {
     if (!isCompactMode || !sessionMeta) return undefined
 
@@ -505,7 +526,14 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     )
   }, [isCompactMode, sessionId, session?.sessionFolderPath, sessionMeta])
 
-  const headerActions = isCompactMode ? compactInfoButton : shareButton
+  const headerActions = isCompactMode
+    ? compactInfoButton
+    : (
+        <>
+          {terminalButton}
+          {shareButton}
+        </>
+      )
 
   // Build title menu content for chat sessions using shared SessionMenu
   const titleMenu = React.useMemo(() => sessionMeta ? (

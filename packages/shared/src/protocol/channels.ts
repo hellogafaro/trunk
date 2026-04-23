@@ -356,6 +356,15 @@ export const RPC_CHANNELS = {
     REMOVED: 'browser-pane:removed',
     INTERACTED: 'browser-pane:interacted',
   },
+  terminal: {
+    CREATE_TAB: 'terminal:create-tab',
+    WRITE: 'terminal:write',
+    RESIZE: 'terminal:resize',
+    CLOSE_TAB: 'terminal:close-tab',
+    CLOSE_SESSION: 'terminal:close-session',
+    DATA: 'terminal:data',
+    TABS_CHANGED: 'terminal:tabs-changed',
+  },
   automations: {
     GET: 'automations:get',
     TEST: 'automations:test',

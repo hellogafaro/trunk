@@ -34,7 +34,7 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 # upgrades are explicit — must match the --target in scripts/build-wa-worker.ts.
 ARG NODE_MAJOR=20
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates git ripgrep curl gnupg jq && \
+    apt-get install -y --no-install-recommends ca-certificates git ripgrep curl gnupg jq python3 build-essential && \
     curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
