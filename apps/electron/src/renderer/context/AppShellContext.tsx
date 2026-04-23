@@ -24,11 +24,18 @@ import type {
   NewChatActionParams,
   LlmConnectionWithStatus,
   TestAutomationResult,
+  TerminalTab,
 } from '../../shared/types'
 import type { SessionStatus as SessionStatusConfig } from '@/config/session-status-config'
 import type { SessionOptions, SessionOptionUpdates } from '../hooks/useSessionOptions'
 import { defaultSessionOptions } from '../hooks/useSessionOptions'
 import { sessionAtomFamily } from '../atoms/sessions'
+
+export interface TerminalPanelState {
+  isOpen: boolean
+  activeTabId: string | null
+  tabs: TerminalTab[]
+}
 
 export interface AppShellContextType {
   // Data
@@ -136,6 +143,13 @@ export interface AppShellContextType {
 
   /** Whether the shell is currently in compact/narrow mode */
   isCompactMode?: boolean
+
+  // Terminal state/actions
+  getTerminalState?: (sessionId: string) => TerminalPanelState | undefined
+  onSelectTerminalTab?: (sessionId: string, tabId: string) => void
+  onCreateTerminalTab?: (sessionId: string) => void
+  onCloseTerminalTab?: (sessionId: string, tabId: string) => void
+  onCloseTerminalSession?: (sessionId: string) => void
 
   // Session list search state (for ChatDisplay highlighting)
   /** Current search query from session list - used to highlight matches in ChatDisplay */

@@ -8,7 +8,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertCircle, Globe, Copy, RefreshCw, Link2Off, Info, SquareTerminal } from 'lucide-react'
+import { AlertCircle, Globe, Copy, RefreshCw, Link2Off, Info } from 'lucide-react'
 import { ChatDisplay, type ChatDisplayHandle } from '@/components/app-shell/ChatDisplay'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { SessionMenu } from '@/components/app-shell/SessionMenu'
@@ -21,11 +21,13 @@ import { StyledDropdownMenuContent, StyledDropdownMenuItem, StyledDropdownMenuSe
 import { useAppShellContext, usePendingPermission, usePendingCredential, useSessionOptionsFor, useSession as useSessionData } from '@/context/AppShellContext'
 import { rendererPerf } from '@/lib/perf'
 import { routes } from '@/lib/navigate'
+import { CHAT_LAYOUT } from '@/config/layout'
 import { ensureSessionMessagesLoadedAtom, loadedSessionsAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 import { getSessionTitle } from '@/utils/session'
 // Model resolution: connection.defaultModel (no hardcoded defaults)
 import { resolveEffectiveConnectionSlug, isSessionConnectionUnavailable } from '@config/llm-connections'
 import { RPC_CHANNELS } from '../../shared/types'
+import { TerminalDock } from '@/components/terminal/terminal-dock'
 
 export interface ChatPageProps {
   sessionId: string
@@ -75,6 +77,11 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     chatDisplayRef,
     onChatMatchInfoChange,
     isFocusedPanel,
+    getTerminalState,
+    onSelectTerminalTab,
+    onCreateTerminalTab,
+    onCloseTerminalTab,
+    onCloseTerminalSession,
   } = useAppShellContext()
 
   // Use the unified session options hook for clean access
@@ -498,7 +505,13 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
     return (
       <PanelHeaderCenterButton
-        icon={<SquareTerminal className="h-4 w-4" />}
+        icon={(
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+            <path d="M7.5 10 10 12l-2.5 2" />
+            <path d="M12.5 15H16.5" />
+          </svg>
+        )}
         aria-label="Open terminal"
         tooltip="Open terminal"
         onClick={() => {
@@ -529,11 +542,29 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   const headerActions = isCompactMode
     ? compactInfoButton
     : (
-        <>
+        <div className="flex items-center gap-1.5">
           {terminalButton}
           {shareButton}
-        </>
+        </div>
       )
+
+  const terminalState = getTerminalState?.(sessionId)
+  const showTerminalDock = !!(terminalState?.isOpen && terminalState.tabs.length > 0)
+
+  const terminalDock = showTerminalDock && terminalState ? (
+    <div className={[CHAT_LAYOUT.maxWidth, 'mx-auto w-full mt-1 px-3 @xs/panel:px-4 pb-4'].join(' ')}>
+      <TerminalDock
+        sessionId={sessionId}
+        visible={true}
+        tabs={terminalState.tabs}
+        activeTabId={terminalState.activeTabId}
+        onSelectTab={(tabId) => onSelectTerminalTab?.(sessionId, tabId)}
+        onNewTab={() => onCreateTerminalTab?.(sessionId)}
+        onCloseTab={(tabId) => onCloseTerminalTab?.(sessionId, tabId)}
+        onCloseDock={() => onCloseTerminalSession?.(sessionId)}
+      />
+    </div>
+  ) : null
 
   // Build title menu content for chat sessions using shared SessionMenu
   const titleMenu = React.useMemo(() => sessionMeta ? (
@@ -626,6 +657,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
                 connectionUnavailable={connectionUnavailable}
                 compactMode={!!isCompactMode}
               />
+              {terminalDock}
             </div>
           </div>
           <RenameDialog
@@ -700,6 +732,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             connectionUnavailable={connectionUnavailable}
             compactMode={!!isCompactMode}
           />
+          {terminalDock}
         </div>
       </div>
       <RenameDialog

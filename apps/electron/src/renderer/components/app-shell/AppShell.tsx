@@ -75,7 +75,7 @@ import type { ChatDisplayHandle } from "./ChatDisplay"
 import { LeftSidebar } from "./LeftSidebar"
 import { useSession } from "@/hooks/useSession"
 import { ensureSessionMessagesLoadedAtom } from "@/atoms/sessions"
-import { AppShellProvider, type AppShellContextType } from "@/context/AppShellContext"
+import { AppShellProvider, type AppShellContextType, type TerminalPanelState } from "@/context/AppShellContext"
 import { EscapeInterruptProvider, useEscapeInterrupt } from "@/context/EscapeInterruptContext"
 import { useTheme } from "@/context/ThemeContext"
 import { getResizeGradientStyle } from "@/hooks/useResizeGradient"
@@ -138,7 +138,6 @@ import {
 import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
-import { TerminalDock } from "@/components/terminal/terminal-dock"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -164,12 +163,6 @@ interface AppShellProps {
 
 /** Filter mode for tri-state filtering: include shows only matching, exclude hides matching */
 type FilterMode = 'include' | 'exclude'
-
-interface TerminalSessionState {
-  isOpen: boolean
-  activeTabId: string | null
-  tabs: TerminalTab[]
-}
 
 const altClickTooltipLabel = isMac ? '⌥ click to exclude' : 'Alt click to exclude'
 
@@ -1085,12 +1078,11 @@ function AppShellContent({
   // Shift+Tab cycles permission mode through enabled modes (textarea handles its own, this handles when focus is elsewhere)
   // In multi-panel, targets the focused panel's session
   const effectiveSessionId = focusedSessionId ?? session.selected
-  const [terminalSessions, setTerminalSessions] = useState<Record<string, TerminalSessionState>>({})
+  const [terminalSessions, setTerminalSessions] = useState<Record<string, TerminalPanelState>>({})
   const hasTerminalSupport = useMemo(
     () => window.electronAPI.isChannelAvailable(RPC_CHANNELS.terminal.CREATE_TAB),
     [activeWorkspaceId],
   )
-  const activeTerminalState = effectiveSessionId ? terminalSessions[effectiveSessionId] : undefined
 
   const reconcileTerminalTabs = useCallback((sessionId: string, tabs: TerminalTab[]) => {
     setTerminalSessions((prev) => {
@@ -1125,7 +1117,7 @@ function AppShellContent({
       setTerminalSessions((prev) => {
         const current = prev[sessionId]
         const existingTabs = current?.tabs ?? []
-        const tabs = existingTabs.some((existingTab) => existingTab.id === tab.id)
+        const tabs = existingTabs.some((existingTab: TerminalTab) => existingTab.id === tab.id)
           ? existingTabs
           : [...existingTabs, tab]
 
@@ -1166,7 +1158,7 @@ function AppShellContent({
       const current = prev[sessionId]
       if (!current) return prev
 
-      const tabs = current.tabs.filter((tab) => tab.id !== tabId)
+      const tabs = current.tabs.filter((tab: TerminalTab) => tab.id !== tabId)
       if (tabs.length === 0) {
         const next = { ...prev }
         delete next[sessionId]
@@ -1727,6 +1719,21 @@ function AppShellContent({
     onSessionSourcesChange: handleSessionSourcesChange,
     rightSidebarButton: null,
     isCompactMode: isAutoCompact,
+    getTerminalState: (sessionId: string) => terminalSessions[sessionId],
+    onSelectTerminalTab: (sessionId: string, tabId: string) => {
+      setTerminalSessions((prev) => ({
+        ...prev,
+        [sessionId]: {
+          ...(prev[sessionId] ?? { isOpen: true, activeTabId: tabId, tabs: [] } satisfies TerminalPanelState),
+          isOpen: true,
+          activeTabId: tabId,
+          tabs: prev[sessionId]?.tabs ?? [],
+        },
+      }))
+    },
+    onCreateTerminalTab: (sessionId: string) => { void createTerminalTab(sessionId) },
+    onCloseTerminalTab: (sessionId: string, tabId: string) => { void closeTerminalTab(sessionId, tabId) },
+    onCloseTerminalSession: (sessionId: string) => { void closeTerminalSession(sessionId) },
     // Search state for ChatDisplay highlighting
     sessionListSearchQuery: searchActive ? searchQuery : undefined,
     isSearchModeActive: searchActive,
@@ -1739,7 +1746,7 @@ function AppShellContent({
     automationTestResults,
     getAutomationHistory,
     onReplayAutomation: handleReplayAutomation,
-  }), [contextValue, handleDeleteSession, sources, skills, activeSessionWorkingDirectory, displayLabelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, isAutoCompact, searchActive, searchQuery, handleChatMatchInfoChange, handleTestAutomation, handleToggleAutomation, handleDuplicateAutomation, handleDeleteAutomation, automationTestResults, getAutomationHistory, handleReplayAutomation])
+  }), [contextValue, handleDeleteSession, sources, skills, activeSessionWorkingDirectory, displayLabelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, isAutoCompact, terminalSessions, createTerminalTab, closeTerminalTab, closeTerminalSession, searchActive, searchQuery, handleChatMatchInfoChange, handleTestAutomation, handleToggleAutomation, handleDuplicateAutomation, handleDeleteAutomation, automationTestResults, getAutomationHistory, handleReplayAutomation])
 
   // Persist expanded folders to localStorage (workspace-scoped)
   React.useEffect(() => {
@@ -2314,9 +2321,6 @@ function AppShellContent({
       return item
     })
   }, [sessionFilter, labelCounts, activeWorkspace?.id, handleLabelClick, isExpanded, toggleExpanded, openConfigureLabels, handleAddLabel, handleDeleteLabel])
-
-  const showTerminalDock = !!(effectiveSessionId && activeTerminalState?.isOpen && activeTerminalState.tabs.length > 0)
-  const hasMountedTerminalSessions = Object.values(terminalSessions).some((state) => state.isOpen && state.tabs.length > 0)
 
   return (
     <AppShellProvider value={appShellContextValue}>
@@ -3454,37 +3458,6 @@ function AppShellContent({
 
         </div>
 
-        {hasMountedTerminalSessions && (
-          <div className={cn('pt-2', showTerminalDock ? 'block' : 'hidden')}>
-            {Object.entries(terminalSessions).map(([sessionId, terminalState]) => (
-              <div
-                key={sessionId}
-                className={sessionId === effectiveSessionId && terminalState.isOpen && terminalState.tabs.length > 0 ? 'block' : 'hidden'}
-              >
-                <TerminalDock
-                  sessionId={sessionId}
-                  visible={sessionId === effectiveSessionId && terminalState.isOpen && terminalState.tabs.length > 0}
-                  tabs={terminalState.tabs}
-                  activeTabId={terminalState.activeTabId}
-                  onSelectTab={(tabId) => {
-                    setTerminalSessions((prev) => ({
-                      ...prev,
-                      [sessionId]: {
-                        ...(prev[sessionId] ?? terminalState),
-                        isOpen: true,
-                        activeTabId: tabId,
-                        tabs: prev[sessionId]?.tabs ?? terminalState.tabs,
-                      },
-                    }))
-                  }}
-                  onNewTab={() => { void createTerminalTab(sessionId) }}
-                  onCloseTab={(tabId) => { void closeTerminalTab(sessionId, tabId) }}
-                  onCloseDock={() => { void closeTerminalSession(sessionId) }}
-                />
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* ============================================================================
