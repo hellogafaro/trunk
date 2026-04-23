@@ -49,7 +49,7 @@ import { initModelRefreshService, setFetcherPlatform } from '@craft-agent/server
 import { setSearchPlatform, setImageProcessor } from '@craft-agent/server-core/services'
 import type { HandlerDeps } from '@craft-agent/server-core/handlers'
 import { createTerminalManager, registerTerminalHandlers } from './terminal-handlers'
-import { isTerminalRuntimeSupported, type TerminalManager } from './terminal-manager'
+import type { TerminalManager } from './terminal-manager'
 
 process.env.CRAFT_IS_PACKAGED ??= 'false'
 
@@ -128,7 +128,6 @@ const serverToken = process.env.CRAFT_SERVER_TOKEN
 
 let webuiHandler: WebuiHandler | null = null
 let terminalManager: TerminalManager | null = null
-let terminalRuntimeSupported = false
 let webuiNodeHandler: ReturnType<typeof nodeHttpAdapter> | undefined
 
 // Health check is injected lazily — the session manager isn't ready until
@@ -231,7 +230,6 @@ const instance = await (async () => {
       },
       registerAllRpcHandlers: (server, deps, serverCtx) => {
         registerCoreRpcHandlers(server, deps, serverCtx)
-        if (!terminalRuntimeSupported) return
         terminalManager = createTerminalManager(server)
         registerTerminalHandlers(server, deps, terminalManager)
       },
