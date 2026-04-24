@@ -500,8 +500,13 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     [sessionId],
   )
 
+  const terminalState = getTerminalState?.(sessionId)
+  const showTerminalDock = !!(terminalState?.isOpen && terminalState.tabs.length > 0)
+
   const terminalButton = React.useMemo(() => {
     if (isCompactMode || !hasTerminalSupport) return undefined
+
+    const isTerminalOpen = !!(terminalState?.isOpen && terminalState.tabs.length > 0)
 
     return (
       <PanelHeaderCenterButton
@@ -512,14 +517,18 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             <path d="M12.5 15H16.5" />
           </svg>
         )}
-        aria-label="Open terminal"
-        tooltip="Open terminal"
+        aria-label={isTerminalOpen ? "Close terminal" : "Open terminal"}
+        tooltip={isTerminalOpen ? "Close terminal" : "Open terminal"}
         onClick={() => {
-          window.dispatchEvent(new CustomEvent('craft:toggle-terminal', { detail: { sessionId } }))
+          if (isTerminalOpen) {
+            onCloseTerminalSession?.(sessionId)
+            return
+          }
+          onCreateTerminalTab?.(sessionId)
         }}
       />
     )
-  }, [hasTerminalSupport, isCompactMode, sessionId])
+  }, [hasTerminalSupport, isCompactMode, onCloseTerminalSession, onCreateTerminalTab, sessionId, terminalState])
 
   const compactInfoButton = React.useMemo(() => {
     if (!isCompactMode || !sessionMeta) return undefined
@@ -547,9 +556,6 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
           {shareButton}
         </div>
       )
-
-  const terminalState = getTerminalState?.(sessionId)
-  const showTerminalDock = !!(terminalState?.isOpen && terminalState.tabs.length > 0)
 
   const terminalDock = showTerminalDock && terminalState ? (
     <div className={[CHAT_LAYOUT.maxWidth, 'mx-auto w-full mt-1 px-3 @xs/panel:px-4 pb-4'].join(' ')}>
@@ -622,41 +628,43 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
           <div className="h-full flex flex-col">
             <PanelHeader  title={displayTitle} titleMenu={titleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
             <div className="flex-1 flex flex-col min-h-0">
-              <ChatDisplay
-                ref={chatDisplayRef}
-                session={skeletonSession}
-                onSendMessage={() => {}}
-                onOpenFile={handleOpenFile}
-                onOpenUrl={handleOpenUrl}
-                currentModel={effectiveModel}
-                onModelChange={handleModelChange}
-                onConnectionChange={handleConnectionChange}
-                pendingPermission={undefined}
-                onRespondToPermission={onRespondToPermission}
-                pendingCredential={undefined}
-                onRespondToCredential={onRespondToCredential}
-                thinkingLevel={sessionOpts.thinkingLevel}
-                onThinkingLevelChange={(level) => setOption('thinkingLevel', level)}
-                permissionMode={sessionOpts.permissionMode}
-                onPermissionModeChange={setPermissionMode}
-                enabledModes={enabledModes}
-                inputValue={inputValue}
-                onInputChange={handleInputChange}
-                sources={enabledSources}
-                skills={skills}
-                sessionStatuses={sessionStatuses}
-                onSessionStatusChange={handleSessionStatusChange}
-                workspaceId={activeWorkspaceId || undefined}
-                onSourcesChange={(slugs) => onSessionSourcesChange?.(sessionId, slugs)}
-                workingDirectory={sessionMeta.workingDirectory}
-                onWorkingDirectoryChange={handleWorkingDirectoryChange}
-                messagesLoading={true}
-                searchQuery={sessionListSearchQuery}
-                isSearchModeActive={isSearchModeActive}
-                onMatchInfoChange={onChatMatchInfoChange}
-                connectionUnavailable={connectionUnavailable}
-                compactMode={!!isCompactMode}
-              />
+              <div className="flex-1 min-h-0">
+                <ChatDisplay
+                  ref={chatDisplayRef}
+                  session={skeletonSession}
+                  onSendMessage={() => {}}
+                  onOpenFile={handleOpenFile}
+                  onOpenUrl={handleOpenUrl}
+                  currentModel={effectiveModel}
+                  onModelChange={handleModelChange}
+                  onConnectionChange={handleConnectionChange}
+                  pendingPermission={undefined}
+                  onRespondToPermission={onRespondToPermission}
+                  pendingCredential={undefined}
+                  onRespondToCredential={onRespondToCredential}
+                  thinkingLevel={sessionOpts.thinkingLevel}
+                  onThinkingLevelChange={(level) => setOption('thinkingLevel', level)}
+                  permissionMode={sessionOpts.permissionMode}
+                  onPermissionModeChange={setPermissionMode}
+                  enabledModes={enabledModes}
+                  inputValue={inputValue}
+                  onInputChange={handleInputChange}
+                  sources={enabledSources}
+                  skills={skills}
+                  sessionStatuses={sessionStatuses}
+                  onSessionStatusChange={handleSessionStatusChange}
+                  workspaceId={activeWorkspaceId || undefined}
+                  onSourcesChange={(slugs) => onSessionSourcesChange?.(sessionId, slugs)}
+                  workingDirectory={sessionMeta.workingDirectory}
+                  onWorkingDirectoryChange={handleWorkingDirectoryChange}
+                  messagesLoading={true}
+                  searchQuery={sessionListSearchQuery}
+                  isSearchModeActive={isSearchModeActive}
+                  onMatchInfoChange={onChatMatchInfoChange}
+                  connectionUnavailable={connectionUnavailable}
+                  compactMode={!!isCompactMode}
+                />
+              </div>
               {terminalDock}
             </div>
           </div>
@@ -690,48 +698,50 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
       <div className="h-full flex flex-col">
         <PanelHeader  title={displayTitle} titleMenu={titleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
         <div className="flex-1 flex flex-col min-h-0">
-          <ChatDisplay
-            ref={chatDisplayRef}
-            session={session}
-            onSendMessage={(message, attachments, skillSlugs) => {
-              if (session) {
-                onSendMessage(session.id, message, attachments, skillSlugs)
-              }
-            }}
-            onOpenFile={handleOpenFile}
-            onOpenUrl={handleOpenUrl}
-            currentModel={effectiveModel}
-            onModelChange={handleModelChange}
-            onConnectionChange={handleConnectionChange}
-            pendingPermission={pendingPermission}
-            onRespondToPermission={onRespondToPermission}
-            pendingCredential={pendingCredential}
-            onRespondToCredential={onRespondToCredential}
-            thinkingLevel={sessionOpts.thinkingLevel}
-            onThinkingLevelChange={(level) => setOption('thinkingLevel', level)}
-            permissionMode={sessionOpts.permissionMode}
-            onPermissionModeChange={setPermissionMode}
-            enabledModes={enabledModes}
-            inputValue={inputValue}
-            onInputChange={handleInputChange}
-            sources={enabledSources}
-            skills={skills}
-            labels={labels}
-            onLabelsChange={(newLabels) => onSessionLabelsChange?.(sessionId, newLabels)}
-            sessionStatuses={sessionStatuses}
-            onSessionStatusChange={handleSessionStatusChange}
-            workspaceId={activeWorkspaceId || undefined}
-            onSourcesChange={(slugs) => onSessionSourcesChange?.(sessionId, slugs)}
-            workingDirectory={workingDirectory}
-            onWorkingDirectoryChange={handleWorkingDirectoryChange}
-            sessionFolderPath={session?.sessionFolderPath}
-            messagesLoading={!messagesLoaded}
-            searchQuery={sessionListSearchQuery}
-            isSearchModeActive={isSearchModeActive}
-            onMatchInfoChange={onChatMatchInfoChange}
-            connectionUnavailable={connectionUnavailable}
-            compactMode={!!isCompactMode}
-          />
+          <div className="flex-1 min-h-0">
+            <ChatDisplay
+              ref={chatDisplayRef}
+              session={session}
+              onSendMessage={(message, attachments, skillSlugs) => {
+                if (session) {
+                  onSendMessage(session.id, message, attachments, skillSlugs)
+                }
+              }}
+              onOpenFile={handleOpenFile}
+              onOpenUrl={handleOpenUrl}
+              currentModel={effectiveModel}
+              onModelChange={handleModelChange}
+              onConnectionChange={handleConnectionChange}
+              pendingPermission={pendingPermission}
+              onRespondToPermission={onRespondToPermission}
+              pendingCredential={pendingCredential}
+              onRespondToCredential={onRespondToCredential}
+              thinkingLevel={sessionOpts.thinkingLevel}
+              onThinkingLevelChange={(level) => setOption('thinkingLevel', level)}
+              permissionMode={sessionOpts.permissionMode}
+              onPermissionModeChange={setPermissionMode}
+              enabledModes={enabledModes}
+              inputValue={inputValue}
+              onInputChange={handleInputChange}
+              sources={enabledSources}
+              skills={skills}
+              labels={labels}
+              onLabelsChange={(newLabels) => onSessionLabelsChange?.(sessionId, newLabels)}
+              sessionStatuses={sessionStatuses}
+              onSessionStatusChange={handleSessionStatusChange}
+              workspaceId={activeWorkspaceId || undefined}
+              onSourcesChange={(slugs) => onSessionSourcesChange?.(sessionId, slugs)}
+              workingDirectory={workingDirectory}
+              onWorkingDirectoryChange={handleWorkingDirectoryChange}
+              sessionFolderPath={session?.sessionFolderPath}
+              messagesLoading={!messagesLoaded}
+              searchQuery={sessionListSearchQuery}
+              isSearchModeActive={isSearchModeActive}
+              onMatchInfoChange={onChatMatchInfoChange}
+              connectionUnavailable={connectionUnavailable}
+              compactMode={!!isCompactMode}
+            />
+          </div>
           {terminalDock}
         </div>
       </div>
