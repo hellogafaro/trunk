@@ -35,6 +35,7 @@ export interface ChatPageProps {
 
 const PANEL_SPRING = { type: 'spring' as const, stiffness: 600, damping: 49 }
 const TERMINAL_PANEL_HEIGHT = 272
+const TERMINAL_PANEL_GAP = 6
 
 const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   const { t } = useTranslation()
@@ -504,12 +505,12 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   )
 
   const terminalState = getTerminalState?.(sessionId)
-  const showTerminalDock = !!(terminalState?.isOpen && terminalState.tabs.length > 0)
+  const showTerminalPanel = !!terminalState?.isOpen
 
   const terminalButton = React.useMemo(() => {
     if (isCompactMode || !hasTerminalSupport) return undefined
 
-    const isTerminalOpen = !!(terminalState?.isOpen && terminalState.tabs.length > 0)
+    const isTerminalOpen = !!terminalState?.isOpen
 
     return (
       <PanelHeaderCenterButton
@@ -563,7 +564,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   const terminalPanel = terminalState ? (
     <TerminalDock
       sessionId={sessionId}
-      visible={showTerminalDock}
+      visible={showTerminalPanel}
       tabs={terminalState.tabs}
       activeTabId={terminalState.activeTabId}
       onSelectTab={(tabId) => onSelectTerminalTab?.(sessionId, tabId)}
@@ -579,16 +580,16 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
         {chatContent}
       </div>
       <AnimatePresence initial={false}>
-        {showTerminalDock && terminalPanel ? (
+        {showTerminalPanel && terminalPanel ? (
           <motion.div
             key="session-terminal-panel"
-            initial={{ height: 0, opacity: 0, y: 8 }}
-            animate={{ height: TERMINAL_PANEL_HEIGHT, opacity: 1, y: 0 }}
-            exit={{ height: 0, opacity: 0, y: 8 }}
+            initial={{ height: 0, opacity: 0, y: 8, marginTop: 0 }}
+            animate={{ height: TERMINAL_PANEL_HEIGHT, opacity: 1, y: 0, marginTop: TERMINAL_PANEL_GAP }}
+            exit={{ height: 0, opacity: 0, y: 8, marginTop: 0 }}
             transition={PANEL_SPRING}
             className="shrink-0 overflow-hidden"
           >
-            <div className="box-border h-full px-1.5 pt-1.5 pb-1.5">
+            <div className="h-full rounded-[10px] bg-foreground-2 shadow-middle overflow-hidden">
               {terminalPanel}
             </div>
           </motion.div>

@@ -36,7 +36,7 @@ export function TerminalDock({
   }, [activeTab])
 
   return (
-    <div className="shrink-0 h-[260px] min-h-0 rounded-[10px] bg-foreground-2 shadow-middle overflow-hidden">
+    <div className="shrink-0 h-[260px] min-h-0 overflow-hidden">
       <div className="h-full flex flex-col">
         <div className="h-[42px] shrink-0 flex items-center gap-2 px-3 border-b border-foreground/10 bg-background/70">
           <div className="min-w-0 flex-1 flex items-center gap-1 overflow-x-auto">

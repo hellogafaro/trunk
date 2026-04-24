@@ -1089,9 +1089,15 @@ function AppShellContent({
       const current = prev[sessionId]
       if (tabs.length === 0) {
         if (!current) return prev
-        const next = { ...prev }
-        delete next[sessionId]
-        return next
+        return {
+          ...prev,
+          [sessionId]: {
+            ...current,
+            isOpen: current.isOpen,
+            activeTabId: null,
+            tabs: [],
+          },
+        }
       }
 
       const activeTabId = current?.activeTabId && tabs.some((tab) => tab.id === current.activeTabId)
