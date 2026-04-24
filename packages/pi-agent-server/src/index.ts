@@ -513,14 +513,20 @@ async function ensureSession(): Promise<AgentSession> {
   const wrappedCodingTools = wrapToolsWithHooks([...createCodingTools(cwd), ...webTools]);
   const proxyTools = buildProxyTools();
   const allTools = [...wrappedCodingTools, ...proxyTools];
+  const customTools = allTools.map(toCustomTool);
   debugLog(`Session tools: ${wrappedCodingTools.length} coding + ${proxyTools.length} proxy = ${allTools.length} total`);
 
-  // Build session options
+  // Build session options.
+  // Pi 0.70+: `tools` is a name allowlist for BUILT-IN tools; custom tool instances
+  // must be registered via `customTools`. We disable built-ins (`tools: []`) because
+  // our wrapped versions of read/bash/edit/write/grep/find/ls are registered as
+  // customTools (with permission hooks + large-response summarization).
   const sessionOptions: CreateAgentSessionOptions = {
     cwd,
     authStorage,
     modelRegistry,
-    tools: allTools,
+    tools: [],
+    customTools,
   };
 
   // Extension isolation: set agentDir to a temp directory under session path
@@ -683,6 +689,27 @@ async function requestPreToolUseApproval(
 
 function wrapToolsWithHooks(tools: AgentTool<any>[]): AgentTool<any>[] {
   return tools.map(tool => wrapSingleTool(tool));
+}
+
+/**
+ * Adapt an AgentTool instance to a ToolDefinition accepted by Pi 0.70+'s
+ * `customTools` option. AgentTool.execute has 4 args; ToolDefinition.execute
+ * adds a 5th `ctx: ExtensionContext`. We ignore it.
+ */
+function toCustomTool(tool: AgentTool<any>): ToolDefinition<any> {
+  const def: ToolDefinition<any> = {
+    name: tool.name,
+    label: tool.label,
+    description: tool.description,
+    parameters: tool.parameters,
+    execute: (toolCallId, params, signal, onUpdate) =>
+      tool.execute(toolCallId, params, signal, onUpdate),
+  };
+  const snippet = (tool as { promptSnippet?: string }).promptSnippet;
+  if (snippet) def.promptSnippet = snippet;
+  if (tool.prepareArguments) def.prepareArguments = tool.prepareArguments;
+  if (tool.executionMode) def.executionMode = tool.executionMode;
+  return def;
 }
 
 function makeErrorResult(message: string): AgentToolResult<any> {

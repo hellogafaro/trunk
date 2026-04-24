@@ -317,7 +317,7 @@ function handleText(
 
 export function createWebFetchTool(
   getSessionPath: () => string | null,
-): AgentTool<typeof schema> {
+): AgentTool<typeof schema> & { promptSnippet: string } {
   async function saveBinary(buffer: Buffer, url: string, ext: string): Promise<string> {
     const sessionPath = getSessionPath();
     if (!sessionPath) throw new Error('No active session — cannot save file to disk');

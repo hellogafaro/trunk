@@ -56,7 +56,7 @@ function formatErrorSnippet(message: string, max = 180): string {
 export function createSearchTool(
   provider: WebSearchProvider,
   fallbackProvider: WebSearchProvider = new DDGSearchProvider(),
-): AgentTool<typeof schema> {
+): AgentTool<typeof schema> & { promptSnippet: string } {
   return {
     name: 'web_search',
     label: 'Web Search',
