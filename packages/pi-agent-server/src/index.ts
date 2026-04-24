@@ -26,7 +26,7 @@ import {
   SessionManager as PiSessionManager,
   AuthStorage as PiAuthStorage,
   ModelRegistry as PiModelRegistry,
-  codingTools,
+  createCodingTools,
 } from '@mariozechner/pi-coding-agent';
 import type {
   AgentSession,
@@ -510,7 +510,7 @@ async function ensureSession(): Promise<AgentSession> {
     initConfig ? getSessionPath(initConfig.workspaceRootPath, initConfig.sessionId) : null
   );
   const webTools = [searchTool, webFetchTool];
-  const wrappedCodingTools = wrapToolsWithHooks([...codingTools, ...webTools]);
+  const wrappedCodingTools = wrapToolsWithHooks([...createCodingTools(cwd), ...webTools]);
   const proxyTools = buildProxyTools();
   const allTools = [...wrappedCodingTools, ...proxyTools];
   debugLog(`Session tools: ${wrappedCodingTools.length} coding + ${proxyTools.length} proxy = ${allTools.length} total`);
