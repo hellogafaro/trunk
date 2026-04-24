@@ -7,6 +7,7 @@
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion } from 'motion/react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { AlertCircle, Globe, Copy, RefreshCw, Link2Off, Info } from 'lucide-react'
 import { ChatDisplay, type ChatDisplayHandle } from '@/components/app-shell/ChatDisplay'
@@ -21,7 +22,6 @@ import { StyledDropdownMenuContent, StyledDropdownMenuItem, StyledDropdownMenuSe
 import { useAppShellContext, usePendingPermission, usePendingCredential, useSessionOptionsFor, useSession as useSessionData } from '@/context/AppShellContext'
 import { rendererPerf } from '@/lib/perf'
 import { routes } from '@/lib/navigate'
-import { CHAT_LAYOUT } from '@/config/layout'
 import { ensureSessionMessagesLoadedAtom, loadedSessionsAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 import { getSessionTitle } from '@/utils/session'
 // Model resolution: connection.defaultModel (no hardcoded defaults)
@@ -32,6 +32,9 @@ import { TerminalDock } from '@/components/terminal/terminal-dock'
 export interface ChatPageProps {
   sessionId: string
 }
+
+const PANEL_SPRING = { type: 'spring' as const, stiffness: 600, damping: 49 }
+const TERMINAL_PANEL_HEIGHT = 272
 
 const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   const { t } = useTranslation()
@@ -557,20 +560,42 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
         </div>
       )
 
-  const terminalDock = showTerminalDock && terminalState ? (
-    <div className={[CHAT_LAYOUT.maxWidth, 'mx-auto w-full mt-1 px-3 @xs/panel:px-4 pb-4'].join(' ')}>
-      <TerminalDock
-        sessionId={sessionId}
-        visible={true}
-        tabs={terminalState.tabs}
-        activeTabId={terminalState.activeTabId}
-        onSelectTab={(tabId) => onSelectTerminalTab?.(sessionId, tabId)}
-        onNewTab={() => onCreateTerminalTab?.(sessionId)}
-        onCloseTab={(tabId) => onCloseTerminalTab?.(sessionId, tabId)}
-        onCloseDock={() => onCloseTerminalSession?.(sessionId)}
-      />
-    </div>
+  const terminalPanel = terminalState ? (
+    <TerminalDock
+      sessionId={sessionId}
+      visible={showTerminalDock}
+      tabs={terminalState.tabs}
+      activeTabId={terminalState.activeTabId}
+      onSelectTab={(tabId) => onSelectTerminalTab?.(sessionId, tabId)}
+      onNewTab={() => onCreateTerminalTab?.(sessionId)}
+      onCloseTab={(tabId) => onCloseTerminalTab?.(sessionId, tabId)}
+      onCloseDock={() => onCloseTerminalSession?.(sessionId)}
+    />
   ) : null
+
+  const renderChatStack = (chatContent: React.ReactNode) => (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="min-h-0 flex-1">
+        {chatContent}
+      </div>
+      <AnimatePresence initial={false}>
+        {showTerminalDock && terminalPanel ? (
+          <motion.div
+            key="session-terminal-panel"
+            initial={{ height: 0, opacity: 0, y: 8 }}
+            animate={{ height: TERMINAL_PANEL_HEIGHT, opacity: 1, y: 0 }}
+            exit={{ height: 0, opacity: 0, y: 8 }}
+            transition={PANEL_SPRING}
+            className="shrink-0 overflow-hidden"
+          >
+            <div className="box-border h-full px-1.5 pt-1.5 pb-1.5">
+              {terminalPanel}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  )
 
   // Build title menu content for chat sessions using shared SessionMenu
   const titleMenu = React.useMemo(() => sessionMeta ? (
@@ -627,9 +652,8 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
         <>
           <div className="h-full flex flex-col">
             <PanelHeader  title={displayTitle} titleMenu={titleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
-            <div className="flex-1 flex flex-col min-h-0">
-              <div className="flex-1 min-h-0">
-                <ChatDisplay
+            {renderChatStack(
+              <ChatDisplay
                   ref={chatDisplayRef}
                   session={skeletonSession}
                   onSendMessage={() => {}}
@@ -664,9 +688,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
                   connectionUnavailable={connectionUnavailable}
                   compactMode={!!isCompactMode}
                 />
-              </div>
-              {terminalDock}
-            </div>
+            )}
           </div>
           <RenameDialog
             open={renameDialogOpen}
@@ -697,9 +719,8 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     <>
       <div className="h-full flex flex-col">
         <PanelHeader  title={displayTitle} titleMenu={titleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 min-h-0">
-            <ChatDisplay
+        {renderChatStack(
+          <ChatDisplay
               ref={chatDisplayRef}
               session={session}
               onSendMessage={(message, attachments, skillSlugs) => {
@@ -741,9 +762,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
               connectionUnavailable={connectionUnavailable}
               compactMode={!!isCompactMode}
             />
-          </div>
-          {terminalDock}
-        </div>
+        )}
       </div>
       <RenameDialog
         open={renameDialogOpen}
