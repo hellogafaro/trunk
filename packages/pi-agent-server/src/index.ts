@@ -1199,13 +1199,13 @@ function isContextOverflowErrorMessage(message: string): boolean {
  * Prevents a race in the Pi SDK where concurrent _runAutoCompaction calls
  * crash on a shared AbortController (see craft-agents-oss#464).
  */
-async function waitForCompaction(session: { isCompacting: boolean }, timeoutMs = 60_000): Promise<void> {
+async function waitForCompaction(session: { isCompacting: boolean }, timeoutMs = 180_000): Promise<void> {
   if (!session.isCompacting) return;
   debugLog('Waiting for in-flight compaction to finish before prompt...');
   const start = Date.now();
   while (session.isCompacting) {
     if (Date.now() - start > timeoutMs) {
-      debugLog('Compaction wait timed out after 60s, proceeding anyway');
+      debugLog(`Compaction wait timed out after ${Math.floor(timeoutMs / 1000)}s, proceeding anyway`);
       break;
     }
     await new Promise(resolve => setTimeout(resolve, 200));

@@ -1638,7 +1638,7 @@ export class PiAgent extends BaseAgent {
     await this.ensureSubprocess();
 
     const id = `compact-${++this.rpcIdCounter}`;
-    const timeoutMs = 60_000;
+    const timeoutMs = 180_000;
 
     return new Promise<{ summary: string; firstKeptEntryId: string; tokensBefore: number } | null>((resolve, reject) => {
       const timer = setTimeout(() => {
