@@ -147,6 +147,7 @@ export const CHANNEL_MAP = {
 
   // ChatGPT OAuth
   startChatGptOAuth: invoke(RPC_CHANNELS.chatgpt.START_OAUTH),
+  completeChatGptOAuth: invoke(RPC_CHANNELS.chatgpt.COMPLETE_OAUTH),
   cancelChatGptOAuth: invoke(RPC_CHANNELS.chatgpt.CANCEL_OAUTH),
   getChatGptAuthStatus: invoke(RPC_CHANNELS.chatgpt.GET_AUTH_STATUS),
   chatGptLogout: invoke(RPC_CHANNELS.chatgpt.LOGOUT),

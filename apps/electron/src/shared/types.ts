@@ -423,8 +423,15 @@ export interface ElectronAPI {
   deferSetup(): Promise<{ success: boolean }>
 
   // ChatGPT OAuth (for Codex chatgptAuthTokens mode)
-  startChatGptOAuth(connectionSlug: string): Promise<{ success: boolean; error?: string }>
-  cancelChatGptOAuth(): Promise<{ success: boolean }>
+  startChatGptOAuth(connectionSlug: string): Promise<{
+    success: boolean
+    pending?: boolean
+    flowId?: string
+    state?: string
+    error?: string
+  }>
+  completeChatGptOAuth(args: { flowId: string; code: string; state: string }): Promise<{ success: boolean; error?: string }>
+  cancelChatGptOAuth(args?: { state?: string }): Promise<{ success: boolean }>
   getChatGptAuthStatus(connectionSlug: string): Promise<{ authenticated: boolean; expiresAt?: number; hasRefreshToken?: boolean }>
   chatGptLogout(connectionSlug: string): Promise<{ success: boolean }>
 

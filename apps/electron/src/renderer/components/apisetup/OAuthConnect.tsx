@@ -35,6 +35,10 @@ export interface OAuthConnectProps {
   onCancelOAuth?: () => void
   /** Form ID for auth code form (default: "auth-code-form") */
   formId?: string
+  /** Override the input label for callback URL flows. */
+  inputLabel?: string
+  /** Override the input placeholder for callback URL flows. */
+  inputPlaceholder?: string
 }
 
 export function OAuthConnect({
@@ -43,6 +47,8 @@ export function OAuthConnect({
   isWaitingForCode,
   onSubmitAuthCode,
   formId = "auth-code-form",
+  inputLabel,
+  inputPlaceholder,
 }: OAuthConnectProps) {
   const { t } = useTranslation()
   const [authCode, setAuthCode] = useState('')
@@ -59,7 +65,7 @@ export function OAuthConnect({
     return (
       <form id={formId} onSubmit={handleAuthCodeSubmit}>
         <div className="space-y-2">
-          <Label htmlFor="auth-code">{t("apiSetup.authorizationCode")}</Label>
+          <Label htmlFor="auth-code">{inputLabel ?? t("apiSetup.authorizationCode")}</Label>
           <div className={cn(
             "relative rounded-md shadow-minimal transition-colors",
             "bg-foreground-2 focus-within:bg-background"
@@ -69,7 +75,7 @@ export function OAuthConnect({
               type="text"
               value={authCode}
               onChange={(e) => setAuthCode(e.target.value)}
-              placeholder={t("apiSetup.pasteAuthCode")}
+              placeholder={inputPlaceholder ?? t("apiSetup.pasteAuthCode")}
               className={cn(
                 "border-0 bg-transparent shadow-none font-mono text-sm",
                 status === 'error' && "focus-visible:ring-destructive"

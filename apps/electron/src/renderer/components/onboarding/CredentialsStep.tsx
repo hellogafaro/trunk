@@ -92,6 +92,37 @@ export function CredentialsStep({
 
   // --- ChatGPT OAuth flow (native browser OAuth) ---
   if (isChatGptOAuth) {
+    if (isWaitingForCode) {
+      return (
+        <StepFormLayout
+          title={t("onboarding.credentials.completeChatGPT")}
+          description={t("onboarding.credentials.pasteCallbackInstruction")}
+          actions={
+            <>
+              <BackButton onClick={onCancelOAuth} disabled={status === 'validating'}>{t("common.cancel")}</BackButton>
+              <ContinueButton
+                type="submit"
+                form="chatgpt-callback-form"
+                loading={status === 'validating'}
+                loadingText={t("common.connecting")}
+              />
+            </>
+          }
+        >
+          <OAuthConnect
+            status={status as OAuthStatus}
+            errorMessage={errorMessage}
+            isWaitingForCode={true}
+            onStartOAuth={() => onStartOAuth?.()}
+            onSubmitAuthCode={onSubmitAuthCode}
+            formId="chatgpt-callback-form"
+            inputLabel={t("onboarding.credentials.callbackUrl")}
+            inputPlaceholder="http://localhost:1455/auth/callback?..."
+          />
+        </StepFormLayout>
+      )
+    }
+
     return (
       <StepFormLayout
         title={t("onboarding.credentials.connectChatGPT")}
