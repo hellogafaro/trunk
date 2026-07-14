@@ -833,3 +833,32 @@ export interface DeepLinkNavigation {
   action?: string
   actionParams?: Record<string, string>
 }
+
+// ---------------------------------------------------------------------------
+// Interactive terminal types
+// ---------------------------------------------------------------------------
+
+export interface TerminalSessionDto {
+  id: string
+  workspaceId: string
+  label: string
+  cwd: string
+  pid: number | null
+  status: 'running' | 'exited'
+  exitCode: number | null
+  createdAt: number
+  updatedAt: number
+  /** Bounded ANSI transcript used to hydrate a newly attached terminal. */
+  buffer: string
+  /** Monotonic output sequence for replay/live-event de-duplication. */
+  seq: number
+}
+
+export interface TerminalEvent {
+  workspaceId: string
+  terminalId: string
+  type: 'open' | 'data' | 'exit' | 'clear' | 'restart' | 'close'
+  data?: string
+  seq?: number
+  session?: TerminalSessionDto
+}

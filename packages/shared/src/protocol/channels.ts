@@ -72,6 +72,17 @@ export const RPC_CHANNELS = {
     // Storage-backed read of a run's outcome (verdict + per-node output). Survives restart.
     GET_RESULTS: 'tasks:getResults',
   },
+  terminal: {
+    LIST: 'terminal:list',
+    OPEN: 'terminal:open',
+    ATTACH: 'terminal:attach',
+    WRITE: 'terminal:write',
+    RESIZE: 'terminal:resize',
+    CLEAR: 'terminal:clear',
+    RESTART: 'terminal:restart',
+    CLOSE: 'terminal:close',
+    EVENT: 'terminal:event',
+  },
   workspaces: {
     GET: 'workspaces:get',
     CREATE: 'workspaces:create',

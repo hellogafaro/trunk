@@ -2069,6 +2069,15 @@ function AppShellContent({
     }
   }, [])
 
+  const handleOpenTerminal = useCallback(() => {
+    if (!activeWorkspaceId) return
+    const url = new URL(window.location.origin)
+    url.searchParams.set('tool', 'terminal')
+    url.searchParams.set('workspace', activeWorkspaceId)
+    const terminalWindow = window.open(url.toString(), `hellogafaro-terminal-${activeWorkspaceId}`)
+    terminalWindow?.focus()
+  }, [activeWorkspaceId])
+
   // Delete Source - simplified since agents system is removed
   const handleDeleteSource = useCallback(async (sourceSlug: string) => {
     if (!activeWorkspace) return
@@ -2379,6 +2388,7 @@ function AppShellContent({
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
+          onOpenTerminal={handleOpenTerminal}
           isCompact={isAutoCompact}
         />
 

@@ -236,6 +236,17 @@ export interface ElectronAPI {
   killShell(sessionId: string, shellId: string): Promise<{ success: boolean; error?: string }>
   getTaskOutput(taskId: string): Promise<string | null>
 
+  // Interactive workspace terminals
+  listTerminals(workspaceId: string): Promise<import('@craft-agent/shared/protocol').TerminalSessionDto[]>
+  openTerminal(workspaceId: string, options?: { cwd?: string; cols?: number; rows?: number }): Promise<import('@craft-agent/shared/protocol').TerminalSessionDto>
+  attachTerminal(workspaceId: string, terminalId: string): Promise<import('@craft-agent/shared/protocol').TerminalSessionDto>
+  writeTerminal(workspaceId: string, terminalId: string, data: string): Promise<void>
+  resizeTerminal(workspaceId: string, terminalId: string, cols: number, rows: number): Promise<void>
+  clearTerminal(workspaceId: string, terminalId: string): Promise<import('@craft-agent/shared/protocol').TerminalSessionDto>
+  restartTerminal(workspaceId: string, terminalId: string, cols?: number, rows?: number): Promise<import('@craft-agent/shared/protocol').TerminalSessionDto>
+  closeTerminal(workspaceId: string, terminalId: string): Promise<void>
+  onTerminalEvent(callback: (event: import('@craft-agent/shared/protocol').TerminalEvent) => void): () => void
+
   // Tasks (Conductor)
   validateTask(workspaceId: string, yaml: string): Promise<TaskValidationResultDto>
   createTask(workspaceId: string, req: TaskCreateRequest): Promise<TaskCreateResult>

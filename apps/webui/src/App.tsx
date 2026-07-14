@@ -17,6 +17,7 @@ import type { WsRpcClient } from '../../electron/src/transport/client'
 // This prevents any Electron component from accessing window.electronAPI
 // before the web adapter is ready.
 const ElectronApp = lazy(() => import('@/App'))
+const TerminalWindow = lazy(() => import('@/components/terminal/TerminalWindow').then((module) => ({ default: module.TerminalWindow })))
 
 type Phase = 'loading' | 'error' | 'ready'
 
@@ -65,6 +66,7 @@ export default function App() {
   const [error, setError] = useState('')
   const clientRef = useRef<WsRpcClient | null>(null)
   const initRef = useRef(false)
+  const [workspaceId, setWorkspaceId] = useState<string | undefined>()
 
   const initialize = async () => {
     setPhase('loading')
@@ -118,6 +120,8 @@ export default function App() {
       // 5. Connect the WebSocket client
       client.connect()
 
+      setWorkspaceId(workspaceId)
+
       setPhase('ready')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -141,9 +145,13 @@ export default function App() {
   if (phase === 'loading') return <LoadingScreen />
   if (phase === 'error') return <ErrorScreen message={error} onRetry={initialize} />
 
+  const tool = new URLSearchParams(window.location.search).get('tool')
+
   return (
     <Suspense fallback={<LoadingScreen />}>
-      <ElectronApp />
+      {tool === 'terminal' && workspaceId
+        ? <TerminalWindow workspaceId={workspaceId} />
+        : <ElectronApp />}
     </Suspense>
   )
 }

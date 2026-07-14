@@ -40,6 +40,7 @@ function ErrorBoundary({ children }: { children: React.ReactNode }) {
 
 function Root() {
   const workspaceId = useAtomValue(windowWorkspaceIdAtom)
+    || new URLSearchParams(window.location.search).get('workspace')
 
   return (
     <ThemeProvider activeWorkspaceId={workspaceId}>

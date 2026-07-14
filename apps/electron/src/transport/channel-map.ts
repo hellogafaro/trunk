@@ -40,6 +40,17 @@ export const CHANNEL_MAP = {
   getTask: invoke(RPC_CHANNELS.tasks.GET),
   listTasks: invoke(RPC_CHANNELS.tasks.LIST),
   getTaskResults: invoke(RPC_CHANNELS.tasks.GET_RESULTS),
+
+  // Interactive workspace terminals
+  listTerminals: invoke(RPC_CHANNELS.terminal.LIST),
+  openTerminal: invoke(RPC_CHANNELS.terminal.OPEN),
+  attachTerminal: invoke(RPC_CHANNELS.terminal.ATTACH),
+  writeTerminal: invoke(RPC_CHANNELS.terminal.WRITE),
+  resizeTerminal: invoke(RPC_CHANNELS.terminal.RESIZE),
+  clearTerminal: invoke(RPC_CHANNELS.terminal.CLEAR),
+  restartTerminal: invoke(RPC_CHANNELS.terminal.RESTART),
+  closeTerminal: invoke(RPC_CHANNELS.terminal.CLOSE),
+  onTerminalEvent: listener(RPC_CHANNELS.terminal.EVENT),
   onTaskGenerated: listener(RPC_CHANNELS.tasks.GENERATED),
   respondToPermission: invoke(RPC_CHANNELS.sessions.RESPOND_TO_PERMISSION),
   respondToCredential: invoke(RPC_CHANNELS.sessions.RESPOND_TO_CREDENTIAL),

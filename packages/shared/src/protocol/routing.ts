@@ -215,6 +215,16 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
 // ---------------------------------------------------------------------------
 
 export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
+  // terminal — PTYs belong to the workspace server's filesystem and user
+  RPC_CHANNELS.terminal.LIST,
+  RPC_CHANNELS.terminal.OPEN,
+  RPC_CHANNELS.terminal.ATTACH,
+  RPC_CHANNELS.terminal.WRITE,
+  RPC_CHANNELS.terminal.RESIZE,
+  RPC_CHANNELS.terminal.CLEAR,
+  RPC_CHANNELS.terminal.RESTART,
+  RPC_CHANNELS.terminal.CLOSE,
+  RPC_CHANNELS.terminal.EVENT,
   // server — server-level operations (no workspace context needed)
   RPC_CHANNELS.server.GET_WORKSPACES,
   RPC_CHANNELS.server.CREATE_WORKSPACE,

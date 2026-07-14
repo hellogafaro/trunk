@@ -57,6 +57,7 @@ interface TopBarProps {
   onToggleFocusMode: () => void
   onAddSessionPanel: () => void
   onAddBrowserPanel: () => void
+  onOpenTerminal: () => void
   /** When true, hides controls that don't apply in compact/mobile layout */
   isCompact?: boolean
 }
@@ -83,6 +84,7 @@ export function TopBar({
   onToggleFocusMode,
   onAddSessionPanel,
   onAddBrowserPanel,
+  onOpenTerminal,
   isCompact,
 }: TopBarProps) {
   const { t } = useTranslation()
@@ -224,6 +226,17 @@ export function TopBar({
       {/* === RIGHT: Browser strip + add + help === */}
       {!isCompact && (
       <div ref={rightSlotRef} className="flex min-w-0 shrink-0 items-center justify-end gap-1" style={{ paddingRight: 12 }}>
+        {isWebUI && (
+          <button
+            type="button"
+            onClick={onOpenTerminal}
+            className="flex h-[26px] max-w-[160px] items-center gap-1.5 rounded-lg bg-background px-2.5 text-[11px] text-foreground shadow-minimal transition-colors hover:bg-foreground/[0.03] titlebar-no-drag"
+            aria-label={t('terminal.title')}
+          >
+            <Icons.SquareTerminal className="h-3 w-3" />
+            <span>{t('terminal.title')}</span>
+          </button>
+        )}
         <div className="min-w-0">
           <BrowserTabStrip activeSessionId={activeSessionId} maxVisibleBadges={maxVisibleBrowserBadges} />
         </div>
