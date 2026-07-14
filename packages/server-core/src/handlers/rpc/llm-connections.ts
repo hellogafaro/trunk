@@ -10,12 +10,11 @@ import {
 import { getModelRefreshService } from '@craft-agent/server-core/model-fetchers'
 import { parseTestConnectionError, createBuiltInConnection, validateModelList, piAuthProviderDisplayName, validateSetupTestInput, setupTestRequiresApiKey, resolveCustomEndpointSetup } from '@craft-agent/server-core/domain'
 import { getWorkspaceOrThrow, buildBackendHostRuntimeContext } from '@craft-agent/server-core/handlers'
-import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
+import { CLIENT_OPEN_EXTERNAL, pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
-import { randomUUID } from 'node:crypto'
-import { CLIENT_OPEN_EXTERNAL } from '@craft-agent/server-core/transport'
 
 // Local OAuth state
+let chatGptOAuthAbort: AbortController | null = null
 let copilotOAuthAbort: AbortController | null = null
 
 export const HANDLED_CHANNELS = [
@@ -30,7 +29,6 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.llmConnections.SET_WORKSPACE_DEFAULT,
   RPC_CHANNELS.llmConnections.REFRESH_MODELS,
   RPC_CHANNELS.chatgpt.START_OAUTH,
-  RPC_CHANNELS.chatgpt.COMPLETE_OAUTH,
   RPC_CHANNELS.chatgpt.CANCEL_OAUTH,
   RPC_CHANNELS.chatgpt.GET_AUTH_STATUS,
   RPC_CHANNELS.chatgpt.LOGOUT,
@@ -608,106 +606,61 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
   })
 
   // ============================================================
-  // ChatGPT OAuth (for Codex chatgptAuthTokens mode)
-  // Server-owned: prepare + exchange happen here, browser + callback on client.
+  // ChatGPT OAuth (device flow via Pi SDK)
   // ============================================================
 
-  interface PendingChatGptFlow {
-    flowId: string
-    state: string
-    codeVerifier: string
-    connectionSlug: string
-    ownerClientId: string
-    createdAt: number
-  }
-  const pendingChatGptFlows = new Map<string, PendingChatGptFlow>()
-  const CHATGPT_FLOW_TTL_MS = 5 * 60 * 1000
-
-  function cleanupExpiredChatGptFlows() {
-    const now = Date.now()
-    for (const [state, flow] of pendingChatGptFlows) {
-      if (now - flow.createdAt > CHATGPT_FLOW_TTL_MS) {
-        pendingChatGptFlows.delete(state)
-      }
-    }
-  }
-
-  // chatgpt:startOAuth — prepare PKCE + auth URL, store flow, return to client
   server.handle(RPC_CHANNELS.chatgpt.START_OAUTH, async (ctx, connectionSlug: string): Promise<{
-    authUrl: string
-    state: string
-    flowId: string
+    success: boolean
+    error?: string
   }> => {
-    cleanupExpiredChatGptFlows()
-    const { prepareChatGptOAuth } = await import('@craft-agent/shared/auth')
-
-    const prepared = prepareChatGptOAuth()
-    const flowId = randomUUID()
-
-    pendingChatGptFlows.set(prepared.state, {
-      flowId,
-      state: prepared.state,
-      codeVerifier: prepared.codeVerifier,
-      connectionSlug,
-      ownerClientId: ctx.clientId,
-      createdAt: Date.now(),
-    })
-
-    deps.platform.logger?.info(`[ChatGPT OAuth] Flow started for ${connectionSlug} (flow=${flowId})`)
-    return { authUrl: prepared.authUrl, state: prepared.state, flowId }
-  })
-
-  // chatgpt:completeOAuth — exchange code for tokens and store credentials
-  server.handle(RPC_CHANNELS.chatgpt.COMPLETE_OAUTH, async (ctx, args: {
-    flowId: string
-    code: string
-    state: string
-  }): Promise<{ success: boolean; error?: string }> => {
-    const { flowId, code, state } = args
-    const flow = pendingChatGptFlows.get(state)
-
-    if (!flow) throw new Error('Unknown or expired ChatGPT OAuth flow')
-    if (flow.flowId !== flowId) throw new Error('Flow ID mismatch')
-    if (flow.ownerClientId !== ctx.clientId) throw new Error('OAuth flow owned by different client')
-    if (Date.now() - flow.createdAt > CHATGPT_FLOW_TTL_MS) {
-      pendingChatGptFlows.delete(state)
-      throw new Error('ChatGPT OAuth flow expired')
-    }
-
     try {
-      const { exchangeChatGptTokens } = await import('@craft-agent/shared/auth')
+      const { loginOpenAICodexDeviceCode } = await import('@earendil-works/pi-ai/oauth')
       const credentialManager = getCredentialManager()
 
-      const tokens = await exchangeChatGptTokens(code, flow.codeVerifier)
+      chatGptOAuthAbort?.abort()
+      chatGptOAuthAbort = new AbortController()
 
-      await credentialManager.setLlmOAuth(flow.connectionSlug, {
-        accessToken: tokens.accessToken,
-        idToken: tokens.idToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: tokens.expiresAt,
+      deps.platform.logger?.info(`Starting ChatGPT OAuth device flow for connection: ${connectionSlug}`)
+
+      const credentials = await loginOpenAICodexDeviceCode({
+        onDeviceCode: ({ userCode, verificationUri }) => {
+          pushTyped(server, RPC_CHANNELS.chatgpt.DEVICE_CODE, { to: 'client', clientId: ctx.clientId }, {
+            userCode,
+            verificationUri,
+          })
+          server.invokeClient(ctx.clientId, CLIENT_OPEN_EXTERNAL, verificationUri).catch(err => {
+            deps.platform.logger?.warn(`Failed to open browser for ChatGPT OAuth: ${err}`)
+          })
+        },
+        signal: chatGptOAuthAbort.signal,
       })
 
-      pendingChatGptFlows.delete(state)
-      deps.platform.logger?.info(`[ChatGPT OAuth] Flow complete for ${flow.connectionSlug}`)
+      chatGptOAuthAbort = null
+
+      await credentialManager.setLlmOAuth(connectionSlug, {
+        accessToken: credentials.access,
+        refreshToken: credentials.refresh,
+        expiresAt: credentials.expires,
+      })
+
+      deps.platform.logger?.info('ChatGPT OAuth completed successfully')
       return { success: true }
     } catch (error) {
-      pendingChatGptFlows.delete(state)
-      deps.platform.logger?.error('[ChatGPT OAuth] Token exchange failed:', error)
+      chatGptOAuthAbort = null
+      deps.platform.logger?.error('ChatGPT OAuth failed:', error)
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Token exchange failed',
+        error: error instanceof Error ? error.message : 'OAuth authentication failed',
       }
     }
   })
 
   // Cancel ongoing ChatGPT OAuth flow
-  server.handle(RPC_CHANNELS.chatgpt.CANCEL_OAUTH, async (ctx, args?: { state?: string }): Promise<{ success: boolean }> => {
-    if (args?.state) {
-      const flow = pendingChatGptFlows.get(args.state)
-      if (flow && flow.ownerClientId === ctx.clientId) {
-        pendingChatGptFlows.delete(args.state)
-        deps.platform.logger?.info(`[ChatGPT OAuth] Flow cancelled for ${flow.connectionSlug}`)
-      }
+  server.handle(RPC_CHANNELS.chatgpt.CANCEL_OAUTH, async (): Promise<{ success: boolean }> => {
+    if (chatGptOAuthAbort) {
+      chatGptOAuthAbort.abort()
+      chatGptOAuthAbort = null
+      deps.platform.logger?.info('ChatGPT OAuth cancelled')
     }
     return { success: true }
   })

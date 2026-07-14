@@ -147,10 +147,10 @@ export const CHANNEL_MAP = {
 
   // ChatGPT OAuth
   startChatGptOAuth: invoke(RPC_CHANNELS.chatgpt.START_OAUTH),
-  completeChatGptOAuth: invoke(RPC_CHANNELS.chatgpt.COMPLETE_OAUTH),
   cancelChatGptOAuth: invoke(RPC_CHANNELS.chatgpt.CANCEL_OAUTH),
   getChatGptAuthStatus: invoke(RPC_CHANNELS.chatgpt.GET_AUTH_STATUS),
   chatGptLogout: invoke(RPC_CHANNELS.chatgpt.LOGOUT),
+  onChatGptDeviceCode: listener(RPC_CHANNELS.chatgpt.DEVICE_CODE),
 
   // GitHub Copilot OAuth
   startCopilotOAuth: invoke(RPC_CHANNELS.copilot.START_OAUTH),

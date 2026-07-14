@@ -61,7 +61,8 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.notification.NAVIGATE]: [data: { workspaceId: string; sessionId: string }]
   [RPC_CHANNELS.deeplink.NAVIGATE]: [navigation: DeepLinkNavigation]
 
-  // Copilot device code event
+  // OAuth device code events
+  [RPC_CHANNELS.chatgpt.DEVICE_CODE]: [data: { userCode: string; verificationUri: string }]
   [RPC_CHANNELS.copilot.DEVICE_CODE]: [data: { userCode: string; verificationUri: string }]
 
   // Menu events (per-window, no payload)

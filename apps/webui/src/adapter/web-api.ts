@@ -321,45 +321,6 @@ export function createWebApi(options: WebApiOptions): {
       }
     },
 
-    // ChatGPT OAuth — OpenAI redirects to localhost:1455, which a web page cannot
-    // listen on. Start the server-owned PKCE flow and let the user paste the
-    // resulting callback URL into the onboarding form.
-    startChatGptOAuth: async (connectionSlug: string) => {
-      const popup = window.open('about:blank', '_blank')
-      if (!popup) {
-        return {
-          success: false,
-          error: 'Allow pop-ups for this site, then click Sign in with ChatGPT again.',
-        }
-      }
-
-      try {
-        const result = await client.invoke('chatgpt:startOAuth', connectionSlug)
-
-        if (!popup.closed) {
-          popup.location.href = result.authUrl
-        } else {
-          await client.invoke('chatgpt:cancelOAuth', { state: result.state })
-          return {
-            success: false,
-            error: 'The sign-in window was closed. Click Sign in with ChatGPT to try again.',
-          }
-        }
-
-        return {
-          success: true,
-          pending: true,
-          flowId: result.flowId,
-          state: result.state,
-        }
-      } catch (err) {
-        if (!popup.closed) popup.close()
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : i18n.t('errors.chatGptOAuthNotAvailable'),
-        }
-      }
-    },
   }
 
   const api = { ...baseApi, ...webOverrides, ...oauthOverrides } as ElectronAPI

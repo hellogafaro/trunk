@@ -2005,6 +2005,7 @@ export default function App() {
             isWaitingForCode={onboarding.isWaitingForCode}
             onSubmitAuthCode={onboarding.handleSubmitAuthCode}
             onCancelOAuth={onboarding.handleCancelOAuth}
+            chatGptDeviceCode={onboarding.chatGptDeviceCode}
             copilotDeviceCode={onboarding.copilotDeviceCode}
             onBrowseGitBash={onboarding.handleBrowseGitBash}
             onUseGitBashPath={onboarding.handleUseGitBashPath}

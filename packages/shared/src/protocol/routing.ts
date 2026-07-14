@@ -307,10 +307,10 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
 
   // chatgpt — OAuth via capability passthrough
   RPC_CHANNELS.chatgpt.START_OAUTH,
-  RPC_CHANNELS.chatgpt.COMPLETE_OAUTH,
   RPC_CHANNELS.chatgpt.CANCEL_OAUTH,
   RPC_CHANNELS.chatgpt.GET_AUTH_STATUS,
   RPC_CHANNELS.chatgpt.LOGOUT,
+  RPC_CHANNELS.chatgpt.DEVICE_CODE,
 
   // copilot — OAuth via capability passthrough
   RPC_CHANNELS.copilot.START_OAUTH,
@@ -321,7 +321,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
 
   // Claude OAuth — runs on workspace server so credentials and connection config
   // end up on the same server that will use them. Browser opening is client-side.
-  // (ChatGPT OAuth stays LOCAL_ONLY — requires localhost callback server.)
   RPC_CHANNELS.onboarding.START_CLAUDE_OAUTH,
   RPC_CHANNELS.onboarding.EXCHANGE_CLAUDE_CODE,
   RPC_CHANNELS.onboarding.HAS_CLAUDE_OAUTH_STATE,

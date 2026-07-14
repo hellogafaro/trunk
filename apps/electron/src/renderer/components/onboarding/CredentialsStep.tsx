@@ -32,7 +32,8 @@ interface CredentialsStepProps {
   isWaitingForCode?: boolean
   onSubmitAuthCode?: (code: string) => void
   onCancelOAuth?: () => void
-  // Device flow (Copilot)
+  // Device flows (ChatGPT and Copilot)
+  chatGptDeviceCode?: { userCode: string; verificationUri: string }
   copilotDeviceCode?: { userCode: string; verificationUri: string }
   // Edit mode (pre-fill existing connection values)
   editInitialValues?: {
@@ -45,6 +46,75 @@ interface CredentialsStepProps {
   }
 }
 
+interface DeviceCodeCardProps {
+  deviceCode?: { userCode: string; verificationUri: string }
+  instruction: string
+  waitingMessage: string
+  browserOpenedMessage: string
+}
+
+function DeviceCodeCard({ deviceCode, instruction, waitingMessage, browserOpenedMessage }: DeviceCodeCardProps) {
+  const { t } = useTranslation()
+  const [copiedCode, setCopiedCode] = useState(false)
+
+  const copyCode = (code: string) => {
+    if (!navigator.clipboard) return
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedCode(true)
+      setTimeout(() => setCopiedCode(false), 2000)
+    }).catch(() => {})
+  }
+
+  useEffect(() => {
+    if (!deviceCode?.userCode) return
+    copyCode(deviceCode.userCode)
+  }, [deviceCode?.userCode])
+
+  const handleCopyCode = () => {
+    if (!deviceCode?.userCode) return
+    copyCode(deviceCode.userCode)
+  }
+
+  if (!deviceCode) {
+    return (
+      <div className="rounded-xl bg-foreground-2 p-4 text-sm text-muted-foreground text-center">
+        <p>{waitingMessage}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl bg-foreground-2 p-4 text-sm space-y-3">
+      <p className="text-muted-foreground text-center">{instruction}</p>
+      <div className="flex flex-col items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={handleCopyCode}
+          className="text-2xl font-mono font-bold tracking-widest text-foreground px-4 py-2 rounded-lg bg-background border border-border hover:bg-foreground-2 transition-colors cursor-pointer"
+        >
+          {deviceCode.userCode}
+        </button>
+        <span className={`text-xs text-muted-foreground flex items-center gap-1 transition-opacity ${copiedCode ? 'opacity-100' : 'opacity-0'}`}>
+          <Check className="size-3" />
+          {t("onboarding.credentials.copiedToClipboard")}
+        </span>
+      </div>
+      <p className="text-muted-foreground text-xs text-center">{browserOpenedMessage}</p>
+      <div className="flex justify-center">
+        <a
+          href={deviceCode.verificationUri}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-foreground hover:underline"
+        >
+          <ExternalLink className="size-3" />
+          {t("onboarding.credentials.openVerificationPage")}
+        </a>
+      </div>
+    </div>
+  )
+}
+
 export function CredentialsStep({
   apiSetupMethod,
   status,
@@ -55,6 +125,7 @@ export function CredentialsStep({
   isWaitingForCode,
   onSubmitAuthCode,
   onCancelOAuth,
+  chatGptDeviceCode,
   copilotDeviceCode,
   editInitialValues,
 }: CredentialsStepProps) {
@@ -66,75 +137,20 @@ export function CredentialsStep({
   const isPiApiKey = apiSetupMethod === 'pi_api_key'
   const isApiKey = isAnthropicApiKey || isPiApiKey
 
-  // Copilot device code clipboard handling
-  const [copiedCode, setCopiedCode] = useState(false)
-
-  // Auto-copy device code to clipboard when it appears
-  useEffect(() => {
-    if (copilotDeviceCode?.userCode) {
-      navigator.clipboard.writeText(copilotDeviceCode.userCode).then(() => {
-        setCopiedCode(true)
-        setTimeout(() => setCopiedCode(false), 2000)
-      }).catch(() => {
-        // Clipboard write failed, user can still click to copy
-      })
-    }
-  }, [copilotDeviceCode?.userCode])
-
-  const handleCopyCode = () => {
-    if (copilotDeviceCode?.userCode) {
-      navigator.clipboard.writeText(copilotDeviceCode.userCode).then(() => {
-        setCopiedCode(true)
-        setTimeout(() => setCopiedCode(false), 2000)
-      })
-    }
-  }
-
-  // --- ChatGPT OAuth flow (native browser OAuth) ---
+  // --- ChatGPT OAuth flow (device flow) ---
   if (isChatGptOAuth) {
-    if (isWaitingForCode) {
-      return (
-        <StepFormLayout
-          title={t("onboarding.credentials.completeChatGPT")}
-          description={t("onboarding.credentials.pasteCallbackInstruction")}
-          actions={
-            <>
-              <BackButton onClick={onCancelOAuth} disabled={status === 'validating'}>{t("common.cancel")}</BackButton>
-              <ContinueButton
-                type="submit"
-                form="chatgpt-callback-form"
-                loading={status === 'validating'}
-                loadingText={t("common.connecting")}
-              />
-            </>
-          }
-        >
-          <OAuthConnect
-            status={status as OAuthStatus}
-            errorMessage={errorMessage}
-            isWaitingForCode={true}
-            onStartOAuth={() => onStartOAuth?.()}
-            onSubmitAuthCode={onSubmitAuthCode}
-            formId="chatgpt-callback-form"
-            inputLabel={t("onboarding.credentials.callbackUrl")}
-            inputPlaceholder="http://localhost:1455/auth/callback?..."
-          />
-        </StepFormLayout>
-      )
-    }
-
     return (
       <StepFormLayout
         title={t("onboarding.credentials.connectChatGPT")}
         description={t("onboarding.credentials.connectChatGPTDesc")}
         actions={
           <>
-            <BackButton onClick={onBack} disabled={status === 'validating'} />
+            <BackButton onClick={status === 'validating' ? onCancelOAuth : onBack} />
             <ContinueButton
               onClick={() => onStartOAuth?.()}
               className="gap-2"
               loading={status === 'validating'}
-              loadingText={t("common.connecting")}
+              loadingText={t("onboarding.credentials.waitingForAuth")}
             >
               <ExternalLink className="size-4" />
               {t("onboarding.credentials.signInChatGPT")}
@@ -143,9 +159,12 @@ export function CredentialsStep({
         }
       >
         <div className="space-y-4">
-          <div className="rounded-xl bg-foreground-2 p-4 text-sm text-muted-foreground">
-            <p>{t("onboarding.credentials.chatGPTInstructions")}</p>
-          </div>
+          <DeviceCodeCard
+            deviceCode={chatGptDeviceCode}
+            instruction={t("onboarding.credentials.enterCodeOnChatGPT")}
+            waitingMessage={t("onboarding.credentials.clickToSignInChatGPT")}
+            browserOpenedMessage={t("onboarding.credentials.browserOpenedChatGPT")}
+          />
           {status === 'error' && errorMessage && (
             <div className="rounded-lg bg-destructive/10 text-destructive text-sm p-3">
               {errorMessage}
@@ -183,33 +202,12 @@ export function CredentialsStep({
         }
       >
         <div className="space-y-4">
-          {copilotDeviceCode ? (
-            <div className="rounded-xl bg-foreground-2 p-4 text-sm space-y-3">
-              <p className="text-muted-foreground text-center">
-                {t("onboarding.credentials.enterCodeOnGitHub")}
-              </p>
-              <div className="flex flex-col items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleCopyCode}
-                  className="text-2xl font-mono font-bold tracking-widest text-foreground px-4 py-2 rounded-lg bg-background border border-border hover:bg-foreground-2 transition-colors cursor-pointer"
-                >
-                  {copilotDeviceCode.userCode}
-                </button>
-                <span className={`text-xs text-muted-foreground flex items-center gap-1 transition-opacity ${copiedCode ? 'opacity-100' : 'opacity-0'}`}>
-                  <Check className="size-3" />
-                  {t("onboarding.credentials.copiedToClipboard")}
-                </span>
-              </div>
-              <p className="text-muted-foreground text-xs text-center">
-                {t("onboarding.credentials.browserOpenedGitHub")}
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-xl bg-foreground-2 p-4 text-sm text-muted-foreground text-center">
-              <p>{t("onboarding.credentials.clickToSignInGitHub")}</p>
-            </div>
-          )}
+          <DeviceCodeCard
+            deviceCode={copilotDeviceCode}
+            instruction={t("onboarding.credentials.enterCodeOnGitHub")}
+            waitingMessage={t("onboarding.credentials.clickToSignInGitHub")}
+            browserOpenedMessage={t("onboarding.credentials.browserOpenedGitHub")}
+          />
           {status === 'error' && errorMessage && (
             <div className="rounded-lg bg-destructive/10 text-destructive text-sm p-3 text-center">
               {errorMessage}

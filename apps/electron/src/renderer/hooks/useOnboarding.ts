@@ -20,7 +20,6 @@ import type { LocalModelSubmitData } from '@/components/onboarding/LocalModelSte
 import type { ApiKeySubmitData } from '@/components/apisetup'
 import type { CustomEndpointConfig } from '@config/llm-connections'
 import type { SetupNeeds, LlmConnectionSetup, ClaudeOAuthIdentityDto } from '../../shared/types'
-import { parseChatGptCallbackUrl } from './chatgpt-oauth'
 
 interface UseOnboardingOptions {
   /** Called when onboarding is complete */
@@ -68,7 +67,8 @@ interface UseOnboardingReturn {
   handleSubmitAuthCode: (code: string) => void
   handleCancelOAuth: () => void
 
-  // Copilot device code (displayed during device flow)
+  // OAuth device codes (displayed during device flow)
+  chatGptDeviceCode?: { userCode: string; verificationUri: string }
   copilotDeviceCode?: { userCode: string; verificationUri: string }
 
   // Git Bash (Windows)
@@ -520,11 +520,11 @@ export function useOnboarding({
     }
   }, [handleSaveConfig])
 
-  // Two-step OAuth flow state
+  // Two-step Claude OAuth flow state
   const [isWaitingForCode, setIsWaitingForCode] = useState(false)
-  const [pendingChatGptFlow, setPendingChatGptFlow] = useState<{ flowId: string; state: string } | null>(null)
 
-  // Copilot device code (displayed during device flow)
+  // OAuth device codes (displayed during device flow)
+  const [chatGptDeviceCode, setChatGptDeviceCode] = useState<{ userCode: string; verificationUri: string } | undefined>()
   const [copilotDeviceCode, setCopilotDeviceCode] = useState<{ userCode: string; verificationUri: string } | undefined>()
 
   // Start OAuth flow (Claude or ChatGPT depending on selected method)
@@ -553,25 +553,31 @@ export function useOnboarding({
     }
 
     try {
-      // ChatGPT OAuth (single-step flow - opens browser, captures tokens automatically)
+      // ChatGPT OAuth (device flow — polls after user enters the code at OpenAI)
       if (effectiveMethod === 'pi_chatgpt_oauth') {
         const effectiveEditingSlug = connectionSlugOverride ?? editingSlug
         const isReauth = !!effectiveEditingSlug
         const connectionSlug = apiSetupMethodToConnectionSetup(effectiveMethod, {}, effectiveEditingSlug, existingSlugs).slug
-        const result = await window.electronAPI.startChatGptOAuth(connectionSlug)
 
-        if (result.success && result.pending && result.flowId && result.state) {
-          setPendingChatGptFlow({ flowId: result.flowId, state: result.state })
-          setIsWaitingForCode(true)
-          setState(s => ({ ...s, credentialStatus: 'idle' }))
-        } else if (result.success) {
-          await saveAndValidateConnection(connectionSlug, effectiveMethod, undefined, isReauth)
-        } else {
-          setState(s => ({
-            ...s,
-            credentialStatus: 'error',
-            errorMessage: result.error || 'ChatGPT authentication failed',
-          }))
+        const cleanup = window.electronAPI.onChatGptDeviceCode((data) => {
+          setChatGptDeviceCode(data)
+        })
+
+        try {
+          const result = await window.electronAPI.startChatGptOAuth(connectionSlug)
+
+          if (result.success) {
+            await saveAndValidateConnection(connectionSlug, effectiveMethod, undefined, isReauth)
+          } else {
+            setState(s => ({
+              ...s,
+              credentialStatus: 'error',
+              errorMessage: result.error || 'ChatGPT authentication failed',
+            }))
+          }
+        } finally {
+          cleanup()
+          setChatGptDeviceCode(undefined)
         }
         return
       }
@@ -672,55 +678,6 @@ export function useOnboarding({
 
   // Submit authorization code (second step of OAuth flow)
   const handleSubmitAuthCode = useCallback(async (code: string) => {
-    if (state.apiSetupMethod === 'pi_chatgpt_oauth') {
-      if (!pendingChatGptFlow) {
-        setState(s => ({
-          ...s,
-          credentialStatus: 'error',
-          errorMessage: 'The ChatGPT OAuth flow expired. Start the connection again.',
-        }))
-        return
-      }
-
-      setState(s => ({ ...s, credentialStatus: 'validating', errorMessage: undefined }))
-
-      try {
-        const callback = parseChatGptCallbackUrl(code, pendingChatGptFlow.state)
-        const result = await window.electronAPI.completeChatGptOAuth({
-          flowId: pendingChatGptFlow.flowId,
-          code: callback.code,
-          state: callback.state,
-        })
-
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to complete ChatGPT authentication')
-        }
-
-        const connectionSlug = apiSetupMethodToConnectionSetup(
-          'pi_chatgpt_oauth',
-          {},
-          editingSlug,
-          existingSlugs,
-        ).slug
-
-        setPendingChatGptFlow(null)
-        setIsWaitingForCode(false)
-        await saveAndValidateConnection(
-          connectionSlug,
-          'pi_chatgpt_oauth',
-          undefined,
-          !!editingSlug,
-        )
-      } catch (error) {
-        setState(s => ({
-          ...s,
-          credentialStatus: 'error',
-          errorMessage: error instanceof Error ? error.message : 'Failed to complete ChatGPT authentication',
-        }))
-      }
-      return
-    }
-
     if (!code.trim()) {
       setState(s => ({
         ...s,
@@ -753,7 +710,7 @@ export function useOnboarding({
         errorMessage: error instanceof Error ? error.message : 'Failed to exchange code',
       }))
     }
-  }, [state.apiSetupMethod, pendingChatGptFlow, saveAndValidateConnection, editingSlug, existingSlugs])
+  }, [saveAndValidateConnection, editingSlug, existingSlugs])
 
   // Submit local model configuration (Ollama or any OpenAI-compatible local server)
   const handleSubmitLocalModel = useCallback(async (data: LocalModelSubmitData) => {
@@ -786,13 +743,12 @@ export function useOnboarding({
   const handleCancelOAuth = useCallback(async () => {
     setIsWaitingForCode(false)
     setState(s => ({ ...s, credentialStatus: 'idle', errorMessage: undefined }))
-    if (pendingChatGptFlow) {
-      await window.electronAPI.cancelChatGptOAuth({ state: pendingChatGptFlow.state })
-      setPendingChatGptFlow(null)
+    if (state.apiSetupMethod === 'pi_chatgpt_oauth') {
+      await window.electronAPI.cancelChatGptOAuth()
     }
     // Clear OAuth state on backend
     await window.electronAPI.clearClaudeOAuthState()
-  }, [pendingChatGptFlow])
+  }, [state.apiSetupMethod])
 
   // Git Bash handlers (Windows only)
   const handleBrowseGitBash = useCallback(async () => {
@@ -880,15 +836,14 @@ export function useOnboarding({
       errorMessage: undefined,
     })
     setIsWaitingForCode(false)
-    if (pendingChatGptFlow) {
-      window.electronAPI.cancelChatGptOAuth({ state: pendingChatGptFlow.state }).catch(() => {})
-      setPendingChatGptFlow(null)
-    }
+    setChatGptDeviceCode(undefined)
+    setCopilotDeviceCode(undefined)
+    window.electronAPI.cancelChatGptOAuth().catch(() => {})
     // Clean up any pending OAuth state
     window.electronAPI.clearClaudeOAuthState().catch(() => {
       // Ignore errors - state may not exist
     })
-  }, [initialStep, initialApiSetupMethod, pendingChatGptFlow])
+  }, [initialStep, initialApiSetupMethod])
 
   return {
     state,
@@ -903,7 +858,8 @@ export function useOnboarding({
     isWaitingForCode,
     handleSubmitAuthCode,
     handleCancelOAuth,
-    // Copilot device code
+    // OAuth device codes
+    chatGptDeviceCode,
     copilotDeviceCode,
     // Git Bash (Windows)
     handleBrowseGitBash,
