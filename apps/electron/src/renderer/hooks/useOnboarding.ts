@@ -568,6 +568,8 @@ export function useOnboarding({
 
           if (result.success) {
             await saveAndValidateConnection(connectionSlug, effectiveMethod, undefined, isReauth)
+          } else if (result.cancelled) {
+            setState(s => ({ ...s, credentialStatus: 'idle', errorMessage: undefined }))
           } else {
             setState(s => ({
               ...s,

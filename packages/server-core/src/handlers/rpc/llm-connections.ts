@@ -611,14 +611,16 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
 
   server.handle(RPC_CHANNELS.chatgpt.START_OAUTH, async (ctx, connectionSlug: string): Promise<{
     success: boolean
+    cancelled?: boolean
     error?: string
   }> => {
+    const flowAbort = new AbortController()
     try {
       const { loginOpenAICodexDeviceCode } = await import('@earendil-works/pi-ai/oauth')
       const credentialManager = getCredentialManager()
 
       chatGptOAuthAbort?.abort()
-      chatGptOAuthAbort = new AbortController()
+      chatGptOAuthAbort = flowAbort
 
       deps.platform.logger?.info(`Starting ChatGPT OAuth device flow for connection: ${connectionSlug}`)
 
@@ -628,14 +630,16 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
             userCode,
             verificationUri,
           })
-          server.invokeClient(ctx.clientId, CLIENT_OPEN_EXTERNAL, verificationUri).catch(err => {
-            deps.platform.logger?.warn(`Failed to open browser for ChatGPT OAuth: ${err}`)
-          })
+          if (server.hasClientCapability(ctx.clientId, CLIENT_OPEN_EXTERNAL)) {
+            server.invokeClient(ctx.clientId, CLIENT_OPEN_EXTERNAL, verificationUri).catch(err => {
+              deps.platform.logger?.warn(`Failed to open browser for ChatGPT OAuth: ${err}`)
+            })
+          }
         },
-        signal: chatGptOAuthAbort.signal,
+        signal: flowAbort.signal,
       })
 
-      chatGptOAuthAbort = null
+      if (chatGptOAuthAbort === flowAbort) chatGptOAuthAbort = null
 
       await credentialManager.setLlmOAuth(connectionSlug, {
         accessToken: credentials.access,
@@ -646,7 +650,11 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
       deps.platform.logger?.info('ChatGPT OAuth completed successfully')
       return { success: true }
     } catch (error) {
-      chatGptOAuthAbort = null
+      if (chatGptOAuthAbort === flowAbort) chatGptOAuthAbort = null
+      if (flowAbort.signal.aborted) {
+        deps.platform.logger?.info('ChatGPT OAuth flow stopped')
+        return { success: false, cancelled: true }
+      }
       deps.platform.logger?.error('ChatGPT OAuth failed:', error)
       return {
         success: false,
