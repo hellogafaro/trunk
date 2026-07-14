@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join } from 'node:path'
 import * as nodePty from 'node-pty'
 import type { TerminalEvent, TerminalSessionDto } from '@craft-agent/shared/protocol'
+import { spawnNodePtyBridge } from './NodePtyBridge'
 
 const DEFAULT_COLS = 100
 const DEFAULT_ROWS = 30
@@ -37,6 +38,10 @@ export interface TerminalOpenOptions {
 }
 
 export type TerminalEventListener = (event: TerminalEvent) => void
+
+const defaultPtyFactory: PtyFactory = process.versions.bun && process.platform === 'linux'
+  ? spawnNodePtyBridge
+  : nodePty.spawn
 
 function shellEnvironment(): Record<string, string> {
   const blocked = new Set([
@@ -78,7 +83,7 @@ export class TerminalManager {
   private readonly sessions = new Map<string, ManagedTerminal>()
   private readonly listeners = new Set<TerminalEventListener>()
 
-  constructor(private readonly spawnPty: PtyFactory = nodePty.spawn) {}
+  constructor(private readonly spawnPty: PtyFactory = defaultPtyFactory) {}
 
   onEvent(listener: TerminalEventListener): () => void {
     this.listeners.add(listener)
