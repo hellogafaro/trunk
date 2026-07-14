@@ -145,7 +145,10 @@ export function CredentialsStep({
         description={t("onboarding.credentials.connectChatGPTDesc")}
         actions={
           <>
-            <BackButton onClick={status === 'validating' ? onCancelOAuth : onBack} />
+            <BackButton onClick={() => {
+              if (status === 'validating') onCancelOAuth?.()
+              onBack()
+            }} />
             <ContinueButton
               onClick={() => onStartOAuth?.()}
               className="gap-2"
