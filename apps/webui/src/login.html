@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Craft Agents — Login</title>
+  <title>Trunk — Login</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   <link rel="icon" type="image/x-icon" href="./favicon.ico" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
@@ -18,17 +18,17 @@
       --page-fg: #1a1a2e;
       --card-bg: rgba(255, 255, 255, 0.86);
       --card-border: rgba(228, 228, 232, 0.9);
-      --card-shadow: 0 32px 96px rgba(41, 25, 63, 0.14), 0 16px 40px rgba(41, 25, 63, 0.08);
+      --card-shadow: 0 32px 96px oklch(54.6% 0.245 262.881 / 0.14), 0 16px 40px oklch(54.6% 0.245 262.881 / 0.08);
       --subtitle: rgba(26, 26, 46, 0.56);
       --input-bg: rgba(255, 255, 255, 0.72);
       --input-border: rgba(212, 212, 216, 0.95);
       --placeholder: rgba(26, 26, 46, 0.34);
-      --accent: #6d5dfc;
-      --accent-hover: #5a4be0;
-      --ambient-strong: rgba(104, 78, 133, 0.18);
-      --ambient-soft: rgba(104, 78, 133, 0.1);
-      --grain-1: rgba(104, 78, 133, 0.055);
-      --grain-2: rgba(104, 78, 133, 0.03);
+      --accent: oklch(54.6% 0.245 262.881);
+      --accent-hover: oklch(48.8% 0.243 264.376);
+      --ambient-strong: oklch(54.6% 0.245 262.881 / 0.18);
+      --ambient-soft: oklch(54.6% 0.245 262.881 / 0.1);
+      --grain-1: oklch(54.6% 0.245 262.881 / 0.055);
+      --grain-2: oklch(54.6% 0.245 262.881 / 0.03);
       --error-bg: #fef2f2;
       --error-border: #fecaca;
       --error-fg: #b91c1c;
@@ -63,8 +63,8 @@
       background:
         radial-gradient(circle at 18% 20%, var(--ambient-strong) 0, transparent 34%),
         radial-gradient(circle at 82% 18%, var(--ambient-soft) 0, transparent 28%),
-        radial-gradient(circle at 76% 76%, rgba(104, 78, 133, 0.16) 0, transparent 34%),
-        radial-gradient(circle at 30% 78%, rgba(104, 78, 133, 0.11) 0, transparent 30%);
+        radial-gradient(circle at 76% 76%, oklch(54.6% 0.245 262.881 / 0.16) 0, transparent 34%),
+        radial-gradient(circle at 30% 78%, oklch(54.6% 0.245 262.881 / 0.11) 0, transparent 30%);
       filter: blur(44px);
       opacity: 0.95;
       transform: scale(1.08);
@@ -73,7 +73,7 @@
 
     body::after {
       background:
-        radial-gradient(circle at center, rgba(104, 78, 133, 0.06), transparent 58%),
+        radial-gradient(circle at center, oklch(54.6% 0.245 262.881 / 0.06), transparent 58%),
         repeating-linear-gradient(135deg, var(--grain-1) 0 1px, transparent 1px 7px),
         repeating-linear-gradient(45deg, var(--grain-2) 0 1px, transparent 1px 11px);
       opacity: 0.45;
@@ -99,6 +99,13 @@
       font-size: 20px;
       font-weight: 600;
       margin-bottom: 4px;
+    }
+
+    .brand-mark {
+      width: 36px;
+      height: 36px;
+      margin: 0 auto 16px;
+      color: var(--accent);
     }
 
     .subtitle {
@@ -136,7 +143,7 @@
 
     input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(109, 93, 252, 0.1);
+      box-shadow: 0 0 0 3px oklch(54.6% 0.245 262.881 / 0.1);
     }
 
     button {
@@ -147,16 +154,16 @@
       font-weight: 500;
       font-family: 'Inter', sans-serif;
       color: white;
-      background: linear-gradient(180deg, #7b6dff 0%, var(--accent) 100%);
+      background: linear-gradient(180deg, oklch(62.3% 0.214 259.815) 0%, var(--accent) 100%);
       border: none;
       border-radius: 8px;
       cursor: pointer;
       transition: transform 0.15s, filter 0.15s, background 0.15s;
-      box-shadow: 0 10px 24px rgba(109, 93, 252, 0.28);
+      box-shadow: 0 10px 24px oklch(54.6% 0.245 262.881 / 0.28);
     }
 
     button:hover {
-      background: linear-gradient(180deg, #705fff 0%, var(--accent-hover) 100%);
+      background: linear-gradient(180deg, oklch(54.6% 0.245 262.881) 0%, var(--accent-hover) 100%);
       transform: translateY(-1px);
       filter: brightness(1.02);
     }
@@ -212,10 +219,10 @@
         --input-bg: rgba(15, 15, 20, 0.72);
         --input-border: rgba(42, 42, 53, 0.95);
         --placeholder: rgba(224, 224, 232, 0.32);
-        --ambient-strong: rgba(155, 123, 184, 0.22);
-        --ambient-soft: rgba(155, 123, 184, 0.12);
-        --grain-1: rgba(155, 123, 184, 0.06);
-        --grain-2: rgba(155, 123, 184, 0.035);
+        --ambient-strong: oklch(70.7% 0.165 254.624 / 0.22);
+        --ambient-soft: oklch(70.7% 0.165 254.624 / 0.12);
+        --grain-1: oklch(70.7% 0.165 254.624 / 0.06);
+        --grain-2: oklch(70.7% 0.165 254.624 / 0.035);
         --error-bg: #2d1a1a;
         --error-border: #5a2020;
         --error-fg: #f5a0a0;
@@ -225,7 +232,10 @@
 </head>
 <body>
   <div class="card">
-    <h1>Craft Agents</h1>
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-label="Trunk" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"></path>
+    </svg>
+    <h1>Trunk</h1>
     <p class="subtitle">Enter your server token to continue</p>
 
     <form id="login-form">

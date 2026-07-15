@@ -1,7 +1,7 @@
 {
-  "name": "Craft Agents",
-  "short_name": "Craft Agents",
-  "description": "AI agent interface",
+  "name": "Trunk",
+  "short_name": "Trunk",
+  "description": "Web-native coding agent workspace",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#1F1F24",

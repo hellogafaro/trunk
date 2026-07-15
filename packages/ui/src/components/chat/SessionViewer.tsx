@@ -48,23 +48,22 @@ export interface SessionViewerProps {
   sessionFolderPath?: string
 }
 
-/**
- * CraftAgentLogo - The Craft Agent "C" logo for branding
- */
-function CraftAgentLogo({ className }: { className?: string }) {
+/** Trunk product mark used in shared session views. */
+function TrunkLogo({ className }: { className?: string }) {
   return (
     <svg
       className={className}
       viewBox="0 0 24 24"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      <g transform="translate(3.4502, 3)" fill="currentColor">
-        <path
-          d="M3.17890888,3.6 L3.17890888,0 L16,0 L16,3.6 L3.17890888,3.6 Z M9.642,7.2 L9.64218223,10.8 L0,10.8 L0,3.6 L16,3.6 L16,7.2 L9.642,7.2 Z M3.17890888,18 L3.178,14.4 L0,14.4 L0,10.8 L16,10.8 L16,18 L3.17890888,18 Z"
-          fillRule="nonzero"
-        />
-      </g>
+      <path
+        d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
+        strokeWidth="2"
+      />
     </svg>
   )
 }
@@ -227,7 +226,7 @@ export function SessionViewer({
 
             {/* Bottom branding */}
             <div className={CHAT_CLASSES.brandingContainer}>
-              <CraftAgentLogo className="w-8 h-8 text-[#9570BE]/40" />
+              <TrunkLogo className="w-8 h-8 text-accent/40" />
             </div>
             </div>
           </div>

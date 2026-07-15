@@ -2,11 +2,29 @@ import i18n, { type i18n as I18nInstance, type InitOptions } from "i18next";
 import { LOCALE_REGISTRY } from "./registry";
 import { SUPPORTED_LANGUAGE_CODES } from "./languages";
 
+// Keep upstream locale files untouched while applying the Trunk product name
+// at the resource boundary. This keeps future Craft Agents locale updates easy
+// to merge and brands every supported language consistently.
+function applyProductBrand(value: string): string {
+  return value
+    .replaceAll("Craft Agents only control", "Trunk only controls")
+    .replaceAll("Craft menu", "Trunk menu")
+    .replaceAll("Craft Agents", "Trunk")
+    .replaceAll("Craft Agent", "Trunk");
+}
+
 // Build i18next resources from the locale registry.
 const resources = Object.fromEntries(
   Object.entries(LOCALE_REGISTRY).map(([code, entry]) => [
     code,
-    { translation: entry.messages },
+    {
+      translation: Object.fromEntries(
+        Object.entries(entry.messages).map(([key, value]) => [
+          key,
+          typeof value === "string" ? applyProductBrand(value) : value,
+        ]),
+      ),
+    },
   ]),
 );
 

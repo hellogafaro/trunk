@@ -1,8 +1,13 @@
-<div align="center">
-  <a href="https://trendshift.io/repositories/20714" target="_blank"><img src="https://trendshift.io/api/badge/repositories/20714" alt="craft-ai-agents%2Fcraft-agents-oss | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-</div>
+<p align="center">
+  <img src="apps/webui/src/public/icon-192.png" alt="Trunk" width="96" height="96" />
+</p>
 
-# Craft Agents
+# Trunk
+
+Trunk is a web-native coding agent workspace based on
+[Craft Agents OSS](https://github.com/craft-ai-agents/craft-agents-oss). It keeps
+the upstream architecture intact so improvements can be merged cleanly while
+focusing the product on a persistent, browser-first development environment.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
