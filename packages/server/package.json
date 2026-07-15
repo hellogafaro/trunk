@@ -21,6 +21,7 @@
   "homepage": "https://agents.craft.do",
   "scripts": {
     "start": "bun run src/index.ts",
+    "browser:install": "playwright install chromium",
     "generate-token": "bun run src/index.ts --generate-token",
     "typecheck": "tsc --noEmit"
   },
@@ -28,7 +29,8 @@
     "@craft-agent/core": "workspace:*",
     "@craft-agent/messaging-gateway": "workspace:*",
     "@craft-agent/server-core": "workspace:*",
-    "@craft-agent/shared": "workspace:*"
+    "@craft-agent/shared": "workspace:*",
+    "playwright": "1.61.1"
   },
   "devDependencies": {
     "typescript": "^5.8.2",

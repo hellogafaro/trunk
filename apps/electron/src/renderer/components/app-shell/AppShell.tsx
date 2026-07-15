@@ -149,6 +149,8 @@ import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
 import { TerminalWindow } from "@/components/terminal/TerminalWindow"
+import { BrowserWindow } from "@/components/browser/BrowserWindow"
+import { activeBrowserInstanceAtom } from "@/atoms/browser-pane"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -1995,6 +1997,8 @@ function AppShellContent({
   // permanent slugs (new-project, new-project-1, …).
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [browserOpen, setBrowserOpen] = useState(false)
+  const activeBrowserInstance = useAtomValue(activeBrowserInstanceAtom)
   const openAddProject = useCallback(() => {
     if (!activeWorkspace?.id) return
     setCreateProjectDialogOpen(true)
@@ -2066,10 +2070,16 @@ function AppShellContent({
         show: true,
       })
       await window.electronAPI.browserPane.focus(instanceId)
+      if (window.electronAPI.getRuntimeEnvironment() === 'web') setBrowserOpen(true)
     } catch (error) {
       console.error('[Chat] Failed to create browser window:', error)
       toast.error(t('toast.failedToCreateBrowser'))
     }
+  }, [])
+
+  useEffect(() => {
+    if (window.electronAPI.getRuntimeEnvironment() !== 'web') return
+    return window.electronAPI.browserPane.onInteracted(() => setBrowserOpen(true))
   }, [])
 
   const handleOpenTerminal = useCallback(() => {
@@ -3910,6 +3920,31 @@ function AppShellContent({
         onCancel={() => setCreateProjectDialogOpen(false)}
         onSubmit={handleCreateProjectSubmit}
       />
+
+      {activeWorkspaceId && (
+        <PreviewOverlay
+          isOpen={browserOpen}
+          onClose={() => setBrowserOpen(false)}
+          typeBadge={{
+            icon: Globe,
+            label: 'Browser',
+            variant: 'gray',
+          }}
+          title={activeWorkspace?.name}
+          contentMode="fixed"
+          className="bg-background"
+        >
+          <ContentFrame
+            title={activeBrowserInstance?.title || activeBrowserInstance?.url || 'Browser'}
+            layout="viewport"
+          >
+            <BrowserWindow
+              workspaceId={activeWorkspaceId}
+              remoteWorkspaceId={activeWorkspace?.remoteServer?.remoteWorkspaceId ?? null}
+            />
+          </ContentFrame>
+        </PreviewOverlay>
+      )}
 
       {activeWorkspaceId && (
         <PreviewOverlay

@@ -166,28 +166,6 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.tools.GET_BROWSER_TOOL_ENABLED,
   RPC_CHANNELS.tools.SET_BROWSER_TOOL_ENABLED,
 
-  // browserPane — Electron BrowserView
-  RPC_CHANNELS.browserPane.CREATE,
-  RPC_CHANNELS.browserPane.DESTROY,
-  RPC_CHANNELS.browserPane.LIST,
-  RPC_CHANNELS.browserPane.NAVIGATE,
-  RPC_CHANNELS.browserPane.GO_BACK,
-  RPC_CHANNELS.browserPane.GO_FORWARD,
-  RPC_CHANNELS.browserPane.RELOAD,
-  RPC_CHANNELS.browserPane.STOP,
-  RPC_CHANNELS.browserPane.FOCUS,
-  RPC_CHANNELS.browserPane.SNAPSHOT,
-  RPC_CHANNELS.browserPane.CLICK,
-  RPC_CHANNELS.browserPane.FILL,
-  RPC_CHANNELS.browserPane.SELECT,
-  RPC_CHANNELS.browserPane.SCREENSHOT,
-  RPC_CHANNELS.browserPane.EVALUATE,
-  RPC_CHANNELS.browserPane.SCROLL,
-  RPC_CHANNELS.browserPane.LAUNCH,
-  RPC_CHANNELS.browserPane.STATE_CHANGED,
-  RPC_CHANNELS.browserPane.REMOVED,
-  RPC_CHANNELS.browserPane.INTERACTED,
-
   // gitbash — Windows-specific local
   RPC_CHANNELS.gitbash.CHECK,
   RPC_CHANNELS.gitbash.BROWSE,
@@ -435,6 +413,34 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
 
   // git — workspace filesystem
   RPC_CHANNELS.git.GET_BRANCH,
+
+  // browserPane — hosted by the workspace runtime. Local workspaces still
+  // resolve to the embedded Electron server; remote/web workspaces use the
+  // Playwright browser running alongside their code and localhost services.
+  RPC_CHANNELS.browserPane.CREATE,
+  RPC_CHANNELS.browserPane.DESTROY,
+  RPC_CHANNELS.browserPane.LIST,
+  RPC_CHANNELS.browserPane.NAVIGATE,
+  RPC_CHANNELS.browserPane.GO_BACK,
+  RPC_CHANNELS.browserPane.GO_FORWARD,
+  RPC_CHANNELS.browserPane.RELOAD,
+  RPC_CHANNELS.browserPane.STOP,
+  RPC_CHANNELS.browserPane.FOCUS,
+  RPC_CHANNELS.browserPane.SNAPSHOT,
+  RPC_CHANNELS.browserPane.CLICK,
+  RPC_CHANNELS.browserPane.FILL,
+  RPC_CHANNELS.browserPane.SELECT,
+  RPC_CHANNELS.browserPane.SCREENSHOT,
+  RPC_CHANNELS.browserPane.POINTER,
+  RPC_CHANNELS.browserPane.KEYBOARD,
+  RPC_CHANNELS.browserPane.RESIZE,
+  RPC_CHANNELS.browserPane.EVALUATE,
+  RPC_CHANNELS.browserPane.SCROLL,
+  RPC_CHANNELS.browserPane.LAUNCH,
+  RPC_CHANNELS.browserPane.STATE_CHANGED,
+  RPC_CHANNELS.browserPane.REMOVED,
+  RPC_CHANNELS.browserPane.INTERACTED,
+  RPC_CHANNELS.browserPane.FRAME,
 
   // resources — workspace resource export/import
   RPC_CHANNELS.resources.EXPORT,

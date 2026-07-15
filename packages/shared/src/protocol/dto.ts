@@ -826,6 +826,42 @@ export interface BrowserInstanceInfo {
   workspaceId?: string | null
 }
 
+export interface BrowserFrame {
+  instanceId: string
+  data: string
+  format: 'jpeg' | 'png'
+  width: number
+  height: number
+  pageScaleFactor: number
+  timestamp: number
+}
+
+export type BrowserPointerInput =
+  | { kind: 'move'; x: number; y: number }
+  | { kind: 'down' | 'up'; x: number; y: number; button?: 'left' | 'middle' | 'right' }
+  | { kind: 'click'; x: number; y: number; button?: 'left' | 'middle' | 'right'; clickCount?: number }
+  | { kind: 'wheel'; x: number; y: number; deltaX?: number; deltaY?: number }
+
+export type BrowserKeyboardInput =
+  | { kind: 'type'; text: string }
+  | { kind: 'press' | 'down' | 'up'; key: string }
+
+export interface BrowserScreenshotRequest {
+  mode?: 'raw' | 'agent'
+  refs?: string[]
+  includeLastAction?: boolean
+  includeMetadata?: boolean
+  annotate?: boolean
+  format?: 'png' | 'jpeg'
+  jpegQuality?: number
+}
+
+export interface BrowserScreenshotPayload {
+  base64: string
+  imageFormat: 'png' | 'jpeg'
+  metadata?: Record<string, unknown>
+}
+
 export interface DeepLinkNavigation {
   view?: string
   tabType?: string

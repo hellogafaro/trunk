@@ -295,19 +295,14 @@ export class RemoteBrowserPaneManager implements IBrowserPaneManager {
     return this.fromScreenshotWire(wire)
   }
 
-  getConsoleLogs(id: string, options?: BrowserConsoleOptions): BrowserConsoleEntry[] {
-    // IBPM declares sync. The async result is awaited inside the runtime layer
-    // that consumes consoleLogs; returning [] here keeps the sync surface intact.
-    void this.invoke<BrowserConsoleEntry[]>('getConsoleLogs', [id, options]).catch(() => {})
-    return []
+  getConsoleLogs(id: string, options?: BrowserConsoleOptions): Promise<BrowserConsoleEntry[]> {
+    return this.invoke<BrowserConsoleEntry[]>('getConsoleLogs', [id, options])
   }
-  windowResize(id: string, width: number, height: number): { width: number; height: number } {
-    void this.invoke<{ width: number; height: number }>('windowResize', [id, width, height]).catch(() => {})
-    return { width, height }
+  windowResize(id: string, width: number, height: number): Promise<{ width: number; height: number }> {
+    return this.invoke<{ width: number; height: number }>('windowResize', [id, width, height])
   }
-  getNetworkLogs(id: string, options?: BrowserNetworkOptions): BrowserNetworkEntry[] {
-    void this.invoke<BrowserNetworkEntry[]>('getNetworkLogs', [id, options]).catch(() => {})
-    return []
+  getNetworkLogs(id: string, options?: BrowserNetworkOptions): Promise<BrowserNetworkEntry[]> {
+    return this.invoke<BrowserNetworkEntry[]>('getNetworkLogs', [id, options])
   }
   async waitFor(id: string, args: BrowserWaitArgs): Promise<BrowserWaitResult> {
     return await this.invoke('waitFor', [id, args])

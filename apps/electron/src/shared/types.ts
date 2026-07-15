@@ -2,6 +2,13 @@
 // Protocol re-exports (channels, DTOs, events, wire types)
 // =============================================================================
 export * from '@craft-agent/shared/protocol'
+import type {
+  BrowserFrame,
+  BrowserKeyboardInput,
+  BrowserPointerInput,
+  BrowserScreenshotPayload,
+  BrowserScreenshotRequest,
+} from '@craft-agent/shared/protocol'
 
 // =============================================================================
 // Package re-exports (convenience for renderer imports)
@@ -652,10 +659,15 @@ export interface ElectronAPI {
     reload(id: string): Promise<void>
     stop(id: string): Promise<void>
     focus(id: string): Promise<void>
+    screenshot(id: string, options?: BrowserScreenshotRequest): Promise<BrowserScreenshotPayload>
+    pointer(id: string, input: BrowserPointerInput): Promise<void>
+    keyboard(id: string, input: BrowserKeyboardInput): Promise<void>
+    resize(id: string, width: number, height: number): Promise<{ width: number; height: number }>
     emptyStateLaunch(payload: BrowserEmptyStateLaunchPayload): Promise<BrowserEmptyStateLaunchResult>
     onStateChanged(callback: (info: BrowserInstanceInfo) => void): () => void
     onRemoved(callback: (id: string) => void): () => void
     onInteracted(callback: (id: string) => void): () => void
+    onFrame(callback: (frame: BrowserFrame) => void): () => void
   }
 
   // LLM Connections (provider configurations)

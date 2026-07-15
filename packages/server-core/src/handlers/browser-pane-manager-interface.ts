@@ -249,9 +249,9 @@ export interface IBrowserPaneManager {
 
   // -- Monitoring ----------------------------------------------------------
 
-  getConsoleLogs(id: string, options?: BrowserConsoleOptions): BrowserConsoleEntry[]
-  windowResize(id: string, width: number, height: number): { width: number; height: number }
-  getNetworkLogs(id: string, options?: BrowserNetworkOptions): BrowserNetworkEntry[]
+  getConsoleLogs(id: string, options?: BrowserConsoleOptions): BrowserConsoleEntry[] | Promise<BrowserConsoleEntry[]>
+  windowResize(id: string, width: number, height: number): { width: number; height: number } | Promise<{ width: number; height: number }>
+  getNetworkLogs(id: string, options?: BrowserNetworkOptions): BrowserNetworkEntry[] | Promise<BrowserNetworkEntry[]>
   waitFor(id: string, args: BrowserWaitArgs): Promise<BrowserWaitResult>
   getDownloads(id: string, options?: BrowserDownloadOptions): Promise<BrowserDownloadEntry[]>
   detectSecurityChallenge(id: string): Promise<{ detected: boolean; provider: string; signals: string[] }>

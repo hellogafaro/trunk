@@ -48,6 +48,8 @@ import { SessionManager, setSessionPlatform, setSessionRuntimeHooks } from '@cra
 import { initModelRefreshService, setFetcherPlatform } from '@craft-agent/server-core/model-fetchers'
 import { setSearchPlatform, setImageProcessor } from '@craft-agent/server-core/services'
 import type { HandlerDeps } from '@craft-agent/server-core/handlers'
+import { ServerBrowserPaneManager } from './browser/server-browser-pane-manager'
+import { registerServerBrowserHandlers } from './browser/browser-handlers'
 
 process.env.CRAFT_IS_PACKAGED ??= 'false'
 
@@ -162,6 +164,7 @@ const waNodeBin = process.env.CRAFT_MESSAGING_NODE_BIN ?? 'node'
 // Built inside createHandlerDeps (needs sessionManager), populated with the WS
 // publisher after bootstrapServer resolves.
 let messagingHandle: MessagingBootstrapHandle | null = null
+let browserPaneManager: ServerBrowserPaneManager | null = null
 
 const instance = await (async () => {
   try {
@@ -207,6 +210,8 @@ const instance = await (async () => {
       createSessionManager: () => new SessionManager(),
       bindRpcServer: (sm, server) => sm.setRpcServer(server),
       createHandlerDeps: ({ sessionManager, platform, oauthFlowStore }) => {
+        browserPaneManager = new ServerBrowserPaneManager({ logger: platform.logger })
+        sessionManager.setBrowserPaneManager(browserPaneManager)
         messagingHandle = createMessagingBootstrap({
           sessionManager,
           credentialManager: getCredentialManager(),
@@ -223,10 +228,14 @@ const instance = await (async () => {
           sessionManager,
           platform,
           oauthFlowStore,
+          browserPaneManager,
           messagingRegistry: messagingHandle.registry,
         }
       },
-      registerAllRpcHandlers: registerCoreRpcHandlers,
+      registerAllRpcHandlers: (server, deps, serverCtx) => {
+        registerCoreRpcHandlers(server, deps, serverCtx)
+        if (browserPaneManager) registerServerBrowserHandlers(server, browserPaneManager)
+      },
       setSessionEventSink: (sessionManager, sink) => {
         if (!messagingHandle) {
           // createHandlerDeps always runs before setSessionEventSink, but be
@@ -243,7 +252,11 @@ const instance = await (async () => {
         try {
           await sessionManager.flushAllSessions()
         } finally {
-          sessionManager.cleanup()
+          try {
+            await browserPaneManager?.dispose()
+          } finally {
+            sessionManager.cleanup()
+          }
         }
       },
       cleanupClientResources: cleanupSessionFileWatchForClient,
