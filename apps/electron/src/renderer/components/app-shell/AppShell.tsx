@@ -45,7 +45,7 @@ import { isMac } from "@/lib/platform"
 import { Button } from "@/components/ui/button"
 import { HeaderIconButton } from "@/components/ui/HeaderIconButton"
 import { Separator } from "@/components/ui/separator"
-import { Tooltip, TooltipTrigger, TooltipContent, DocumentFormattedMarkdownOverlay, PreviewOverlay } from "@craft-agent/ui"
+import { Tooltip, TooltipTrigger, TooltipContent, DocumentFormattedMarkdownOverlay, PreviewOverlay, ContentFrame } from "@craft-agent/ui"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -3924,7 +3924,9 @@ function AppShellContent({
           contentMode="fixed"
           className="bg-background"
         >
-          <TerminalWindow workspaceId={activeWorkspaceId} />
+          <ContentFrame title={t('overlay.terminal')} layout="viewport">
+            <TerminalWindow workspaceId={activeWorkspaceId} />
+          </ContentFrame>
         </PreviewOverlay>
       )}
 

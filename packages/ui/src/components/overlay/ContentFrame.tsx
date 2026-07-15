@@ -20,6 +20,8 @@
  *     Useful for overlays with variable-width content (e.g., diff tables). Capped at
  *     100% of the outer container, floored at minWidth. More reliable than JS measurement
  *     because it works with async-rendered content (Shiki syntax highlighting).
+ *   - viewport: card fills the overlay's remaining width and height with consistent
+ *     inset spacing. The card body is constrained so interactive children own scrolling.
  *
  * Layout (flow-based — lives inside the parent's scroll container):
  *   flex, px-6, min-h-full
@@ -35,6 +37,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { cn } from '../../lib/utils'
 
 export interface ContentFrameProps {
   /** Title bar label displayed centered in the title bar */
@@ -49,6 +52,8 @@ export interface ContentFrameProps {
    *  the viewport (minus padding) and floored at minWidth. This is more reliable
    *  than JS-based measurement because it works with async-rendered content (Shiki). */
   fitContent?: boolean
+  /** Fill the overlay's remaining viewport with an inset, fixed-height card. */
+  layout?: 'content' | 'viewport'
   /** Optional content rendered to the left of the card (e.g., sidebar navigation) */
   leftSidebar?: ReactNode
   /** Optional content rendered to the right of the card */
@@ -62,6 +67,7 @@ export function ContentFrame({
   maxWidth = 850,
   minWidth,
   fitContent,
+  layout = 'content',
   leftSidebar,
   rightSidebar,
   children,
@@ -69,16 +75,22 @@ export function ContentFrame({
   // fitContent mode: card uses CSS max-content width to grow to its content (e.g., wide diffs).
   // Capped at 100% of the outer container so it never exceeds the viewport.
   // Fallback mode: card fills available width up to maxWidth (fixed/numeric).
-  const wrapperStyle = fitContent
-    ? { width: 'max-content' as const, maxWidth: '100%', minWidth }
-    : { maxWidth }
+  const isViewport = layout === 'viewport'
+  const wrapperStyle = isViewport
+    ? undefined
+    : fitContent
+      ? { width: 'max-content' as const, maxWidth: '100%', minWidth }
+      : { maxWidth }
 
   return (
-    <div className="flex px-6">
+    <div className={isViewport ? 'flex h-full min-h-0 p-6' : 'flex px-6'}>
       {/* Relative wrapper — horizontally centered via mx-auto. Vertical centering is handled
           by parent (FullscreenOverlayBase's centering wrapper). Card grows to fit content. */}
       <div
-        className={`relative mx-auto ${fitContent ? '' : 'w-full'}`}
+        className={cn(
+          'relative mx-auto',
+          isViewport ? 'h-full min-h-0 w-full' : !fitContent && 'w-full',
+        )}
         style={wrapperStyle}
       >
         {/* Left sidebar — absolutely positioned to the left of the card */}
@@ -89,7 +101,10 @@ export function ContentFrame({
         )}
 
         {/* Main card — grows to fit content, no internal scrolling */}
-        <div className="flex flex-col rounded-2xl overflow-hidden backdrop-blur-sm shadow-strong bg-background min-h-[320px]">
+        <div className={cn(
+          'flex flex-col rounded-2xl overflow-hidden backdrop-blur-sm shadow-strong bg-background',
+          isViewport ? 'h-full min-h-0' : 'min-h-[320px]',
+        )}>
           {/* Title bar */}
           <div className="flex justify-center items-center px-4 py-3 border-b border-foreground/7 select-none shrink-0">
             <div className="text-xs font-semibold tracking-wider text-foreground/30">
@@ -98,7 +113,7 @@ export function ContentFrame({
           </div>
 
           {/* Content area — grows naturally with content, no scroll constraint */}
-          <div>
+          <div className={isViewport ? 'min-h-0 flex-1 overflow-hidden' : undefined}>
             {children}
           </div>
         </div>
