@@ -41,7 +41,7 @@
 @property --accent {
   syntax: "<color>";
   inherits: true;
-  initial-value: oklch(65.944% 0.1895 33.247);
+  initial-value: oklch(54.6% 0.245 262.881);
 }
 
 @property --info {
@@ -90,8 +90,8 @@
   --foreground-rgb: 38, 36, 42;             /* RGB for shadow borders */
   --user-message-bubble: oklch(from var(--foreground) l c h / 0.05);
   --user-message-bubble-dimmed: oklch(from var(--foreground) l c h / 0.03);
-  --accent: oklch(65.944% 0.1895 33.247);     /* Trunk orange - brand, Auto mode */
-  --accent-rgb: 167, 63, 42;                  /* 70% brightness for shadow-tinted */
+  --accent: oklch(54.6% 0.245 262.881);      /* blue-600 - actions, links, Auto mode */
+  --accent-rgb: 26, 69, 165;                 /* 70% brightness for shadow-tinted */
   --info: oklch(0.75 0.16 70);              /* amber - warnings, Ask mode */
   --info-rgb: 180, 120, 40;                 /* RGB for shadow-tinted */
   --success: oklch(0.55 0.17 145);          /* green - connected, checkmarks */
@@ -257,8 +257,8 @@
   --foreground-rgb: 237, 236, 240;           /* RGB for shadow borders */
   --user-message-bubble: oklch(from var(--foreground) l c h / 0.05);
   --user-message-bubble-dimmed: oklch(from var(--foreground) l c h / 0.03);
-  --accent: oklch(65.944% 0.1895 33.247);     /* Trunk orange */
-  --accent-rgb: 167, 63, 42;                  /* 70% brightness for shadow-tinted */
+  --accent: oklch(70.7% 0.165 254.624);      /* blue-400 - dark mode actions and links */
+  --accent-rgb: 67, 116, 175;                /* 70% brightness for shadow-tinted */
   --info: oklch(0.78 0.14 70);               /* amber */
   --info-rgb: 210, 155, 55;                  /* RGB for shadow-tinted */
   --success: oklch(0.60 0.17 145);           /* green */

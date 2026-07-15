@@ -114,14 +114,14 @@ export function generateCallbackPage(options: {
       font-size: 14px;
       font-weight: 500;
       color: #fff;
-      background-color: oklch(65.944% 0.1895 33.247);
+      background-color: oklch(54.6% 0.245 262.881);
       border-radius: 6px;
       text-decoration: none;
       transition: background-color 0.15s ease;
     }
 
     .return-link:hover {
-      background-color: oklch(60% 0.19 33.247);
+      background-color: oklch(48.8% 0.243 264.376);
     }
 
     @media (prefers-color-scheme: dark) {

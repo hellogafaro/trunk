@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   <link rel="icon" type="image/x-icon" href="./favicon.ico" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
-  <meta name="theme-color" content="#EF5A3C" />
+  <meta name="theme-color" content="#1F1F24" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&display=swap" rel="stylesheet">
@@ -18,17 +18,17 @@
       --page-fg: #1a1a2e;
       --card-bg: rgba(255, 255, 255, 0.86);
       --card-border: rgba(228, 228, 232, 0.9);
-      --card-shadow: 0 32px 96px oklch(65.944% 0.1895 33.247 / 0.14), 0 16px 40px oklch(65.944% 0.1895 33.247 / 0.08);
+      --card-shadow: 0 32px 96px oklch(54.6% 0.245 262.881 / 0.14), 0 16px 40px oklch(54.6% 0.245 262.881 / 0.08);
       --subtitle: rgba(26, 26, 46, 0.56);
       --input-bg: rgba(255, 255, 255, 0.72);
       --input-border: rgba(212, 212, 216, 0.95);
       --placeholder: rgba(26, 26, 46, 0.34);
-      --accent: oklch(65.944% 0.1895 33.247);
-      --accent-hover: oklch(60% 0.19 33.247);
-      --ambient-strong: oklch(65.944% 0.1895 33.247 / 0.18);
-      --ambient-soft: oklch(65.944% 0.1895 33.247 / 0.1);
-      --grain-1: oklch(65.944% 0.1895 33.247 / 0.055);
-      --grain-2: oklch(65.944% 0.1895 33.247 / 0.03);
+      --accent: oklch(54.6% 0.245 262.881);
+      --accent-hover: oklch(48.8% 0.243 264.376);
+      --ambient-strong: oklch(54.6% 0.245 262.881 / 0.18);
+      --ambient-soft: oklch(54.6% 0.245 262.881 / 0.1);
+      --grain-1: oklch(54.6% 0.245 262.881 / 0.055);
+      --grain-2: oklch(54.6% 0.245 262.881 / 0.03);
       --error-bg: #fef2f2;
       --error-border: #fecaca;
       --error-fg: #b91c1c;
@@ -63,8 +63,8 @@
       background:
         radial-gradient(circle at 18% 20%, var(--ambient-strong) 0, transparent 34%),
         radial-gradient(circle at 82% 18%, var(--ambient-soft) 0, transparent 28%),
-        radial-gradient(circle at 76% 76%, oklch(65.944% 0.1895 33.247 / 0.16) 0, transparent 34%),
-        radial-gradient(circle at 30% 78%, oklch(65.944% 0.1895 33.247 / 0.11) 0, transparent 30%);
+        radial-gradient(circle at 76% 76%, oklch(54.6% 0.245 262.881 / 0.16) 0, transparent 34%),
+        radial-gradient(circle at 30% 78%, oklch(54.6% 0.245 262.881 / 0.11) 0, transparent 30%);
       filter: blur(44px);
       opacity: 0.95;
       transform: scale(1.08);
@@ -73,7 +73,7 @@
 
     body::after {
       background:
-        radial-gradient(circle at center, oklch(65.944% 0.1895 33.247 / 0.06), transparent 58%),
+        radial-gradient(circle at center, oklch(54.6% 0.245 262.881 / 0.06), transparent 58%),
         repeating-linear-gradient(135deg, var(--grain-1) 0 1px, transparent 1px 7px),
         repeating-linear-gradient(45deg, var(--grain-2) 0 1px, transparent 1px 11px);
       opacity: 0.45;
@@ -143,7 +143,7 @@
 
     input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px oklch(65.944% 0.1895 33.247 / 0.1);
+      box-shadow: 0 0 0 3px oklch(54.6% 0.245 262.881 / 0.1);
     }
 
     button {
@@ -154,12 +154,12 @@
       font-weight: 500;
       font-family: 'Inter', sans-serif;
       color: white;
-      background: linear-gradient(180deg, oklch(70% 0.17 33.247) 0%, var(--accent) 100%);
+      background: linear-gradient(180deg, oklch(62.3% 0.214 259.815) 0%, var(--accent) 100%);
       border: none;
       border-radius: 8px;
       cursor: pointer;
       transition: transform 0.15s, filter 0.15s, background 0.15s;
-      box-shadow: 0 10px 24px oklch(65.944% 0.1895 33.247 / 0.28);
+      box-shadow: 0 10px 24px oklch(54.6% 0.245 262.881 / 0.28);
     }
 
     button:hover {
@@ -219,10 +219,10 @@
         --input-bg: rgba(15, 15, 20, 0.72);
         --input-border: rgba(42, 42, 53, 0.95);
         --placeholder: rgba(224, 224, 232, 0.32);
-        --ambient-strong: oklch(65.944% 0.1895 33.247 / 0.22);
-        --ambient-soft: oklch(65.944% 0.1895 33.247 / 0.12);
-        --grain-1: oklch(65.944% 0.1895 33.247 / 0.06);
-        --grain-2: oklch(65.944% 0.1895 33.247 / 0.035);
+        --ambient-strong: oklch(70.7% 0.165 254.624 / 0.22);
+        --ambient-soft: oklch(70.7% 0.165 254.624 / 0.12);
+        --grain-1: oklch(70.7% 0.165 254.624 / 0.06);
+        --grain-2: oklch(70.7% 0.165 254.624 / 0.035);
         --error-bg: #2d1a1a;
         --error-border: #5a2020;
         --error-fg: #f5a0a0;
