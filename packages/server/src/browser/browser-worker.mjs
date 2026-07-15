@@ -231,6 +231,7 @@ async function wirePage(instance) {
 }
 
 async function createInstance(requestedId, options = {}) {
+  options ??= {}
   await launch()
   const id = requestedId || `browser-${randomUUID()}`
   if (instances.has(id)) return id
