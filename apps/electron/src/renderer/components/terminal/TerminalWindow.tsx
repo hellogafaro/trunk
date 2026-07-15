@@ -201,7 +201,7 @@ export function TerminalWindow({ workspaceId }: TerminalWindowProps) {
                 onClick={() => setActiveId(session.id)}
                 className="flex min-w-0 flex-1 items-center gap-2"
               >
-                <Icons.SquareTerminal className="h-3.5 w-3.5 shrink-0" />
+                <Icons.Terminal className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">{session.label}</span>
                 {session.status === 'exited' && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />}
               </button>
@@ -253,7 +253,7 @@ export function TerminalWindow({ workspaceId }: TerminalWindowProps) {
           <TerminalViewport key={activeSession.id} workspaceId={workspaceId} session={activeSession} />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-foreground/45">
-            <Icons.SquareTerminal className="h-8 w-8" strokeWidth={1.4} />
+            <Icons.Terminal className="h-8 w-8" strokeWidth={1.4} />
             <Button size="sm" variant="outline" onClick={() => { void openTerminal() }}>{t('terminal.new')}</Button>
           </div>
         )}

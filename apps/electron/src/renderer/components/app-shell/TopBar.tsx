@@ -247,7 +247,7 @@ export function TopBar({
                 aria-label={t('terminal.title')}
                 className="h-[26px] w-[26px] rounded-lg"
               >
-                <Icons.SquareTerminal className="h-3.5 w-3.5 text-foreground/50" strokeWidth={1.5} />
+                <Icons.Terminal className="h-3.5 w-3.5 text-foreground/50" strokeWidth={1.5} />
               </TopBarButton>
             </TooltipTrigger>
             <TooltipContent side="bottom">

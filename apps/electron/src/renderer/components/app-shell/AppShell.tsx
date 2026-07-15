@@ -33,7 +33,7 @@ import {
   Info,
   MailOpen,
   FolderKanban,
-  SquareTerminal,
+  Terminal,
 } from "lucide-react"
 // SessionStatusIcons no longer used - icons come from dynamic sessionStatuses
 import { SourceAvatar } from "@/components/ui/source-avatar"
@@ -3955,7 +3955,7 @@ function AppShellContent({
           isOpen={terminalOpen}
           onClose={() => setTerminalOpen(false)}
           typeBadge={{
-            icon: SquareTerminal,
+            icon: Terminal,
             label: t('terminal.title'),
             variant: 'gray',
           }}
