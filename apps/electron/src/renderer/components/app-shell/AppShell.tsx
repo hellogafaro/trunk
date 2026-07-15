@@ -33,6 +33,7 @@ import {
   Info,
   MailOpen,
   FolderKanban,
+  SquareTerminal,
 } from "lucide-react"
 // SessionStatusIcons no longer used - icons come from dynamic sessionStatuses
 import { SourceAvatar } from "@/components/ui/source-avatar"
@@ -147,6 +148,8 @@ import {
 import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
+import { ToolWindowDialog } from "@/components/ui/tool-window-dialog"
+import { TerminalWindow } from "@/components/terminal/TerminalWindow"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -1992,6 +1995,7 @@ function AppShellContent({
   // The previous flow auto-created with the default name and produced ugly
   // permanent slugs (new-project, new-project-1, …).
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const openAddProject = useCallback(() => {
     if (!activeWorkspace?.id) return
     setCreateProjectDialogOpen(true)
@@ -2071,11 +2075,7 @@ function AppShellContent({
 
   const handleOpenTerminal = useCallback(() => {
     if (!activeWorkspaceId) return
-    const url = new URL(window.location.origin)
-    url.searchParams.set('tool', 'terminal')
-    url.searchParams.set('workspace', activeWorkspaceId)
-    const terminalWindow = window.open(url.toString(), `hellogafaro-terminal-${activeWorkspaceId}`)
-    terminalWindow?.focus()
+    setTerminalOpen(true)
   }, [activeWorkspaceId])
 
   // Delete Source - simplified since agents system is removed
@@ -3911,6 +3911,17 @@ function AppShellContent({
         onCancel={() => setCreateProjectDialogOpen(false)}
         onSubmit={handleCreateProjectSubmit}
       />
+
+      {activeWorkspaceId && (
+        <ToolWindowDialog
+          open={terminalOpen}
+          onOpenChange={setTerminalOpen}
+          title={t('terminal.title')}
+          icon={<SquareTerminal className="h-3.5 w-3.5" />}
+        >
+          <TerminalWindow workspaceId={activeWorkspaceId} />
+        </ToolWindowDialog>
+      )}
 
       {/* Messaging dialogs (pairing-code + WA connect) — driven by messagingDialogAtom.
           Mounted here so they survive context-menu / dropdown close. */}

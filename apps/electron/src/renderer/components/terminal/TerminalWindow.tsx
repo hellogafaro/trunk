@@ -182,12 +182,8 @@ export function TerminalWindow({ workspaceId }: TerminalWindowProps) {
     }
   }), [workspaceId])
 
-  useEffect(() => {
-    document.title = activeSession ? `${activeSession.label} — Hellogafaro` : `${t('terminal.title')} — Hellogafaro`
-  }, [activeSession, t])
-
   return (
-    <div className="flex h-screen w-screen flex-col bg-background text-foreground">
+    <div className="flex h-full w-full flex-col bg-background text-foreground">
       <header className="flex h-11 shrink-0 items-center border-b border-foreground/10 px-2">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {sessions.map((session) => (
