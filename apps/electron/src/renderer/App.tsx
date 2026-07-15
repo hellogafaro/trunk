@@ -326,6 +326,11 @@ export default function App() {
     return workspace?.slug ?? windowWorkspaceId
   }, [windowWorkspaceId, workspaces])
 
+  useEffect(() => {
+    const workspaceName = workspaces.find(workspace => workspace.id === windowWorkspaceId)?.name
+    document.title = workspaceName ? `Trunk | ${workspaceName}` : 'Trunk'
+  }, [windowWorkspaceId, workspaces])
+
   // Get initial sessionId and focused mode from URL params (for "Open in New Window" feature)
   const { initialSessionId, isFocusedMode } = useMemo(() => {
     const params = new URLSearchParams(window.location.search)
