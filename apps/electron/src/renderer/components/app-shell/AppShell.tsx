@@ -3924,7 +3924,7 @@ function AppShellContent({
           contentMode="fixed"
           className="bg-background"
         >
-          <ContentFrame title={t('overlay.terminal')} layout="viewport">
+          <ContentFrame title={activeWorkspace?.rootPath ?? t('overlay.terminal')} layout="viewport">
             <TerminalWindow workspaceId={activeWorkspaceId} />
           </ContentFrame>
         </PreviewOverlay>

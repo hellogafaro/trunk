@@ -6,6 +6,8 @@ import '@xterm/xterm/css/xterm.css'
 import type { TerminalEvent, TerminalSessionDto } from '@craft-agent/shared/protocol'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
+import { HeaderIconButton } from '@/components/ui/HeaderIconButton'
+import { Button } from '@/components/ui/button'
 
 interface TerminalWindowProps {
   workspaceId: string
@@ -213,40 +215,28 @@ export function TerminalWindow({ workspaceId }: TerminalWindowProps) {
               </button>
             </div>
           ))}
-          <button
-            type="button"
+          <HeaderIconButton
+            icon={<Icons.Plus className="h-4 w-4" />}
             onClick={() => { void openTerminal().catch((reason) => setError(String(reason))) }}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
             aria-label={t('terminal.new')}
-            title={t('terminal.new')}
-          >
-            <Icons.Plus className="h-4 w-4" />
-          </button>
+            tooltip={t('terminal.new')}
+          />
         </div>
 
         {activeSession && (
           <div className="ml-3 flex shrink-0 items-center gap-1">
-            <span className="hidden max-w-80 truncate px-2 text-[11px] text-foreground/40 md:block" title={activeSession.cwd}>
-              {activeSession.cwd}
-            </span>
-            <button
-              type="button"
+            <HeaderIconButton
+              icon={<Icons.Eraser className="h-3.5 w-3.5" />}
               onClick={() => { void window.electronAPI.clearTerminal(workspaceId, activeSession.id) }}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
               aria-label={t('terminal.clear')}
-              title={t('terminal.clear')}
-            >
-              <Icons.Eraser className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
+              tooltip={t('terminal.clear')}
+            />
+            <HeaderIconButton
+              icon={<Icons.RotateCcw className="h-3.5 w-3.5" />}
               onClick={() => { void window.electronAPI.restartTerminal(workspaceId, activeSession.id) }}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
               aria-label={t('terminal.restart')}
-              title={t('terminal.restart')}
-            >
-              <Icons.RotateCcw className="h-3.5 w-3.5" />
-            </button>
+              tooltip={t('terminal.restart')}
+            />
           </div>
         )}
       </header>
@@ -257,14 +247,14 @@ export function TerminalWindow({ workspaceId }: TerminalWindowProps) {
         ) : error ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-destructive">
             <p>{error}</p>
-            <button className="rounded-md bg-foreground/5 px-3 py-1.5 text-foreground" onClick={() => window.location.reload()}>{t('terminal.retry')}</button>
+            <Button size="sm" variant="outline" onClick={() => window.location.reload()}>{t('terminal.retry')}</Button>
           </div>
         ) : activeSession ? (
           <TerminalViewport key={activeSession.id} workspaceId={workspaceId} session={activeSession} />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-foreground/45">
             <Icons.SquareTerminal className="h-8 w-8" strokeWidth={1.4} />
-            <button className="rounded-md bg-foreground/5 px-3 py-1.5 text-sm text-foreground" onClick={() => { void openTerminal() }}>{t('terminal.new')}</button>
+            <Button size="sm" variant="outline" onClick={() => { void openTerminal() }}>{t('terminal.new')}</Button>
           </div>
         )}
       </main>
