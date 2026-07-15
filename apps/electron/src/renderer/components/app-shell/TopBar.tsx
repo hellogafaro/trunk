@@ -1,7 +1,7 @@
 /**
  * TopBar - Persistent top bar above all panels (Slack-style)
  *
- * Layout: [Sidebar] [Menu] [Back] [Forward] [Workspace selector] ... [Browser strip] [+] [Help]
+ * Layout: [Sidebar] [Menu] [Back] [Forward] [Workspace selector] ... [Browser strip] [Browser] [Terminal] [Help]
  *
  * Fixed at top of window, 48px tall.
  * macOS: offset left to avoid stoplight controls.
@@ -23,7 +23,6 @@ import {
   StyledDropdownMenuSeparator,
 } from "@/components/ui/styled-dropdown"
 import type { SettingsMenuItem } from "../../../shared/menu-schema"
-import { SquarePenRounded } from "../icons/SquarePenRounded"
 import { useEffect, useRef, useState } from "react"
 import { BrowserTabStrip } from "../browser/BrowserTabStrip"
 import type { Workspace } from "../../../shared/types"
@@ -55,7 +54,6 @@ interface TopBarProps {
   canGoForward: boolean
   onToggleSidebar: () => void
   onToggleFocusMode: () => void
-  onAddSessionPanel: () => void
   onAddBrowserPanel: () => void
   onOpenTerminal: () => void
   /** When true, hides controls that don't apply in compact/mobile layout */
@@ -82,7 +80,6 @@ export function TopBar({
   canGoForward,
   onToggleSidebar,
   onToggleFocusMode,
-  onAddSessionPanel,
   onAddBrowserPanel,
   onOpenTerminal,
   isCompact,
@@ -93,6 +90,7 @@ export function TopBar({
 
   const goBackHotkey = useActionLabel('nav.goBackAlt').hotkey
   const goForwardHotkey = useActionLabel('nav.goForwardAlt').hotkey
+  const terminalHotkey = useActionLabel('view.toggleTerminal').hotkey
 
   useEffect(() => {
     const slotEl = rightSlotRef.current
@@ -223,40 +221,40 @@ export function TopBar({
         </div>
       </div>
 
-      {/* === RIGHT: Browser strip + add + help === */}
+      {/* === RIGHT: Browser strip + browser + terminal + help === */}
       {!isCompact && (
       <div ref={rightSlotRef} className="flex min-w-0 shrink-0 items-center justify-end gap-1" style={{ paddingRight: 12 }}>
-        {isWebUI && (
-          <button
-            type="button"
-            onClick={onOpenTerminal}
-            className="flex h-[26px] max-w-[160px] items-center gap-1.5 rounded-lg bg-background px-2.5 text-[11px] text-foreground shadow-minimal transition-colors hover:bg-foreground/[0.03] titlebar-no-drag"
-            aria-label={t('terminal.title')}
-          >
-            <Icons.SquareTerminal className="h-3 w-3" />
-            <span>{t('terminal.title')}</span>
-          </button>
-        )}
         <div className="min-w-0">
           <BrowserTabStrip activeSessionId={activeSessionId} maxVisibleBadges={maxVisibleBrowserBadges} />
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <TopBarButton aria-label={t("menu.addPanelMenu")} className="ml-1 h-[26px] w-[26px] rounded-lg">
-              <Icons.Plus className="h-4 w-4 text-foreground/50" strokeWidth={1.5} />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <TopBarButton
+              onClick={onAddBrowserPanel}
+              aria-label={t('browser.newTab')}
+              className="h-[26px] w-[26px] rounded-lg"
+            >
+              <Icons.Globe className="h-3.5 w-3.5 text-foreground/50" strokeWidth={1.5} />
             </TopBarButton>
-          </DropdownMenuTrigger>
-          <StyledDropdownMenuContent align="end" minWidth="min-w-56">
-            <StyledDropdownMenuItem onClick={onAddSessionPanel}>
-              <SquarePenRounded className="h-3.5 w-3.5" />
-              {t("session.newSessionInPanel")}
-            </StyledDropdownMenuItem>
-            <StyledDropdownMenuItem onClick={onAddBrowserPanel}>
-              <Icons.Globe className="h-3.5 w-3.5" />
-              {t("browser.newWindow")}
-            </StyledDropdownMenuItem>
-          </StyledDropdownMenuContent>
-        </DropdownMenu>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('browser.newTab')}</TooltipContent>
+        </Tooltip>
+        {isWebUI && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <TopBarButton
+                onClick={onOpenTerminal}
+                aria-label={t('terminal.title')}
+                className="h-[26px] w-[26px] rounded-lg"
+              >
+                <Icons.SquareTerminal className="h-3.5 w-3.5 text-foreground/50" strokeWidth={1.5} />
+              </TopBarButton>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {t('terminal.title')}{terminalHotkey ? ` ${terminalHotkey}` : ''}
+            </TooltipContent>
+          </Tooltip>
+        )}
 
         {/* Help button */}
         <DropdownMenu>

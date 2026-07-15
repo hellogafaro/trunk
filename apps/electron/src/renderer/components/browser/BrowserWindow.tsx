@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAtom, useAtomValue } from 'jotai'
 import * as Icons from 'lucide-react'
 import { BrowserControls, Spinner } from '@craft-agent/ui'
@@ -169,6 +170,7 @@ function BrowserViewport({ instance }: { instance: BrowserInstanceInfo }) {
 }
 
 export function BrowserWindow({ workspaceId, remoteWorkspaceId = null }: BrowserWindowProps) {
+  const { t } = useTranslation()
   const allInstances = useAtomValue(browserInstancesAtom)
   const instances = useMemo(
     () => filterInstancesForWorkspace(allInstances, workspaceId, remoteWorkspaceId),
@@ -264,7 +266,7 @@ export function BrowserWindow({ workspaceId, remoteWorkspaceId = null }: Browser
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-foreground/45">
           <Icons.Globe className="h-8 w-8" strokeWidth={1.4} />
-          <Button size="sm" variant="outline" onClick={() => { void openBrowser() }}>New browser tab</Button>
+          <Button size="sm" variant="outline" onClick={() => { void openBrowser() }}>{t('browser.newTab')}</Button>
         </div>
       )}
     </div>

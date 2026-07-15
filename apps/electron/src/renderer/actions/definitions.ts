@@ -136,6 +136,13 @@ export const actions = {
     defaultHotkey: 'mod+.',
     category: 'View',
   },
+  'view.toggleTerminal': {
+    id: 'view.toggleTerminal',
+    label: 'Toggle Terminal',
+    description: 'Open or close the terminal',
+    defaultHotkey: 'mod+j',
+    category: 'View',
+  },
 
   // ═══════════════════════════════════════════
   // Navigator (scoped — active entity list in middle panel)

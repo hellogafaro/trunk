@@ -2087,6 +2087,11 @@ function AppShellContent({
     setTerminalOpen(true)
   }, [activeWorkspaceId])
 
+  useAction('view.toggleTerminal', () => {
+    if (!activeWorkspaceId) return
+    setTerminalOpen((open) => !open)
+  }, { enabled: () => Boolean(activeWorkspaceId) }, [activeWorkspaceId])
+
   // Delete Source - simplified since agents system is removed
   const handleDeleteSource = useCallback(async (sourceSlug: string) => {
     if (!activeWorkspace) return
@@ -2395,7 +2400,6 @@ function AppShellContent({
           canGoForward={canGoForward}
           onToggleSidebar={handleToggleSidebar}
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
-          onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
           onOpenTerminal={handleOpenTerminal}
           isCompact={isAutoCompact}
