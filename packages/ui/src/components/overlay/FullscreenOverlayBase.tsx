@@ -58,6 +58,8 @@ export interface FullscreenOverlayBaseProps {
   onClose: () => void
   /** Content to render inside the overlay */
   children: ReactNode
+  /** Keep interactive content in a stable viewport instead of the document scroller. */
+  contentMode?: 'scroll' | 'fixed'
   /** Additional CSS classes for the container */
   className?: string
   /** Accessible title for the overlay (visually hidden) */
@@ -95,6 +97,7 @@ export function FullscreenOverlayBase({
   isOpen,
   onClose,
   children,
+  contentMode = 'scroll',
   className,
   accessibleTitle = 'Overlay',
   typeBadge,
@@ -162,9 +165,17 @@ export function FullscreenOverlayBase({
           {/* Visually hidden title for accessibility - required by Radix Dialog */}
           <Dialog.Title className="sr-only">{accessibleTitle}</Dialog.Title>
 
-          {/* Full-viewport masked scroll area — covers the entire dialog including behind the header.
+          {contentMode === 'fixed' ? (
+            <div
+              className="absolute inset-x-0 bottom-0 min-h-0"
+              style={{ top: hasHeader ? HEADER_HEIGHT : 0 }}
+            >
+              {children}
+            </div>
+          ) : (
+          /* Full-viewport masked scroll area — covers the entire dialog including behind the header.
               The CSS mask gradient fades content at both edges (starting from y=0).
-              Content padding clears the header at rest. */}
+              Content padding clears the header at rest. */
           <div
             className="absolute inset-0"
             style={{ maskImage: FADE_MASK, WebkitMaskImage: FADE_MASK }}
@@ -186,6 +197,7 @@ export function FullscreenOverlayBase({
               </div>
             </div>
           </div>
+          )}
 
           {/* Floating header — rendered after scroll area so it's visually on top (DOM order).
               Positioned absolutely at the top of the viewport, above the scroll content. */}

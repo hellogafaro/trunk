@@ -66,6 +66,12 @@ export interface PreviewOverlayProps {
   /** Main content */
   children: ReactNode
 
+  /**
+   * Fixed keeps interactive content mounted in a stable viewport instead of
+   * placing it inside the preview overlay's document scroller.
+   */
+  contentMode?: 'scroll' | 'fixed'
+
   /** Render inline (no dialog/portal) — for embedding in design system playground */
   embedded?: boolean
 
@@ -85,6 +91,7 @@ export function PreviewOverlay({
   error,
   headerActions,
   children,
+  contentMode = 'scroll',
   embedded = false,
   className,
 }: PreviewOverlayProps) {
@@ -136,7 +143,7 @@ export function PreviewOverlay({
   const FADE_SIZE = 24
   const FADE_MASK = `linear-gradient(to bottom, transparent 0%, black ${FADE_SIZE}px, black calc(100% - ${FADE_SIZE}px), transparent 100%)`
 
-  const contentArea = (
+  const scrollContentArea = (
     <div
       className="flex-1 min-h-0 relative"
       style={{ maskImage: FADE_MASK, WebkitMaskImage: FADE_MASK }}
@@ -153,6 +160,9 @@ export function PreviewOverlay({
       </div>
     </div>
   )
+  const contentArea = contentMode === 'fixed'
+    ? <div className="min-h-0 flex-1">{children}</div>
+    : scrollContentArea
 
   // Embedded mode — renders inline without dialog/portal, for design system playground
   if (embedded) {
@@ -178,6 +188,7 @@ export function PreviewOverlay({
         subtitle={subtitle}
         headerActions={headerActions}
         error={error}
+        contentMode={contentMode}
       >
         {children}
       </FullscreenOverlayBase>

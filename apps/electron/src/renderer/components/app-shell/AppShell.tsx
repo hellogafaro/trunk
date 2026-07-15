@@ -45,7 +45,7 @@ import { isMac } from "@/lib/platform"
 import { Button } from "@/components/ui/button"
 import { HeaderIconButton } from "@/components/ui/HeaderIconButton"
 import { Separator } from "@/components/ui/separator"
-import { Tooltip, TooltipTrigger, TooltipContent, DocumentFormattedMarkdownOverlay } from "@craft-agent/ui"
+import { Tooltip, TooltipTrigger, TooltipContent, DocumentFormattedMarkdownOverlay, PreviewOverlay } from "@craft-agent/ui"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -148,7 +148,6 @@ import {
 import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
-import { ToolWindowDialog } from "@/components/ui/tool-window-dialog"
 import { TerminalWindow } from "@/components/terminal/TerminalWindow"
 
 /**
@@ -3913,14 +3912,20 @@ function AppShellContent({
       />
 
       {activeWorkspaceId && (
-        <ToolWindowDialog
-          open={terminalOpen}
-          onOpenChange={setTerminalOpen}
-          title={t('terminal.title')}
-          icon={<SquareTerminal className="h-3.5 w-3.5" />}
+        <PreviewOverlay
+          isOpen={terminalOpen}
+          onClose={() => setTerminalOpen(false)}
+          typeBadge={{
+            icon: SquareTerminal,
+            label: t('terminal.title'),
+            variant: 'gray',
+          }}
+          title={activeWorkspace?.name}
+          contentMode="fixed"
+          className="bg-background"
         >
           <TerminalWindow workspaceId={activeWorkspaceId} />
-        </ToolWindowDialog>
+        </PreviewOverlay>
       )}
 
       {/* Messaging dialogs (pairing-code + WA connect) — driven by messagingDialogAtom.
