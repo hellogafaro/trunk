@@ -222,7 +222,7 @@ export function SessionViewer({
 
             {/* Bottom branding */}
             <div className={CHAT_CLASSES.brandingContainer}>
-              <TrunkLogo className="w-8 h-8 text-accent/40" />
+              <TrunkLogo className="w-8 h-8 text-foreground/40" />
             </div>
             </div>
           </div>

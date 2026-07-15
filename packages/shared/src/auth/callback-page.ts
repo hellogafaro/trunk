@@ -60,7 +60,7 @@ export function generateCallbackPage(options: {
     .logo {
       width: 48px;
       height: 48px;
-      color: oklch(65.944% 0.1895 33.247);
+      color: #0c0a09;
       margin-bottom: 48px;
     }
 
@@ -129,7 +129,7 @@ export function generateCallbackPage(options: {
         background-color: #1a1a1a;
       }
       .logo {
-        color: oklch(65.944% 0.1895 33.247);
+        color: #f5f5f4;
       }
       .card {
         ${isSuccess
