@@ -447,12 +447,43 @@ function BrowserViewport({
 
   const completedCommentCount = regions.filter((region) => region.note.trim()).length
   const activeRegion = activeRegionIndex == null ? null : (regions[activeRegionIndex] ?? null)
+  const annotationPanelWidth = 320
+  const annotationGap = 12
+  const surfaceLeft = Math.max(0, (hostSize.width - displaySize.width) / 2)
+  const surfaceTop = Math.max(0, (hostSize.height - displaySize.height) / 2)
+  const rightPanelLeft = surfaceLeft + displaySize.width + annotationGap
+  const leftPanelLeft = surfaceLeft - annotationGap - annotationPanelWidth
+  const annotationPanelLeft = rightPanelLeft + annotationPanelWidth <= hostSize.width - 8
+    ? rightPanelLeft
+    : leftPanelLeft >= 8
+      ? leftPanelLeft
+      : null
+  const usesAnnotationSidePanel = annotationPanelLeft != null
   const activePopoverPosition = activeRegion
     ? {
-        left: Math.max(8, Math.min(displaySize.width - 328, (activeRegion.x + activeRegion.width) * displaySize.width + 12)),
-        top: Math.max(8, Math.min(displaySize.height - 190, activeRegion.y * displaySize.height)),
+        left: annotationPanelLeft ?? Math.max(
+          8,
+          Math.min(
+            hostSize.width - annotationPanelWidth - 8,
+            surfaceLeft + (activeRegion.x + activeRegion.width) * displaySize.width + annotationGap,
+          ),
+        ),
+        top: Math.max(
+          8,
+          Math.min(hostSize.height - 190, surfaceTop + activeRegion.y * displaySize.height),
+        ),
       }
     : null
+  const annotationHintPosition = usesAnnotationSidePanel
+    ? { left: annotationPanelLeft, top: Math.max(8, surfaceTop + 8), width: annotationPanelWidth }
+    : { left: surfaceLeft + displaySize.width / 2, top: Math.max(8, surfaceTop + 16), transform: 'translateX(-50%)' }
+  const annotationToolbarPosition = usesAnnotationSidePanel
+    ? {
+        left: annotationPanelLeft,
+        bottom: Math.max(12, hostSize.height - surfaceTop - displaySize.height + 12),
+        width: annotationPanelWidth,
+      }
+    : { left: hostSize.width / 2, bottom: 12, transform: 'translateX(-50%)' }
 
   return (
     <div
@@ -467,6 +498,7 @@ function BrowserViewport({
           showSafetyHint={false}
         />
       ) : displayFrame ? (
+        <>
         <div
           ref={surfaceRef}
           role="application"
@@ -612,130 +644,6 @@ function BrowserViewport({
                   style={draftRect}
                 />
               )}
-              {regions.length === 0 && !draftRect && !hoveredElement && (
-                <div
-                  className={cn(
-                    'pointer-events-none absolute bg-neutral-950/85 px-3 py-2 text-xs font-medium text-white',
-                    mode === 'mobile'
-                      ? 'inset-x-0 top-0 border-b border-white/10 text-center'
-                      : 'left-1/2 top-4 -translate-x-1/2 rounded-lg shadow-strong',
-                  )}
-                >
-                  {t('browser.annotationHint')}
-                </div>
-              )}
-
-              {activeRegion && activePopoverPosition && (
-                <div
-                  className={cn(
-                    'absolute z-30 overflow-hidden border border-border/60 bg-background/95 backdrop-blur-xl',
-                    mode === 'mobile'
-                      ? 'inset-x-0 bottom-12 w-auto rounded-none border-x-0 shadow-none'
-                      : 'w-80 rounded-xl shadow-strong',
-                  )}
-                  style={mode === 'mobile' ? undefined : activePopoverPosition}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex min-w-0 items-center gap-2 border-b border-border/50 px-3 py-2">
-                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-semibold text-white">
-                      {activeRegionIndex! + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[11px] font-medium text-foreground/80">
-                        {activeRegion.element?.componentName || (activeRegion.element ? `<${activeRegion.element.tagName}>` : t('browser.annotationArea'))}
-                      </div>
-                      <div className="truncate font-mono text-[10px] text-foreground/40">
-                        {activeRegion.element?.selector || t('browser.annotationSelectedArea')}
-                      </div>
-                    </div>
-                    {activeRegion.element && elementStack.length > 1 && (
-                      <div className="flex items-center gap-0.5">
-                        <HeaderIconButton
-                          icon={<Icons.ChevronDown className="h-3.5 w-3.5" />}
-                          disabled={elementStackIndex === 0}
-                          aria-label={t('browser.annotationSelectChild')}
-                          tooltip={t('browser.annotationSelectChild')}
-                          onClick={() => selectElementStackIndex(elementStackIndex - 1)}
-                          className="h-6 w-6 rounded-md text-foreground/45 disabled:opacity-25"
-                        />
-                        <HeaderIconButton
-                          icon={<Icons.ChevronUp className="h-3.5 w-3.5" />}
-                          disabled={elementStackIndex >= elementStack.length - 1}
-                          aria-label={t('browser.annotationSelectParent')}
-                          tooltip={t('browser.annotationSelectParent')}
-                          onClick={() => selectElementStackIndex(elementStackIndex + 1)}
-                          className="h-6 w-6 rounded-md text-foreground/45 disabled:opacity-25"
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <Textarea
-                    autoFocus
-                    value={activeRegion.note}
-                    onChange={(event) => {
-                      const note = event.target.value
-                      setRegions((current) => current.map((region, index) => (
-                        index === activeRegionIndex ? { ...region, note } : region
-                      )))
-                    }}
-                    onKeyDown={(event) => {
-                      event.stopPropagation()
-                      if (event.key === 'Escape') setActiveRegionIndex(null)
-                      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && activeRegion.note.trim()) {
-                        setActiveRegionIndex(null)
-                      }
-                    }}
-                    placeholder={t('browser.annotationPlaceholder')}
-                    className="min-h-24 resize-none rounded-none border-0 bg-transparent px-3 py-2.5 text-xs leading-relaxed text-foreground shadow-none placeholder:text-foreground/35 focus-visible:border-transparent focus-visible:ring-0 md:text-xs"
-                  />
-                  <div className="flex items-center justify-between border-t border-border/50 px-2 py-1.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => {
-                        setRegions((current) => current.filter((_, index) => index !== activeRegionIndex))
-                        setActiveRegionIndex(null)
-                      }}
-                    >
-                      {t('common.delete')}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={!activeRegion.note.trim()}
-                      onClick={() => setActiveRegionIndex(null)}
-                    >
-                      {t('common.done')}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              <div
-                className={cn(
-                  'absolute z-20 flex items-center gap-1 border border-border/60 bg-background/90 p-1.5 backdrop-blur-xl',
-                  mode === 'mobile'
-                    ? 'inset-x-0 bottom-0 justify-end rounded-none border-x-0 border-b-0 shadow-none'
-                    : 'bottom-3 left-1/2 -translate-x-1/2 rounded-xl shadow-strong',
-                )}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div className="mr-auto flex items-center gap-1.5 px-2 text-[11px] font-medium text-foreground/55">
-                  <Icons.MessageSquare className="h-3.5 w-3.5" />
-                  {completedCommentCount} {t('browser.annotationComments')}
-                </div>
-                <div className="mx-0.5 h-5 w-px bg-border/60" />
-                <Button type="button" size="sm" variant="ghost" onClick={onCancelAnnotation}>
-                  {t('common.cancel')}
-                </Button>
-                <Button type="button" size="sm" disabled={completedCommentCount === 0} onClick={() => { void handleAddToChat() }}>
-                  {t('browser.annotationAddToChat')}
-                </Button>
-              </div>
             </div>
           )}
 
@@ -745,6 +653,123 @@ function BrowserViewport({
             </div>
           )}
         </div>
+
+        {annotationActive && (
+          <>
+            {regions.length === 0 && !draftRect && !hoveredElement && (
+              <div
+                className="pointer-events-none absolute z-20 rounded-lg bg-neutral-950/85 px-3 py-2 text-xs font-medium text-white shadow-strong"
+                style={annotationHintPosition}
+              >
+                {t('browser.annotationHint')}
+              </div>
+            )}
+
+            {activeRegion && activePopoverPosition && (
+              <div
+                className="absolute z-30 w-80 overflow-hidden rounded-xl border border-border/60 bg-background/95 shadow-strong backdrop-blur-xl"
+                style={activePopoverPosition}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex min-w-0 items-center gap-2 border-b border-border/50 px-3 py-2">
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-semibold text-white">
+                    {activeRegionIndex! + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11px] font-medium text-foreground/80">
+                      {activeRegion.element?.componentName || (activeRegion.element ? `<${activeRegion.element.tagName}>` : t('browser.annotationArea'))}
+                    </div>
+                    <div className="truncate font-mono text-[10px] text-foreground/40">
+                      {activeRegion.element?.selector || t('browser.annotationSelectedArea')}
+                    </div>
+                  </div>
+                  {activeRegion.element && elementStack.length > 1 && (
+                    <div className="flex items-center gap-0.5">
+                      <HeaderIconButton
+                        icon={<Icons.ChevronDown className="h-3.5 w-3.5" />}
+                        disabled={elementStackIndex === 0}
+                        aria-label={t('browser.annotationSelectChild')}
+                        tooltip={t('browser.annotationSelectChild')}
+                        onClick={() => selectElementStackIndex(elementStackIndex - 1)}
+                        className="h-6 w-6 rounded-md text-foreground/45 disabled:opacity-25"
+                      />
+                      <HeaderIconButton
+                        icon={<Icons.ChevronUp className="h-3.5 w-3.5" />}
+                        disabled={elementStackIndex >= elementStack.length - 1}
+                        aria-label={t('browser.annotationSelectParent')}
+                        tooltip={t('browser.annotationSelectParent')}
+                        onClick={() => selectElementStackIndex(elementStackIndex + 1)}
+                        className="h-6 w-6 rounded-md text-foreground/45 disabled:opacity-25"
+                      />
+                    </div>
+                  )}
+                </div>
+                <Textarea
+                  autoFocus
+                  value={activeRegion.note}
+                  onChange={(event) => {
+                    const note = event.target.value
+                    setRegions((current) => current.map((region, index) => (
+                      index === activeRegionIndex ? { ...region, note } : region
+                    )))
+                  }}
+                  onKeyDown={(event) => {
+                    event.stopPropagation()
+                    if (event.key === 'Escape') setActiveRegionIndex(null)
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && activeRegion.note.trim()) {
+                      setActiveRegionIndex(null)
+                    }
+                  }}
+                  placeholder={t('browser.annotationPlaceholder')}
+                  className="min-h-24 resize-none rounded-none border-0 bg-transparent px-3 py-2.5 text-xs leading-relaxed text-foreground shadow-none placeholder:text-foreground/35 focus-visible:border-transparent focus-visible:ring-0 md:text-xs"
+                />
+                <div className="flex items-center justify-between border-t border-border/50 px-2 py-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      setRegions((current) => current.filter((_, index) => index !== activeRegionIndex))
+                      setActiveRegionIndex(null)
+                    }}
+                  >
+                    {t('common.delete')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!activeRegion.note.trim()}
+                    onClick={() => setActiveRegionIndex(null)}
+                  >
+                    {t('common.done')}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div
+              className="absolute z-20 flex items-center justify-end gap-1 rounded-xl border border-border/60 bg-background/90 p-1.5 shadow-strong backdrop-blur-xl"
+              style={annotationToolbarPosition}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mr-auto flex items-center gap-1.5 px-2 text-[11px] font-medium text-foreground/55">
+                <Icons.MessageSquare className="h-3.5 w-3.5" />
+                {completedCommentCount} {t('browser.annotationComments')}
+              </div>
+              <div className="mx-0.5 h-5 w-px bg-border/60" />
+              <Button type="button" size="sm" variant="ghost" onClick={onCancelAnnotation}>
+                {t('common.cancel')}
+              </Button>
+              <Button type="button" size="sm" disabled={completedCommentCount === 0} onClick={() => { void handleAddToChat() }}>
+                {t('browser.annotationAddToChat')}
+              </Button>
+            </div>
+          </>
+        )}
+        </>
       ) : error ? (
         <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-destructive">
           <p>{error}</p>
