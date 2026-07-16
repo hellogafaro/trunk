@@ -3962,6 +3962,7 @@ function AppShellContent({
               workspaceId={activeWorkspaceId}
               remoteWorkspaceId={activeWorkspace?.remoteServer?.remoteWorkspaceId ?? null}
               sessionId={effectiveSessionId}
+              onClose={() => setBrowserOpen(false)}
             />
           </ContentFrame>
         </PreviewOverlay>

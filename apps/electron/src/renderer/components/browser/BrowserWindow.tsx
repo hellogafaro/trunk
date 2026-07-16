@@ -35,6 +35,7 @@ interface BrowserWindowProps {
   workspaceId: string
   remoteWorkspaceId?: string | null
   sessionId?: string | null
+  onClose?: () => void
 }
 
 interface BrowserAnnotationEventDetail {
@@ -612,15 +613,27 @@ function BrowserViewport({
                 />
               )}
               {regions.length === 0 && !draftRect && !hoveredElement && (
-                <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-lg bg-neutral-950/85 px-3 py-2 text-xs font-medium text-white shadow-strong">
+                <div
+                  className={cn(
+                    'pointer-events-none absolute bg-neutral-950/85 px-3 py-2 text-xs font-medium text-white',
+                    mode === 'mobile'
+                      ? 'inset-x-0 top-0 border-b border-white/10 text-center'
+                      : 'left-1/2 top-4 -translate-x-1/2 rounded-lg shadow-strong',
+                  )}
+                >
                   {t('browser.annotationHint')}
                 </div>
               )}
 
               {activeRegion && activePopoverPosition && (
                 <div
-                  className="absolute z-30 w-80 overflow-hidden rounded-xl border border-border/60 bg-background/95 shadow-strong backdrop-blur-xl"
-                  style={activePopoverPosition}
+                  className={cn(
+                    'absolute z-30 overflow-hidden border border-border/60 bg-background/95 backdrop-blur-xl',
+                    mode === 'mobile'
+                      ? 'inset-x-0 bottom-12 w-auto rounded-none border-x-0 shadow-none'
+                      : 'w-80 rounded-xl shadow-strong',
+                  )}
+                  style={mode === 'mobile' ? undefined : activePopoverPosition}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
                 >
@@ -702,11 +715,16 @@ function BrowserViewport({
               )}
 
               <div
-                className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border/60 bg-background/90 p-1.5 shadow-strong backdrop-blur-xl"
+                className={cn(
+                  'absolute z-20 flex items-center gap-1 border border-border/60 bg-background/90 p-1.5 backdrop-blur-xl',
+                  mode === 'mobile'
+                    ? 'inset-x-0 bottom-0 justify-end rounded-none border-x-0 border-b-0 shadow-none'
+                    : 'bottom-3 left-1/2 -translate-x-1/2 rounded-xl shadow-strong',
+                )}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => event.stopPropagation()}
               >
-                <div className="flex items-center gap-1.5 px-2 text-[11px] font-medium text-foreground/55">
+                <div className="mr-auto flex items-center gap-1.5 px-2 text-[11px] font-medium text-foreground/55">
                   <Icons.MessageSquare className="h-3.5 w-3.5" />
                   {completedCommentCount} {t('browser.annotationComments')}
                 </div>
@@ -744,7 +762,7 @@ function BrowserViewport({
   )
 }
 
-export function BrowserWindow({ workspaceId, remoteWorkspaceId = null, sessionId = null }: BrowserWindowProps) {
+export function BrowserWindow({ workspaceId, remoteWorkspaceId = null, sessionId = null, onClose }: BrowserWindowProps) {
   const { t } = useTranslation()
   const allInstances = useAtomValue(browserInstancesAtom)
   const instances = useMemo(
@@ -785,7 +803,8 @@ export function BrowserWindow({ workspaceId, remoteWorkspaceId = null, sessionId
       detail: { sessionId, attachment, text },
     }))
     setAnnotationActive(false)
-  }, [sessionId])
+    onClose?.()
+  }, [onClose, sessionId])
 
   return (
     <div className="flex h-full w-full flex-col bg-background text-foreground">
