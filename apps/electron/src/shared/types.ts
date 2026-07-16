@@ -4,6 +4,7 @@
 export * from '@craft-agent/shared/protocol'
 import type {
   BrowserFrame,
+  BrowserElementInfo,
   BrowserKeyboardInput,
   BrowserPointerInput,
   BrowserScreenshotPayload,
@@ -663,6 +664,7 @@ export interface ElectronAPI {
     pointer(id: string, input: BrowserPointerInput): Promise<void>
     keyboard(id: string, input: BrowserKeyboardInput): Promise<void>
     resize(id: string, width: number, height: number): Promise<{ width: number; height: number }>
+    elementsAt(id: string, x: number, y: number): Promise<BrowserElementInfo[]>
     emptyStateLaunch(payload: BrowserEmptyStateLaunchPayload): Promise<BrowserEmptyStateLaunchResult>
     onStateChanged(callback: (info: BrowserInstanceInfo) => void): () => void
     onRemoved(callback: (id: string) => void): () => void

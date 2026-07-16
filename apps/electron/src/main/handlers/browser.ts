@@ -1,6 +1,7 @@
 import { RPC_CHANNELS, type BrowserPaneCreateOptions, type BrowserEmptyStateLaunchPayload } from '../../shared/types'
 import type { BrowserScreenshotOptions } from '../browser-pane-manager'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
+import { browserElementsAtPointExpression } from '@craft-agent/server-core/handlers'
 import type { HandlerDeps } from './handler-deps'
 
 export const HANDLED_CHANNELS = [
@@ -20,6 +21,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.browserPane.SELECT,
   RPC_CHANNELS.browserPane.SCREENSHOT,
   RPC_CHANNELS.browserPane.EVALUATE,
+  RPC_CHANNELS.browserPane.ELEMENTS_AT,
   RPC_CHANNELS.browserPane.SCROLL,
 ] as const
 
@@ -164,6 +166,15 @@ export function registerBrowserHandlers(server: RpcServer, deps: HandlerDeps): v
       return await browserPaneManager.evaluate(id, expression)
     } catch (err) {
       platform.logger.error(`[browser-pane] evaluate failed for ${id}:`, err)
+      throw err
+    }
+  })
+
+  server.handle(RPC_CHANNELS.browserPane.ELEMENTS_AT, async (_ctx, id: string, x: number, y: number) => {
+    try {
+      return await browserPaneManager.evaluate(id, browserElementsAtPointExpression(x, y))
+    } catch (err) {
+      platform.logger.error(`[browser-pane] elementsAt failed for ${id}:`, err)
       throw err
     }
   })

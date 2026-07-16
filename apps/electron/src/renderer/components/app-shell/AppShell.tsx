@@ -150,7 +150,12 @@ import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
 import { TerminalWindow } from "@/components/terminal/TerminalWindow"
 import { BrowserWindow } from "@/components/browser/BrowserWindow"
-import { activeBrowserInstanceAtom } from "@/atoms/browser-pane"
+import {
+  activeBrowserInstanceAtom,
+  browserInstancesAtom,
+  filterInstancesForWorkspace,
+} from "@/atoms/browser-pane"
+import { useBrowserPaneRegistry } from "@/hooks/useBrowserPaneRegistry"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -510,6 +515,8 @@ function AppShellContent({
   menuNewChatTrigger,
   isFocusedMode = false,
 }: AppShellProps) {
+  useBrowserPaneRegistry()
+
   // Destructure commonly used values from context
   // Note: sessions is NOT destructured here - we use sessionMetaMapAtom instead
   // to prevent closures from retaining the full messages array
@@ -1999,6 +2006,15 @@ function AppShellContent({
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(false)
   const activeBrowserInstance = useAtomValue(activeBrowserInstanceAtom)
+  const allBrowserInstances = useAtomValue(browserInstancesAtom)
+  const workspaceBrowserInstances = useMemo(
+    () => filterInstancesForWorkspace(
+      allBrowserInstances,
+      activeWorkspaceId,
+      activeWorkspace?.remoteServer?.remoteWorkspaceId ?? null,
+    ),
+    [activeWorkspace?.remoteServer?.remoteWorkspaceId, activeWorkspaceId, allBrowserInstances],
+  )
   const openAddProject = useCallback(() => {
     if (!activeWorkspace?.id) return
     setCreateProjectDialogOpen(true)
@@ -2062,20 +2078,21 @@ function AppShellContent({
     setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
   }, [activeWorkspace, focusZone, navigate, resolveInheritedNewSessionParams])
 
-  // Create a brand new dedicated browser window and focus it.
-  // Intentionally unbound: this action should always create a NEW window.
-  const handleNewBrowserWindow = useCallback(async () => {
+  // Open the single user-facing browser for this workspace. Session-owned
+  // instances may still exist internally for agent isolation; the UI presents
+  // only the currently active instance.
+  const handleOpenBrowser = useCallback(async () => {
     try {
-      const instanceId = await window.electronAPI.browserPane.create({
-        show: true,
-      })
+      const reusable = workspaceBrowserInstances.find((instance) => instance.id === activeBrowserInstance?.id)
+        ?? workspaceBrowserInstances.at(-1)
+      const instanceId = reusable?.id ?? await window.electronAPI.browserPane.create({ show: true })
       await window.electronAPI.browserPane.focus(instanceId)
-      if (window.electronAPI.getRuntimeEnvironment() === 'web') setBrowserOpen(true)
+      setBrowserOpen(true)
     } catch (error) {
-      console.error('[Chat] Failed to create browser window:', error)
+      console.error('[Chat] Failed to open browser:', error)
       toast.error(t('toast.failedToCreateBrowser'))
     }
-  }, [])
+  }, [activeBrowserInstance?.id, t, workspaceBrowserInstances])
 
   useEffect(() => {
     if (window.electronAPI.getRuntimeEnvironment() !== 'web') return
@@ -2387,7 +2404,6 @@ function AppShellContent({
           workspaceUnreadMap={workspaceUnreadMap}
           onWorkspaceCreated={() => onRefreshWorkspaces?.()}
           onWorkspaceRemoved={() => onRefreshWorkspaces?.()}
-          activeSessionId={effectiveSessionId}
           onNewChat={() => handleNewChat()}
           onNewWindow={() => window.electronAPI.menuNewWindow()}
           onOpenSettings={onOpenSettings}
@@ -2400,7 +2416,7 @@ function AppShellContent({
           canGoForward={canGoForward}
           onToggleSidebar={handleToggleSidebar}
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
-          onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
+          onAddBrowserPanel={() => { void handleOpenBrowser() }}
           onOpenTerminal={handleOpenTerminal}
           isCompact={isAutoCompact}
         />
@@ -3945,6 +3961,7 @@ function AppShellContent({
             <BrowserWindow
               workspaceId={activeWorkspaceId}
               remoteWorkspaceId={activeWorkspace?.remoteServer?.remoteWorkspaceId ?? null}
+              sessionId={effectiveSessionId}
             />
           </ContentFrame>
         </PreviewOverlay>

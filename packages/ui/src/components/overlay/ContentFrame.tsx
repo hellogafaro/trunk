@@ -107,7 +107,7 @@ export function ContentFrame({
         )}>
           {/* Title bar */}
           <div className="flex justify-center items-center px-4 py-3 border-b border-foreground/7 select-none shrink-0">
-            <div className="text-xs font-semibold tracking-wider text-foreground/30">
+            <div className="text-xs font-semibold text-foreground/30">
               {title}
             </div>
           </div>

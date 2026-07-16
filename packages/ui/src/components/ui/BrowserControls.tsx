@@ -208,6 +208,15 @@ export function BrowserControls({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const trimmed = localUrl.trim()
+        if (trimmed) {
+          onNavigate?.(trimmed)
+          inputRef.current?.blur()
+        }
+        return
+      }
       if (e.key === 'Escape') {
         if (controlledUrl != null) {
           setLocalUrl(controlledUrl === 'about:blank' ? '' : controlledUrl)
@@ -215,7 +224,7 @@ export function BrowserControls({
         inputRef.current?.blur()
       }
     },
-    [controlledUrl],
+    [controlledUrl, localUrl, onNavigate],
   )
 
   const safeThemeColor = safeCssColor(themeColor)

@@ -1,7 +1,7 @@
 /**
  * TopBar - Persistent top bar above all panels (Slack-style)
  *
- * Layout: [Sidebar] [Menu] [Back] [Forward] [Workspace selector] ... [Browser strip] [Browser] [Terminal] [Help]
+ * Layout: [Sidebar] [Menu] [Back] [Forward] [Workspace selector] ... [Browser] [Terminal] [Help]
  *
  * Fixed at top of window, 48px tall.
  * macOS: offset left to avoid stoplight controls.
@@ -23,16 +23,19 @@ import {
   StyledDropdownMenuSeparator,
 } from "@/components/ui/styled-dropdown"
 import type { SettingsMenuItem } from "../../../shared/menu-schema"
-import { useEffect, useRef, useState } from "react"
-import { BrowserTabStrip } from "../browser/BrowserTabStrip"
+import { useMemo } from "react"
+import { useAtomValue } from "jotai"
+import { BrowserTabBadge } from "../browser/BrowserTabBadge"
+import {
+  activeBrowserInstanceIdAtom,
+  browserInstancesAtom,
+  filterInstancesForWorkspace,
+} from "@/atoms/browser-pane"
 import type { Workspace } from "../../../shared/types"
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher"
 import { CompactWorkspaceSwitcher } from "./CompactWorkspaceSwitcher"
 import { getDocUrl } from "@craft-agent/shared/docs/doc-links"
 import { AppMenu } from "../AppMenu"
-
-const RIGHT_SLOT_FULL_BADGES_THRESHOLD = 420
-const RIGHT_SLOT_TWO_BADGES_THRESHOLD = 300
 
 interface TopBarProps {
   workspaces: Workspace[]
@@ -41,7 +44,6 @@ interface TopBarProps {
   workspaceUnreadMap?: Record<string, boolean>
   onWorkspaceCreated?: (workspace: Workspace) => void
   onWorkspaceRemoved?: () => void
-  activeSessionId?: string | null
   onNewChat: () => void
   onNewWindow?: () => void
   onOpenSettings: () => void
@@ -67,7 +69,6 @@ export function TopBar({
   workspaceUnreadMap,
   onWorkspaceCreated,
   onWorkspaceRemoved,
-  activeSessionId,
   onNewChat,
   onNewWindow,
   onOpenSettings,
@@ -85,44 +86,24 @@ export function TopBar({
   isCompact,
 }: TopBarProps) {
   const { t } = useTranslation()
-  const [maxVisibleBrowserBadges, setMaxVisibleBrowserBadges] = useState(3)
-  const rightSlotRef = useRef<HTMLDivElement | null>(null)
+  const allBrowserInstances = useAtomValue(browserInstancesAtom)
+  const activeBrowserInstanceId = useAtomValue(activeBrowserInstanceIdAtom)
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+  const browserInstances = useMemo(
+    () => filterInstancesForWorkspace(
+      allBrowserInstances,
+      activeWorkspaceId,
+      activeWorkspace?.remoteServer?.remoteWorkspaceId ?? null,
+    ),
+    [activeWorkspace?.remoteServer?.remoteWorkspaceId, activeWorkspaceId, allBrowserInstances],
+  )
+  const activeBrowserInstance = browserInstances.find((instance) => instance.id === activeBrowserInstanceId)
+    ?? browserInstances.at(-1)
+    ?? null
 
   const goBackHotkey = useActionLabel('nav.goBackAlt').hotkey
   const goForwardHotkey = useActionLabel('nav.goForwardAlt').hotkey
   const terminalHotkey = useActionLabel('view.toggleTerminal').hotkey
-
-  useEffect(() => {
-    const slotEl = rightSlotRef.current
-    if (!slotEl) return
-
-    let frame = 0
-
-    const updateBadgeDensity = () => {
-      const slotWidth = slotEl.getBoundingClientRect().width
-      const nextMaxVisibleBadges = slotWidth >= RIGHT_SLOT_FULL_BADGES_THRESHOLD
-        ? 3
-        : slotWidth >= RIGHT_SLOT_TWO_BADGES_THRESHOLD
-          ? 2
-          : 1
-
-      setMaxVisibleBrowserBadges((prev) => (prev === nextMaxVisibleBadges ? prev : nextMaxVisibleBadges))
-    }
-
-    const schedule = () => {
-      if (frame) cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(updateBadgeDensity)
-    }
-
-    const observer = new ResizeObserver(schedule)
-    observer.observe(slotEl)
-    updateBadgeDensity()
-
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [workspaces.length, activeWorkspaceId])
 
   // Stoplight padding clears macOS traffic-light controls, which only exist
   // in the Electron desktop window. The webui runs in a regular browser tab
@@ -221,24 +202,35 @@ export function TopBar({
         </div>
       </div>
 
-      {/* === RIGHT: Browser strip + browser + terminal + help === */}
+      {/* === RIGHT: Browser + terminal + help === */}
       {!isCompact && (
-      <div ref={rightSlotRef} className="flex min-w-0 shrink-0 items-center justify-end gap-1" style={{ paddingRight: 12 }}>
-        <div className="min-w-0">
-          <BrowserTabStrip activeSessionId={activeSessionId} maxVisibleBadges={maxVisibleBrowserBadges} />
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <TopBarButton
-              onClick={onAddBrowserPanel}
-              aria-label={t('browser.newTab')}
-              className="h-[26px] w-[26px] rounded-lg"
-            >
-              <Icons.Globe className="h-3.5 w-3.5 text-foreground/50" strokeWidth={1.5} />
-            </TopBarButton>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{t('browser.newTab')}</TooltipContent>
-        </Tooltip>
+      <div className="flex min-w-0 shrink-0 items-center justify-end gap-1" style={{ paddingRight: 12 }}>
+        {activeBrowserInstance ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <BrowserTabBadge
+                instance={activeBrowserInstance}
+                isActive
+                showChevron={false}
+                onClick={onAddBrowserPanel}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('browser.showBrowser')}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <TopBarButton
+                onClick={onAddBrowserPanel}
+                aria-label={t('browser.openBrowser')}
+                className="h-[26px] w-[26px] rounded-lg bg-foreground/5"
+              >
+                <Icons.Globe className="h-3.5 w-3.5 text-foreground/60" strokeWidth={1.5} />
+              </TopBarButton>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('browser.openBrowser')}</TooltipContent>
+          </Tooltip>
+        )}
         {isWebUI && (
           <Tooltip>
             <TooltipTrigger asChild>

@@ -1,8 +1,7 @@
 /**
  * BrowserTabBadge
  *
- * Compact badge used in the top bar browser strip.
- * Render-only surface that acts as a dropdown trigger in BrowserTabStrip.
+ * Compact badge for the single active browser shown in the top bar.
  */
 
 import { forwardRef, useEffect, useState, type ButtonHTMLAttributes } from 'react'
@@ -14,10 +13,11 @@ import { getHostname, getThemeLuminance } from './utils'
 interface BrowserTabBadgeProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   instance: BrowserInstanceInfo
   isActive: boolean
+  showChevron?: boolean
 }
 
 export const BrowserTabBadge = forwardRef<HTMLButtonElement, BrowserTabBadgeProps>(function BrowserTabBadge(
-  { instance, isActive: _isActive, className, style, ...buttonProps },
+  { instance, isActive: _isActive, showChevron = true, className, style, ...buttonProps },
   ref
 ) {
   const hostname = getHostname(instance.url)
@@ -56,7 +56,7 @@ export const BrowserTabBadge = forwardRef<HTMLButtonElement, BrowserTabBadgeProp
         transition: 'background-color 200ms ease, border-color 200ms ease',
         ...style,
       }}
-      aria-label={`${displayLabel} actions`}
+      aria-label={displayLabel}
       {...buttonProps}
     >
       <span className={`shrink-0 flex items-center justify-center ${isDarkThemeColor ? 'h-3.5 w-3.5' : 'h-3 w-3'}`}>
@@ -87,9 +87,11 @@ export const BrowserTabBadge = forwardRef<HTMLButtonElement, BrowserTabBadgeProp
 
       <span className="truncate ml-0.5 leading-[12px]">{displayLabel}</span>
 
-      <span className="shrink-0 h-3 w-3 flex items-center justify-center opacity-55 group-hover:opacity-90 transition-opacity">
-        <Icons.ChevronDown className="h-2.5 w-2.5" />
-      </span>
+      {showChevron && (
+        <span className="shrink-0 h-3 w-3 flex items-center justify-center opacity-55 group-hover:opacity-90 transition-opacity">
+          <Icons.ChevronDown className="h-2.5 w-2.5" />
+        </span>
+      )}
     </button>
   )
 })

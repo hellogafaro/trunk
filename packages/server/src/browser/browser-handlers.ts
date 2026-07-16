@@ -5,6 +5,7 @@ import type {
   BrowserScreenshotRequest,
 } from '@craft-agent/shared/protocol'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
+import { browserElementsAtPointExpression } from '@craft-agent/server-core/handlers'
 import type { ServerBrowserPaneManager } from './server-browser-pane-manager'
 
 interface BrowserCreateOptions {
@@ -60,6 +61,9 @@ export function registerServerBrowserHandlers(
   server.handle(RPC_CHANNELS.browserPane.KEYBOARD, async (_ctx, id: string, input: BrowserKeyboardInput) => await browserPaneManager.keyboard(id, input))
   server.handle(RPC_CHANNELS.browserPane.RESIZE, async (_ctx, id: string, width: number, height: number) => await browserPaneManager.resizeAsync(id, width, height))
   server.handle(RPC_CHANNELS.browserPane.EVALUATE, async (_ctx, id: string, expression: string) => await browserPaneManager.evaluate(id, expression))
+  server.handle(RPC_CHANNELS.browserPane.ELEMENTS_AT, async (_ctx, id: string, x: number, y: number) => (
+    await browserPaneManager.evaluate(id, browserElementsAtPointExpression(x, y))
+  ))
   server.handle(RPC_CHANNELS.browserPane.SCROLL, async (_ctx, id: string, direction: 'up' | 'down' | 'left' | 'right', amount?: number) => await browserPaneManager.scroll(id, direction, amount))
   server.handle(RPC_CHANNELS.browserPane.LAUNCH, async () => ({ ok: true, handled: false }))
 

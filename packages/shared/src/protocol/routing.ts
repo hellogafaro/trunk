@@ -435,6 +435,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.browserPane.KEYBOARD,
   RPC_CHANNELS.browserPane.RESIZE,
   RPC_CHANNELS.browserPane.EVALUATE,
+  RPC_CHANNELS.browserPane.ELEMENTS_AT,
   RPC_CHANNELS.browserPane.SCROLL,
   RPC_CHANNELS.browserPane.LAUNCH,
   RPC_CHANNELS.browserPane.STATE_CHANGED,

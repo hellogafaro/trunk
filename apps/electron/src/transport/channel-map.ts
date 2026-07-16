@@ -383,6 +383,7 @@ export const CHANNEL_MAP = {
   'browserPane.pointer': invoke(RPC_CHANNELS.browserPane.POINTER),
   'browserPane.keyboard': invoke(RPC_CHANNELS.browserPane.KEYBOARD),
   'browserPane.resize': invoke(RPC_CHANNELS.browserPane.RESIZE),
+  'browserPane.elementsAt': invoke(RPC_CHANNELS.browserPane.ELEMENTS_AT),
   'browserPane.emptyStateLaunch': invoke(RPC_CHANNELS.browserPane.LAUNCH),
   'browserPane.onStateChanged': listener(RPC_CHANNELS.browserPane.STATE_CHANGED),
   'browserPane.onRemoved': listener(RPC_CHANNELS.browserPane.REMOVED),

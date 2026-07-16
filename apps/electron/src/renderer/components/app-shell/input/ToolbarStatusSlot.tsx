@@ -8,7 +8,7 @@
  * Positioned absolute inset-0 over the toolbar's relative container.
  * Uses AnimatePresence for smooth fade transitions between states.
  *
- * Browser state is consumed directly from Jotai atoms (same pattern as BrowserTabStrip)
+ * Browser state is consumed directly from the shared Jotai registry atoms.
  * to avoid threading props through 4 component levels.
  */
 

@@ -1302,6 +1302,31 @@ export function FreeFormInput({
     return () => window.removeEventListener('craft:submit-input', handleSubmitInput as EventListener)
   }, [sessionId, isFocusedPanel, submitMessage])
 
+  // Browser annotations are created in the browser overlay, then added to the
+  // focused session's draft for review. Keep this scoped like the submit/focus
+  // events so a multi-panel layout never duplicates the attachment.
+  React.useEffect(() => {
+    const handleBrowserAnnotation = (event: CustomEvent<{
+      sessionId?: string
+      attachment?: FileAttachment
+      text?: string
+    }>) => {
+      const targetSessionId = event.detail?.sessionId
+      const attachment = event.detail?.attachment
+      if (!attachment || !shouldHandleScopedInputEvent({ sessionId, isFocusedPanel, targetSessionId })) return
+
+      setAttachments((current) => [...current, attachment])
+      const annotationText = event.detail?.text?.trim()
+      if (annotationText) {
+        setInput((current) => current.trim() ? `${current.trim()}\n\n${annotationText}` : annotationText)
+      }
+      requestAnimationFrame(() => richInputRef.current?.focus())
+    }
+
+    window.addEventListener('craft:add-browser-annotation', handleBrowserAnnotation as EventListener)
+    return () => window.removeEventListener('craft:add-browser-annotation', handleBrowserAnnotation as EventListener)
+  }, [isFocusedPanel, richInputRef, sessionId])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     submitMessage()

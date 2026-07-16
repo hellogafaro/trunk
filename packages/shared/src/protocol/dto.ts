@@ -836,6 +836,21 @@ export interface BrowserFrame {
   timestamp: number
 }
 
+export interface BrowserElementInfo {
+  tagName: string
+  role: string | null
+  label: string | null
+  text: string | null
+  selector: string
+  classes: string[]
+  componentName: string | null
+  componentPath: string[]
+  sourceFile: { fileName: string; lineNumber: number | null; columnNumber: number | null } | null
+  parentContext: string | null
+  childSummary: string | null
+  rect: { x: number; y: number; width: number; height: number }
+}
+
 export type BrowserPointerInput =
   | { kind: 'move'; x: number; y: number }
   | { kind: 'down' | 'up'; x: number; y: number; button?: 'left' | 'middle' | 'right' }

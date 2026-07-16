@@ -386,6 +386,7 @@ export const RPC_CHANNELS = {
     KEYBOARD: 'browser-pane:keyboard',
     RESIZE: 'browser-pane:resize',
     EVALUATE: 'browser-pane:evaluate',
+    ELEMENTS_AT: 'browser-pane:elements-at',
     SCROLL: 'browser-pane:scroll',
     LAUNCH: 'browser-empty-state:launch',
     STATE_CHANGED: 'browser-pane:state-changed',

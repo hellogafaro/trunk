@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useAtomValue } from 'jotai'
 import * as Icons from 'lucide-react'
 import type { ComponentEntry } from './types'
 import {
@@ -9,7 +10,9 @@ import {
   type ResponseContent,
 } from '@craft-agent/ui'
 import { AnimatePresence, motion } from 'motion/react'
-import { BrowserTabStrip } from '@/components/browser/BrowserTabStrip'
+import { BrowserTabBadge } from '@/components/browser/BrowserTabBadge'
+import { activeBrowserInstanceIdAtom, browserInstancesAtom } from '@/atoms/browser-pane'
+import { useBrowserPaneRegistry } from '@/hooks/useBrowserPaneRegistry'
 import { EMPTY_STATE_PROMPT_SAMPLES } from '@/components/browser/empty-state-prompts'
 import type { BrowserInstanceInfo } from '../../../shared/types'
 import { BROWSER_LIVE_FX_BORDER, getBrowserLiveFxCornerRadii } from '../../../shared/browser-live-fx'
@@ -525,12 +528,12 @@ function BrowserEmptyStatePlayground({
   )
 }
 
-type BrowserTabStripMode = 'auto' | 'live' | 'mock'
-type BrowserTabStripMockPreset = 'default' | 'long-names' | 'many-running' | 'stress-mix'
+type BrowserBadgeMode = 'auto' | 'live' | 'mock'
+type BrowserBadgeMockPreset = 'default' | 'long-names' | 'many-running' | 'stress-mix'
 
 // NOTE: Theme colors below are derived from the same extraction logic used by browser-pane-manager
 // (meta tags + top-surface sampling fallback) and then applied to realistic mock scenarios.
-const MOCK_BROWSER_PRESETS: Record<BrowserTabStripMockPreset, BrowserInstanceInfo[]> = {
+const MOCK_BROWSER_PRESETS: Record<BrowserBadgeMockPreset, BrowserInstanceInfo[]> = {
   default: [
     {
       id: 'mock-1',
@@ -841,17 +844,20 @@ const MOCK_BROWSER_PRESETS: Record<BrowserTabStripMockPreset, BrowserInstanceInf
   ],
 }
 
-function BrowserTabStripPlayground({
+function BrowserBadgePlayground({
   activeSessionId,
   mode,
   mockPreset,
 }: {
   activeSessionId: string
-  mode: BrowserTabStripMode
-  mockPreset: BrowserTabStripMockPreset
+  mode: BrowserBadgeMode
+  mockPreset: BrowserBadgeMockPreset
 }) {
+  useBrowserPaneRegistry()
+  const liveInstances = useAtomValue(browserInstancesAtom)
+  const activeInstanceId = useAtomValue(activeBrowserInstanceIdAtom)
   const hasBrowserPaneBridge = typeof window !== 'undefined' && !!window.electronAPI?.browserPane
-  const resolvedMode: Exclude<BrowserTabStripMode, 'auto'> = mode === 'auto'
+  const resolvedMode: Exclude<BrowserBadgeMode, 'auto'> = mode === 'auto'
     ? (hasBrowserPaneBridge ? 'live' : 'mock')
     : mode
 
@@ -869,10 +875,19 @@ function BrowserTabStripPlayground({
     return items
   }, [activeSessionId, mockPreset])
 
+  const activeInstance = resolvedMode === 'mock'
+    ? (mockInstances.find((instance) => instance.id === activeInstanceId) ?? mockInstances[0] ?? null)
+    : (liveInstances.find((instance) => instance.id === activeInstanceId) ?? liveInstances.at(-1) ?? null)
+
+  const handleOpenBrowser = useCallback(() => {
+    if (resolvedMode !== 'live' || !activeInstance) return
+    void window.electronAPI?.browserPane?.focus(activeInstance.id)
+  }, [activeInstance, resolvedMode])
+
   if (resolvedMode === 'live' && !hasBrowserPaneBridge) {
     return (
       <div className="w-full max-w-[900px] p-6 rounded-xl border border-border bg-background shadow-sm">
-        <div className="text-sm font-medium mb-2">Top Bar Browser Strip</div>
+        <div className="text-sm font-medium mb-2">Active Browser Badge</div>
         <p className="text-xs text-foreground/60">
           Live mode requires Electron preload APIs (`window.electronAPI.browserPane`), which are not available in plain browser context.
           Switch mode to Auto or Mock for visual review here.
@@ -884,21 +899,33 @@ function BrowserTabStripPlayground({
   return (
     <div className="w-full max-w-[900px] p-6 rounded-xl border border-border bg-background shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium">Top Bar Browser Strip</h3>
+        <h3 className="text-sm font-medium">Active Browser Badge</h3>
         <span className="text-xs text-foreground/50">
           {resolvedMode === 'live' ? 'Live data from browser registry' : 'Mock preview states'}
         </span>
       </div>
       {resolvedMode === 'mock' && (
         <div className="text-xs text-foreground/50 mb-2">
-          {mockInstances.length} tabs • {mockInstances.filter(i => i.isLoading).length} loading • {mockInstances.filter(i => !i.isVisible).length} hidden • {mockInstances.filter(i => i.agentControlActive).length} agent-controlled
+          Showing one active browser from {mockInstances.length} registry entries
         </div>
       )}
       <div className="h-[48px] px-3 rounded-lg border border-foreground/[0.08] bg-background flex items-center justify-end gap-1">
-        <BrowserTabStrip
-          activeSessionId={activeSessionId || null}
-          instancesOverride={resolvedMode === 'mock' ? mockInstances : undefined}
-        />
+        {activeInstance ? (
+          <BrowserTabBadge
+            instance={activeInstance}
+            isActive
+            showChevron={false}
+            onClick={handleOpenBrowser}
+          />
+        ) : (
+          <button
+            type="button"
+            className="titlebar-no-drag inline-flex h-[26px] items-center gap-1.5 rounded-lg bg-foreground/5 px-2.5 text-[11px] text-foreground transition-colors hover:bg-foreground/10"
+          >
+            <Icons.Globe className="h-3 w-3" />
+            Browser
+          </button>
+        )}
       </div>
       <p className="text-xs text-foreground/50 mt-3">
         Accent 1px border indicates a browser currently controlled by an agent.
@@ -1038,10 +1065,10 @@ export const browserUiComponents: ComponentEntry[] = [
   },
   {
     id: 'browser-tab-strip-playground',
-    name: 'Browser Tab Strip (Top Bar)',
+    name: 'Active Browser Badge (Top Bar)',
     category: 'Browser',
-    description: 'Live BrowserTabStrip used in the main top bar, including global registry and agent-control accent border.',
-    component: BrowserTabStripPlayground,
+    description: 'Single active browser badge used in the top bar, including favicon, loading state, and agent-control accent border.',
+    component: BrowserBadgePlayground,
     props: [
       {
         name: 'mode',
@@ -1058,7 +1085,7 @@ export const browserUiComponents: ComponentEntry[] = [
       },
       {
         name: 'mockPreset',
-        description: 'Mock state bundle for visual QA: long names, multiple running tabs, hidden tabs, and agent-controlled accents.',
+        description: 'Mock registry bundle for visual QA of the selected active badge.',
         control: {
           type: 'select',
           options: [
@@ -1072,7 +1099,7 @@ export const browserUiComponents: ComponentEntry[] = [
       },
       {
         name: 'activeSessionId',
-        description: 'Session used for ordering preference (session-local windows first) in both live and mock modes.',
+        description: 'Session used to select the preferred mock browser entry.',
         control: { type: 'string', placeholder: '260228-high-comet' },
         defaultValue: '260228-high-comet',
       },
