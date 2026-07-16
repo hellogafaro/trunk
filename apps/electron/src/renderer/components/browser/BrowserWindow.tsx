@@ -448,42 +448,22 @@ function BrowserViewport({
   const completedCommentCount = regions.filter((region) => region.note.trim()).length
   const activeRegion = activeRegionIndex == null ? null : (regions[activeRegionIndex] ?? null)
   const annotationPanelWidth = 320
-  const annotationGap = 12
-  const surfaceLeft = Math.max(0, (hostSize.width - displaySize.width) / 2)
-  const surfaceTop = Math.max(0, (hostSize.height - displaySize.height) / 2)
-  const rightPanelLeft = surfaceLeft + displaySize.width + annotationGap
-  const leftPanelLeft = surfaceLeft - annotationGap - annotationPanelWidth
-  const annotationPanelLeft = rightPanelLeft + annotationPanelWidth <= hostSize.width - 8
-    ? rightPanelLeft
-    : leftPanelLeft >= 8
-      ? leftPanelLeft
-      : null
-  const usesAnnotationSidePanel = annotationPanelLeft != null
   const activePopoverPosition = activeRegion
     ? {
-        left: annotationPanelLeft ?? Math.max(
-          8,
-          Math.min(
-            hostSize.width - annotationPanelWidth - 8,
-            surfaceLeft + (activeRegion.x + activeRegion.width) * displaySize.width + annotationGap,
-          ),
-        ),
-        top: Math.max(
-          8,
-          Math.min(hostSize.height - 190, surfaceTop + activeRegion.y * displaySize.height),
-        ),
+        left: Math.max(8, (hostSize.width - annotationPanelWidth) / 2),
+        top: 60,
       }
     : null
-  const annotationHintPosition = usesAnnotationSidePanel
-    ? { left: annotationPanelLeft, top: Math.max(8, surfaceTop + 8), width: annotationPanelWidth }
-    : { left: surfaceLeft + displaySize.width / 2, top: Math.max(8, surfaceTop + 16), transform: 'translateX(-50%)' }
-  const annotationToolbarPosition = usesAnnotationSidePanel
-    ? {
-        left: annotationPanelLeft,
-        bottom: Math.max(12, hostSize.height - surfaceTop - displaySize.height + 12),
-        width: annotationPanelWidth,
-      }
-    : { left: hostSize.width / 2, bottom: 12, transform: 'translateX(-50%)' }
+  const annotationHintPosition = {
+    left: hostSize.width / 2,
+    top: 60,
+    transform: 'translateX(-50%)',
+  }
+  const annotationToolbarPosition = {
+    left: hostSize.width / 2,
+    top: 12,
+    transform: 'translateX(-50%)',
+  }
 
   return (
     <div
