@@ -8,7 +8,7 @@
 
 ## Project Snapshot
 
-T3 Code is a minimal web GUI for using coding agents like Codex and Claude.
+This project is a fully open-source fork of T3 Code, specialized for a web-only experience for using coding agents like Codex and Claude. Desktop and native applications are outside the product scope.
 
 This repository is a VERY EARLY WIP. Proposing sweeping changes that improve long-term maintainability is encouraged.
 
@@ -32,7 +32,18 @@ Long term maintainability is a core priority. If you add new functionality, firs
 - `packages/shared`: Shared runtime utilities consumed by both server and client applications. Uses explicit subpath exports (e.g. `@t3tools/shared/git`) — no barrel index.
 - `packages/client-runtime`: Shared runtime package for sharing client code across web and mobile.
 
-## Reference Repos
+## Feature Research and Planning
+
+Before planning or implementing a new feature, investigate how the relevant open-source reference projects approach the same problem, when they expose a comparable feature:
+
+- Synara: https://github.com/Emanuele-web04/synara
+- T3 Code: https://github.com/pingdotgg/t3code
+- Craft Agents: https://github.com/craft-ai-agents/craft-agents-oss
+- OpenHands: https://github.com/OpenHands/OpenHands
+
+Inspect their source, documentation, and user experience to identify established interaction patterns, useful behavior, architectural choices, and tradeoffs. Then brainstorm approaches and create an implementation plan adapted to this project's fully open-source, web-only architecture. Treat the references as inspiration rather than specifications to copy.
+
+## Implementation Reference Repos
 
 - Open-source Codex repo: https://github.com/openai/codex
 - Codex-Monitor (Tauri, feature-complete, strong reference implementation): https://github.com/Dimillian/CodexMonitor

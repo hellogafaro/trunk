@@ -1,6 +1,8 @@
-# T3 Code
+# T3 Code — Web-only fork
 
-T3 Code is a minimal web GUI for coding agents (currently Codex, Claude, Cursor, and OpenCode, more coming soon).
+This repository is a fully open-source fork of [T3 Code](https://github.com/pingdotgg/t3code), specialized for a web-only experience. It provides a browser-based GUI for coding agents, currently including Codex, Claude, Cursor, and OpenCode.
+
+The product is intentionally focused on the web app and server. Desktop and native applications are not part of this fork's product scope. The project is available under the [MIT License](./LICENSE).
 
 ## Installation
 
@@ -13,34 +15,18 @@ T3 Code is a minimal web GUI for coding agents (currently Codex, Claude, Cursor,
 > - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `cursor-agent login`
 > - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
 
-### Run without installing
+### Run from source
 
 ```bash
-npx t3@latest
+vp i
+vp run dev
 ```
 
-Tip: Use `npx t3@latest --help` for the full CLI reference.
-
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
+For a production build:
 
 ```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Arch Linux (AUR)
-
-```bash
-yay -S t3code-bin
+vp run build
+vp run start
 ```
 
 ## Some notes
