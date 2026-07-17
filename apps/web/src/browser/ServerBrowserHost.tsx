@@ -18,11 +18,9 @@ import { useActivePreviewSessions } from "~/previewStateStore";
 
 import { useBrowserSurfaceStore } from "./browserSurfaceStore";
 import { resolveHostedBrowserWebviewWrapperStyle } from "./hostedBrowserWebviewStyle";
-import { BrowserDeviceToolbar } from "./BrowserDeviceToolbar";
-import { BrowserViewportResizeHandles } from "./BrowserViewportResizeHandles";
-import { useBrowserViewportResize } from "./useBrowserViewportResize";
 import { BrowserAnnotationOverlay } from "./BrowserAnnotationOverlay";
 import { cancelBrowserAnnotation, useBrowserAnnotationStore } from "./browserAnnotationStore";
+import { resolveBrowserViewportLayout } from "./browserViewportLayout";
 
 const DEFAULT_HIDDEN_SIZE = { width: 1280, height: 800 } as const;
 type BrowserInputPayload = PreviewBrowserInput extends infer T
@@ -69,7 +67,6 @@ function ServerBrowserTab(props: {
   const setViewport = useAtomCommand(previewEnvironment.setBrowserViewport, {
     reportFailure: false,
   });
-  const [aspectRatioLocked, setAspectRatioLocked] = useState(false);
   const [frozenFrame, setFrozenFrame] = useState<PreviewBrowserFrame | null>(null);
   const annotationActive = useBrowserAnnotationStore((state) =>
     Boolean(state.activeByTabId[tabId]),
@@ -97,26 +94,7 @@ function ServerBrowserTab(props: {
       ? DEFAULT_HIDDEN_SIZE
       : { width: viewportSetting.width, height: viewportSetting.height };
   const container = active && presentation.rect ? presentation.rect : hiddenSize;
-  const viewportAspectRatio =
-    viewportSetting._tag === "fill" ? null : viewportSetting.width / viewportSetting.height;
-  const lockedAspectRatio =
-    aspectRatioLocked && viewportAspectRatio !== null ? viewportAspectRatio : null;
-  const deviceToolbarVisible = active && viewportSetting._tag !== "fill";
-  const {
-    activeDrag,
-    commitViewportChange,
-    effectiveViewport,
-    handleResizeKeyDown,
-    handleResizePointerDown,
-    layout,
-  } = useBrowserViewportResize({
-    tabId,
-    viewport: viewportSetting,
-    zoomFactor: 1,
-    containerSize: container,
-    deviceToolbarVisible,
-    aspectRatio: lockedAspectRatio,
-  });
+  const layout = resolveBrowserViewportLayout(container, viewportSetting);
   const wrapperStyle = resolveHostedBrowserWebviewWrapperStyle({
     active,
     rect: presentation.rect,
@@ -293,39 +271,18 @@ function ServerBrowserTab(props: {
       }}
       onKeyDown={(event) => {
         if (annotationActive) return;
-        if (
-          event.target instanceof HTMLElement &&
-          event.target.closest("[data-browser-device-toolbar]")
-        ) {
-          return;
-        }
         event.preventDefault();
         if (event.repeat) return;
         dispatchInput({ kind: "keyboard", action: "down", key: event.key });
       }}
       onKeyUp={(event) => {
         if (annotationActive) return;
-        if (
-          event.target instanceof HTMLElement &&
-          event.target.closest("[data-browser-device-toolbar]")
-        ) {
-          return;
-        }
         event.preventDefault();
         dispatchInput({ kind: "keyboard", action: "up", key: event.key });
       }}
       data-server-browser-tab={tabId}
     >
       <div className="relative" style={{ width: layout.canvasWidth, height: layout.canvasHeight }}>
-        {deviceToolbarVisible && effectiveViewport._tag !== "fill" ? (
-          <BrowserDeviceToolbar
-            setting={effectiveViewport}
-            width={Math.max(1, Math.round(container.width))}
-            aspectRatio={lockedAspectRatio}
-            onAspectRatioChange={(aspectRatio) => setAspectRatioLocked(aspectRatio !== null)}
-            onChange={commitViewportChange}
-          />
-        ) : null}
         {displayFrame ? (
           <img
             src={`data:${displayFrame.mimeType};base64,${displayFrame.data}`}
@@ -344,28 +301,6 @@ function ServerBrowserTab(props: {
             {frames.error ?? "Starting browser…"}
           </div>
         )}
-        {active && effectiveViewport._tag !== "fill" && !annotationActive ? (
-          <>
-            <BrowserViewportResizeHandles
-              layout={layout}
-              activeDirection={activeDrag?.direction ?? null}
-              onPointerDown={handleResizePointerDown}
-              onKeyDown={handleResizeKeyDown}
-            />
-            {activeDrag ? (
-              <div
-                className="pointer-events-none absolute z-40 -translate-x-1/2 rounded-md border border-border/80 bg-background/95 px-2 py-1 text-[11px] font-medium tabular-nums text-foreground shadow-md backdrop-blur-sm"
-                style={{
-                  left: layout.viewportX + layout.viewportWidth / 2,
-                  top: layout.viewportY + 10,
-                }}
-                aria-hidden="true"
-              >
-                {activeDrag.width} × {activeDrag.height}
-              </div>
-            ) : null}
-          </>
-        ) : null}
         {annotationActive && frozenFrame ? (
           <BrowserAnnotationOverlay
             threadRef={threadRef}

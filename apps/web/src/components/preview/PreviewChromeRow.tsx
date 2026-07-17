@@ -3,9 +3,12 @@ import {
   ArrowRight,
   Camera,
   ExternalLink,
-  MonitorSmartphone,
+  Maximize2,
+  Monitor,
   MousePointerClick,
   RotateCw,
+  Smartphone,
+  Tablet,
 } from "lucide-react";
 import {
   type FormEvent,
@@ -18,8 +21,17 @@ import {
 
 import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
+import type { BrowserViewportMode } from "~/browser/browserQuickViewports";
+
+const VIEWPORT_ITEMS = [
+  { value: "full" as const, label: "Full", icon: Maximize2 },
+  { value: "desktop" as const, label: "Desktop", icon: Monitor },
+  { value: "tablet" as const, label: "Tablet", icon: Tablet },
+  { value: "mobile" as const, label: "Mobile", icon: Smartphone },
+];
 
 interface Props {
   url: string;
@@ -51,8 +63,8 @@ interface Props {
   pickDisabled?: boolean | undefined;
   /** Optional reason string surfaced in the disabled tooltip. */
   pickDisabledReason?: string | undefined;
-  onToggleDeviceToolbar?: (() => void) | undefined;
-  deviceToolbarActive?: boolean | undefined;
+  viewportMode?: BrowserViewportMode | undefined;
+  onViewportModeChange?: ((mode: BrowserViewportMode) => void) | undefined;
   /**
    * Trailing slot rendered after the URL input. Used by the preview view
    * to mount the three-dot menu (hard reload, devtools, zoom, clear data).
@@ -84,8 +96,8 @@ export function PreviewChromeRow({
   pickActive,
   pickDisabled,
   pickDisabledReason,
-  onToggleDeviceToolbar,
-  deviceToolbarActive,
+  viewportMode,
+  onViewportModeChange,
   trailingActions,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -254,26 +266,36 @@ export function PreviewChromeRow({
             </TooltipPopup>
           </Tooltip>
         ) : null}
-        {onToggleDeviceToolbar ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant={deviceToolbarActive ? "secondary" : "ghost"}
-                  size="icon-xs"
-                  onClick={onToggleDeviceToolbar}
-                  aria-label={deviceToolbarActive ? "Close device toolbar" : "Open device toolbar"}
-                  aria-pressed={deviceToolbarActive ? "true" : "false"}
-                  type="button"
-                />
+        {viewportMode && onViewportModeChange ? (
+          <ToggleGroup
+            className="shrink-0"
+            variant="outline"
+            size="xs"
+            value={[viewportMode]}
+            onValueChange={(value) => {
+              const next = value[0];
+              if (next === "full" || next === "desktop" || next === "tablet" || next === "mobile") {
+                onViewportModeChange(next);
               }
-            >
-              <MonitorSmartphone className={cn(deviceToolbarActive && "text-primary")} />
-            </TooltipTrigger>
-            <TooltipPopup>
-              {deviceToolbarActive ? "Close responsive viewport" : "Responsive viewport"}
-            </TooltipPopup>
-          </Tooltip>
+            }}
+            aria-label="Preview viewport"
+          >
+            {VIEWPORT_ITEMS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Toggle
+                  key={item.value}
+                  value={item.value}
+                  type="button"
+                  aria-label={`${item.label} viewport`}
+                  title={item.label}
+                  className="rounded-sm data-pressed:text-blue-600 dark:data-pressed:text-blue-400"
+                >
+                  <Icon />
+                </Toggle>
+              );
+            })}
+          </ToggleGroup>
         ) : null}
         {onCapture ? (
           <Tooltip>

@@ -1,6 +1,7 @@
 import type { PreviewViewportSetting } from "@t3tools/contracts";
 
 export type BrowserQuickViewport = "mobile" | "tablet" | "desktop";
+export type BrowserViewportMode = "full" | BrowserQuickViewport;
 
 interface BrowserQuickViewportDefinition {
   readonly label: string;
@@ -51,3 +52,6 @@ export const browserQuickViewportValue = (
     setting.width === desktop.height && setting.height === desktop.width;
   return matchesDesktop || matchesRotatedDesktop ? "desktop" : null;
 };
+
+export const browserViewportMode = (setting: PreviewViewportSetting): BrowserViewportMode =>
+  setting._tag === "fill" ? "full" : (browserQuickViewportValue(setting) ?? "desktop");

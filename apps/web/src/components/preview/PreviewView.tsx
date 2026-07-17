@@ -33,7 +33,11 @@ import {
   commitBrowserViewportChange,
   subscribeBrowserViewportChange,
 } from "~/browser/browserViewportActions";
-import { BROWSER_QUICK_VIEWPORTS } from "~/browser/browserQuickViewports";
+import {
+  BROWSER_QUICK_VIEWPORTS,
+  browserViewportMode,
+  type BrowserViewportMode,
+} from "~/browser/browserQuickViewports";
 import {
   cancelBrowserAnnotation,
   toggleBrowserAnnotation,
@@ -203,17 +207,16 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
     [resize, tabId, threadRef],
   );
 
-  const handleToggleDeviceToolbar = () => {
-    if (!tabId) return;
+  const handleViewportModeChange = (mode: BrowserViewportMode) => {
+    if (!tabId || mode === browserViewportMode(viewport)) return;
     if (!previewBridge) cancelBrowserAnnotation(tabId);
-    if (viewport._tag !== "fill") {
-      void commitBrowserViewportChange(tabId, FILL_PREVIEW_VIEWPORT).catch(() => undefined);
-      return;
-    }
+    const nextViewport =
+      mode === "full" ? FILL_PREVIEW_VIEWPORT : BROWSER_QUICK_VIEWPORTS[mode].setting;
+    void commitBrowserViewportChange(tabId, nextViewport).catch(() => undefined);
+  };
 
-    void commitBrowserViewportChange(tabId, BROWSER_QUICK_VIEWPORTS.desktop.setting).catch(
-      () => undefined,
-    );
+  const handleToggleDeviceToolbar = () => {
+    handleViewportModeChange(viewport._tag === "fill" ? "desktop" : "full");
   };
 
   useEffect(() => {
@@ -626,8 +629,8 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         recording={tabId !== null && activeRecordingTabId === tabId}
         onPickElement={tabId ? handlePickElement : undefined}
         pickActive={annotationActive}
-        onToggleDeviceToolbar={!previewBridge && tabId ? handleToggleDeviceToolbar : undefined}
-        deviceToolbarActive={viewport._tag !== "fill"}
+        viewportMode={!previewBridge && tabId ? browserViewportMode(viewport) : undefined}
+        onViewportModeChange={!previewBridge && tabId ? handleViewportModeChange : undefined}
         // Disable when there's no tab (nothing to pick on) OR the page
         // failed to load (a React overlay covers the webview, so the
         // user wouldn't be able to actually click anything underneath).

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { BROWSER_QUICK_VIEWPORTS, browserQuickViewportValue } from "./browserQuickViewports";
+import {
+  BROWSER_QUICK_VIEWPORTS,
+  browserQuickViewportValue,
+  browserViewportMode,
+} from "./browserQuickViewports";
 
 describe("browserQuickViewportValue", () => {
   it("recognizes the three quick viewport settings", () => {
@@ -24,5 +28,10 @@ describe("browserQuickViewportValue", () => {
 
   it("leaves a custom viewport unselected", () => {
     expect(browserQuickViewportValue({ _tag: "freeform", width: 1180, height: 760 })).toBeNull();
+  });
+
+  it("maps full and legacy custom settings to a chrome-row mode", () => {
+    expect(browserViewportMode({ _tag: "fill" })).toBe("full");
+    expect(browserViewportMode({ _tag: "freeform", width: 1180, height: 760 })).toBe("desktop");
   });
 });
