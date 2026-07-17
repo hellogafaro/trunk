@@ -23,6 +23,7 @@ export function createPreviewEnvironmentAtoms<R, E>(
   const lifecycleScheduler = createAtomCommandScheduler();
   const statusScheduler = createAtomCommandScheduler();
   const automationScheduler = createAtomCommandScheduler();
+  const browserInputScheduler = createAtomCommandScheduler();
   const lifecycleConcurrency = {
     mode: "serial" as const,
     key: ({ environmentId, input }: { environmentId: string; input: { threadId: string } }) =>
@@ -48,6 +49,11 @@ export function createPreviewEnvironmentAtoms<R, E>(
       // Automation requests are commands, not cached query data. Dispose the
       // stream immediately with its owner so stale requests cannot replay when
       // a thread remounts and the server can clear disconnected hosts promptly.
+      idleTtlMs: 0,
+    }),
+    browserFrames: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:preview:browser-frames",
+      tag: WS_METHODS.previewBrowserFrames,
       idleTtlMs: 0,
     }),
     open: createEnvironmentRpcCommand(runtime, {
@@ -89,6 +95,32 @@ export function createPreviewEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.threadId, input.tabId]),
       },
+    }),
+    sendBrowserInput: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:preview:browser-input",
+      tag: WS_METHODS.previewBrowserInput,
+      scheduler: browserInputScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.threadId, input.tabId]),
+      },
+    }),
+    setBrowserViewport: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:preview:browser-viewport",
+      tag: WS_METHODS.previewBrowserViewport,
+      scheduler: statusScheduler,
+      concurrency: {
+        mode: "latest",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.threadId, input.tabId]),
+      },
+    }),
+    browserHistory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:preview:browser-history",
+      tag: WS_METHODS.previewBrowserHistory,
+      scheduler: lifecycleScheduler,
+      concurrency: lifecycleConcurrency,
     }),
     respondToAutomation: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:preview:automation-respond",

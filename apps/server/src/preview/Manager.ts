@@ -10,6 +10,13 @@
  * fail an in-progress `navigate()`).
  */
 import {
+  type PreviewBrowserError,
+  type PreviewBrowserFrame,
+  type PreviewBrowserFramesInput,
+  type PreviewBrowserHistoryInput,
+  type PreviewBrowserInput,
+  PreviewBrowserOperationError,
+  type PreviewBrowserViewportInput,
   type PreviewCloseInput,
   type PreviewEvent,
   type PreviewError,
@@ -24,6 +31,7 @@ import {
   FILL_PREVIEW_VIEWPORT,
   PreviewSessionLookupError,
   type PreviewSessionSnapshot,
+  ThreadId,
 } from "@t3tools/contracts";
 import {
   isPreviewUrlNormalizationError,
@@ -38,6 +46,8 @@ import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
+
+import * as ServerBrowser from "./ServerBrowser.ts";
 
 export class PreviewManager extends Context.Service<
   PreviewManager,
@@ -55,6 +65,21 @@ export class PreviewManager extends Context.Service<
     readonly list: (input: PreviewListInput) => Effect.Effect<PreviewListResult>;
     readonly events: Stream.Stream<PreviewEvent>;
     readonly subscribeEvents: Effect.Effect<PubSub.Subscription<PreviewEvent>, never, Scope.Scope>;
+    readonly browserFrames: (
+      input: PreviewBrowserFramesInput,
+    ) => Effect.Effect<
+      Stream.Stream<PreviewBrowserFrame, PreviewBrowserError>,
+      PreviewBrowserError
+    >;
+    readonly sendBrowserInput: (
+      input: PreviewBrowserInput,
+    ) => Effect.Effect<void, PreviewBrowserError>;
+    readonly setBrowserViewport: (
+      input: PreviewBrowserViewportInput,
+    ) => Effect.Effect<void, PreviewBrowserError>;
+    readonly browserHistory: (
+      input: PreviewBrowserHistoryInput,
+    ) => Effect.Effect<void, PreviewBrowserError>;
   }
 >()("t3/preview/Manager/PreviewManager") {}
 
@@ -138,6 +163,7 @@ const buildIdleSnapshot = (input: {
 });
 
 export const make = Effect.gen(function* PreviewManagerMake() {
+  const serverBrowser = yield* ServerBrowser.ServerBrowser;
   const stateRef = yield* SynchronizedRef.make<ManagerState>(initialState);
   // Unbounded PubSub is fine here — events are tiny and we don't want to
   // block publishers if a subscriber is slow. WS clients backpressure on
@@ -194,6 +220,38 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     );
   };
 
+  const lookupBrowserSession = (
+    threadId: string,
+    tabId: string,
+  ): Effect.Effect<PreviewSessionState, PreviewBrowserOperationError> =>
+    SynchronizedRef.get(stateRef).pipe(
+      Effect.flatMap((state) => {
+        const session = state.sessions.get(compositeKey(threadId, tabId));
+        return session
+          ? Effect.succeed(session)
+          : Effect.fail(
+              new PreviewBrowserOperationError({
+                operation: "lookup",
+                message: `Unknown hosted browser session: thread=${threadId}, tab=${tabId}`,
+              }),
+            );
+      }),
+    );
+
+  const ignoreHostedBrowserFailure = <A>(
+    operation: string,
+    effect: Effect.Effect<A, PreviewBrowserOperationError>,
+  ): Effect.Effect<void> =>
+    effect.pipe(
+      Effect.asVoid,
+      Effect.catch((error) =>
+        Effect.logWarning("Hosted browser operation failed", {
+          operation,
+          detail: error.message,
+        }),
+      ),
+    );
+
   const open: PreviewManager["Service"]["open"] = Effect.fn("PreviewManager.open")(
     function* (input) {
       const tabId = newPreviewTabId();
@@ -230,7 +288,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   const navigate: PreviewManager["Service"]["navigate"] = Effect.fn("PreviewManager.navigate")(
     function* (input) {
       const url = yield* normalizeUrl(input.url);
-      return yield* mutateExistingSession(
+      const snapshot = yield* mutateExistingSession(
         input.threadId,
         input.tabId,
         Effect.fn("PreviewManager.navigateSession")(function* (session) {
@@ -260,6 +318,11 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           };
         }),
       );
+      yield* ignoreHostedBrowserFailure(
+        "navigate",
+        serverBrowser.navigateIfOpen(input.threadId, input.tabId, url),
+      );
+      return snapshot;
     },
   );
 
@@ -308,9 +371,22 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     );
   });
 
+  yield* serverBrowser.statusEvents.pipe(
+    Stream.runForEach((input) =>
+      reportStatus(input).pipe(
+        Effect.catch((error) =>
+          Effect.logDebug("Discarded hosted browser status for a closed preview tab", {
+            detail: error.message,
+          }),
+        ),
+      ),
+    ),
+    Effect.forkScoped,
+  );
+
   const resize: PreviewManager["Service"]["resize"] = Effect.fn("PreviewManager.resize")(
     function* (input) {
-      return yield* mutateExistingSession(
+      const snapshot = yield* mutateExistingSession(
         input.threadId,
         input.tabId,
         Effect.fn("PreviewManager.resizeSession")(function* (session) {
@@ -333,6 +409,18 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           };
         }),
       );
+      if (input.viewport._tag !== "fill") {
+        yield* ignoreHostedBrowserFailure(
+          "resize",
+          serverBrowser.resizeIfOpen(
+            input.threadId,
+            input.tabId,
+            input.viewport.width,
+            input.viewport.height,
+          ),
+        );
+      }
+      return snapshot;
     },
   );
 
@@ -342,6 +430,10 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       // and will report progress back via `reportStatus`. No event emitted.
       yield* mutateExistingSession(input.threadId, input.tabId, (session) =>
         Effect.succeed({ next: session, emit: null, result: undefined as void }),
+      );
+      yield* ignoreHostedBrowserFailure(
+        "refresh",
+        serverBrowser.refreshIfOpen(input.threadId, input.tabId),
       );
     },
   );
@@ -371,6 +463,11 @@ export const make = Effect.gen(function* PreviewManagerMake() {
         }
         return [eventsToEmit, { sessions }] as const;
       });
+      yield* Effect.forEach(
+        events,
+        (event) => serverBrowser.close(ThreadId.make(event.threadId), event.tabId),
+        { discard: true },
+      );
       if (events.length > 0) {
         yield* Effect.forEach(events, (event) => PubSub.publish(eventsPubSub, event), {
           discard: true,
@@ -393,6 +490,34 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     },
   );
 
+  const browserFrames: PreviewManager["Service"]["browserFrames"] = Effect.fn(
+    "PreviewManager.browserFrames",
+  )(function* (input) {
+    const session = yield* lookupBrowserSession(input.threadId, input.tabId);
+    return yield* serverBrowser.frames(session.snapshot);
+  });
+
+  const sendBrowserInput: PreviewManager["Service"]["sendBrowserInput"] = Effect.fn(
+    "PreviewManager.sendBrowserInput",
+  )(function* (input) {
+    yield* lookupBrowserSession(input.threadId, input.tabId);
+    yield* serverBrowser.sendInput(input);
+  });
+
+  const setBrowserViewport: PreviewManager["Service"]["setBrowserViewport"] = Effect.fn(
+    "PreviewManager.setBrowserViewport",
+  )(function* (input) {
+    yield* lookupBrowserSession(input.threadId, input.tabId);
+    yield* serverBrowser.setViewport(input);
+  });
+
+  const browserHistory: PreviewManager["Service"]["browserHistory"] = Effect.fn(
+    "PreviewManager.browserHistory",
+  )(function* (input) {
+    yield* lookupBrowserSession(input.threadId, input.tabId);
+    yield* serverBrowser.history(input);
+  });
+
   return PreviewManager.of({
     open,
     navigate,
@@ -403,7 +528,11 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     list,
     events,
     subscribeEvents: PubSub.subscribe(eventsPubSub),
+    browserFrames,
+    sendBrowserInput,
+    setBrowserViewport,
+    browserHistory,
   });
 }).pipe(Effect.withSpan("PreviewManager.make"));
 
-export const layer = Layer.effect(PreviewManager, make);
+export const layer = Layer.effect(PreviewManager, make).pipe(Layer.provide(ServerBrowser.layer));

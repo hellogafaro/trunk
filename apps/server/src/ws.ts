@@ -335,6 +335,10 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.previewClose, AuthOrchestrationOperateScope],
   [WS_METHODS.previewList, AuthOrchestrationReadScope],
   [WS_METHODS.previewReportStatus, AuthOrchestrationOperateScope],
+  [WS_METHODS.previewBrowserFrames, AuthOrchestrationReadScope],
+  [WS_METHODS.previewBrowserInput, AuthOrchestrationOperateScope],
+  [WS_METHODS.previewBrowserViewport, AuthOrchestrationOperateScope],
+  [WS_METHODS.previewBrowserHistory, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationConnect, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationRespond, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationFocusHost, AuthOrchestrationOperateScope],
@@ -1643,6 +1647,26 @@ const makeWsRpcLayer = (
         [WS_METHODS.previewReportStatus]: (input) =>
           observeRpcEffect(WS_METHODS.previewReportStatus, previewManager.reportStatus(input), {
             "rpc.aggregate": "preview",
+          }),
+        [WS_METHODS.previewBrowserFrames]: (input) =>
+          observeRpcStreamEffect(
+            WS_METHODS.previewBrowserFrames,
+            previewManager.browserFrames(input),
+            { "rpc.aggregate": "preview-browser" },
+          ),
+        [WS_METHODS.previewBrowserInput]: (input) =>
+          observeRpcEffect(WS_METHODS.previewBrowserInput, previewManager.sendBrowserInput(input), {
+            "rpc.aggregate": "preview-browser",
+          }),
+        [WS_METHODS.previewBrowserViewport]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.previewBrowserViewport,
+            previewManager.setBrowserViewport(input),
+            { "rpc.aggregate": "preview-browser" },
+          ),
+        [WS_METHODS.previewBrowserHistory]: (input) =>
+          observeRpcEffect(WS_METHODS.previewBrowserHistory, previewManager.browserHistory(input), {
+            "rpc.aggregate": "preview-browser",
           }),
         [WS_METHODS.previewAutomationConnect]: (input) =>
           observeRpcStreamEffect(

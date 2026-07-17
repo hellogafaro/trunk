@@ -75,6 +75,9 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const environment = useEnvironment(threadRef.environmentId);
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(threadRef.environmentId);
   const open = useAtomCommand(previewEnvironment.open);
+  const navigate = useAtomCommand(previewEnvironment.navigate, "preview navigation");
+  const refresh = useAtomCommand(previewEnvironment.refresh, "preview refresh");
+  const browserHistory = useAtomCommand(previewEnvironment.browserHistory, "preview history");
   const resize = useAtomCommand(previewEnvironment.resize, "preview viewport resize");
 
   usePreviewSession(threadRef);
@@ -121,6 +124,14 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
           // resolved URL back to the server so other clients stay in sync.
           await previewBridge.navigate(tabId, resolvedUrl);
           rememberPreviewUrl(threadRef, resolvedUrl);
+        } else if (tabId) {
+          const result = await navigate({
+            environmentId: threadRef.environmentId,
+            input: { threadId: threadRef.threadId, tabId, url: resolvedUrl },
+          });
+          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+          updatePreviewServerSnapshot(threadRef, result.value);
+          rememberPreviewUrl(threadRef, resolvedUrl);
         } else {
           await openPreviewSession({
             openPreview: open,
@@ -132,12 +143,20 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         // Server-side `failed` event renders the unreachable view.
       }
     },
-    [open, tabId, threadRef],
+    [navigate, open, tabId, threadRef],
   );
 
   const handleRefresh = useCallback(() => {
-    if (previewBridge && tabId) void previewBridge.refresh(tabId);
-  }, [tabId]);
+    if (!tabId) return;
+    if (previewBridge) {
+      void previewBridge.refresh(tabId);
+      return;
+    }
+    void refresh({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, tabId },
+    });
+  }, [refresh, tabId, threadRef]);
 
   const handleZoomIn = useCallback(() => {
     if (previewBridge && tabId) void previewBridge.zoomIn(tabId);
@@ -197,12 +216,28 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   }, [handleViewportChange, tabId]);
 
   const handleBack = useCallback(() => {
-    if (previewBridge && tabId) void previewBridge.goBack(tabId);
-  }, [tabId]);
+    if (!tabId) return;
+    if (previewBridge) {
+      void previewBridge.goBack(tabId);
+      return;
+    }
+    void browserHistory({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, tabId, action: "back" },
+    });
+  }, [browserHistory, tabId, threadRef]);
 
   const handleForward = useCallback(() => {
-    if (previewBridge && tabId) void previewBridge.goForward(tabId);
-  }, [tabId]);
+    if (!tabId) return;
+    if (previewBridge) {
+      void previewBridge.goForward(tabId);
+      return;
+    }
+    void browserHistory({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, tabId, action: "forward" },
+    });
+  }, [browserHistory, tabId, threadRef]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!localApi || !url) return;

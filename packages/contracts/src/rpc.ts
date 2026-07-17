@@ -94,6 +94,12 @@ import {
 } from "./terminal.ts";
 import {
   DiscoveredLocalServerList,
+  PreviewBrowserError,
+  PreviewBrowserFrame,
+  PreviewBrowserFramesInput,
+  PreviewBrowserHistoryInput,
+  PreviewBrowserInput,
+  PreviewBrowserViewportInput,
   PreviewCloseInput,
   PreviewError,
   PreviewEvent,
@@ -196,6 +202,10 @@ export const WS_METHODS = {
   previewClose: "preview.close",
   previewList: "preview.list",
   previewReportStatus: "preview.reportStatus",
+  previewBrowserFrames: "preview.browser.frames",
+  previewBrowserInput: "preview.browser.input",
+  previewBrowserViewport: "preview.browser.viewport",
+  previewBrowserHistory: "preview.browser.history",
   previewAutomationConnect: "previewAutomation.connect",
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
@@ -556,6 +566,28 @@ export const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus,
   error: Schema.Union([PreviewError, EnvironmentAuthorizationError]),
 });
 
+export const WsPreviewBrowserFramesRpc = Rpc.make(WS_METHODS.previewBrowserFrames, {
+  payload: PreviewBrowserFramesInput,
+  success: PreviewBrowserFrame,
+  error: Schema.Union([PreviewBrowserError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsPreviewBrowserInputRpc = Rpc.make(WS_METHODS.previewBrowserInput, {
+  payload: PreviewBrowserInput,
+  error: Schema.Union([PreviewBrowserError, EnvironmentAuthorizationError]),
+});
+
+export const WsPreviewBrowserViewportRpc = Rpc.make(WS_METHODS.previewBrowserViewport, {
+  payload: PreviewBrowserViewportInput,
+  error: Schema.Union([PreviewBrowserError, EnvironmentAuthorizationError]),
+});
+
+export const WsPreviewBrowserHistoryRpc = Rpc.make(WS_METHODS.previewBrowserHistory, {
+  payload: PreviewBrowserHistoryInput,
+  error: Schema.Union([PreviewBrowserError, EnvironmentAuthorizationError]),
+});
+
 export const WsPreviewAutomationConnectRpc = Rpc.make(WS_METHODS.previewAutomationConnect, {
   payload: PreviewAutomationHost,
   success: PreviewAutomationStreamEvent,
@@ -735,6 +767,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewCloseRpc,
   WsPreviewListRpc,
   WsPreviewReportStatusRpc,
+  WsPreviewBrowserFramesRpc,
+  WsPreviewBrowserInputRpc,
+  WsPreviewBrowserViewportRpc,
+  WsPreviewBrowserHistoryRpc,
   WsPreviewAutomationConnectRpc,
   WsPreviewAutomationRespondRpc,
   WsPreviewAutomationFocusHostRpc,

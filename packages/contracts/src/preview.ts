@@ -1,10 +1,9 @@
 /**
  * Preview - Schemas for the in-app browser preview surface.
  *
- * The preview is desktop-only (Chromium <webview>); the server tracks per-thread
- * tab metadata so it survives client reconnects and multi-window. The desktop
- * renderer mediates: it owns the actual <webview> and reports navigation back to
- * the server via these RPCs, the server fans events to all subscribers.
+ * The server tracks per-thread tab metadata so it survives client reconnects
+ * and multi-window. Electron renders tabs through Chromium <webview>; hosted
+ * web clients use the server-browser transport declared below.
  *
  * @module Preview
  */
@@ -194,6 +193,96 @@ export const PreviewListResult = Schema.Struct({
   sessions: Schema.Array(PreviewSessionSnapshot),
 });
 export type PreviewListResult = typeof PreviewListResult.Type;
+
+export const PreviewBrowserFramesInput = Schema.Struct({
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+});
+export type PreviewBrowserFramesInput = typeof PreviewBrowserFramesInput.Type;
+
+export const PreviewBrowserFrame = Schema.Struct({
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+  sequence: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  mimeType: Schema.Literal("image/jpeg"),
+  data: Schema.String,
+  width: Schema.Int.check(Schema.isGreaterThan(0)),
+  height: Schema.Int.check(Schema.isGreaterThan(0)),
+});
+export type PreviewBrowserFrame = typeof PreviewBrowserFrame.Type;
+
+export const PreviewBrowserViewportInput = Schema.Struct({
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+  width: PreviewRenderedViewportSize.fields.width,
+  height: PreviewRenderedViewportSize.fields.height,
+});
+export type PreviewBrowserViewportInput = typeof PreviewBrowserViewportInput.Type;
+
+const PreviewBrowserPointerButton = Schema.Literals(["left", "middle", "right"]);
+
+const PreviewBrowserPointerInput = Schema.Struct({
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+  kind: Schema.Literal("pointer"),
+  action: Schema.Literals(["move", "down", "up"]),
+  x: Schema.Number,
+  y: Schema.Number,
+  button: Schema.optional(PreviewBrowserPointerButton),
+});
+
+const PreviewBrowserWheelInput = Schema.Struct({
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+  kind: Schema.Literal("wheel"),
+  x: Schema.Number,
+  y: Schema.Number,
+  deltaX: Schema.Number,
+  deltaY: Schema.Number,
+});
+
+const PreviewBrowserKeyboardInput = Schema.Struct({
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+  kind: Schema.Literal("keyboard"),
+  action: Schema.Literals(["down", "up"]),
+  key: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(64)),
+});
+
+export const PreviewBrowserInput = Schema.Union([
+  PreviewBrowserPointerInput,
+  PreviewBrowserWheelInput,
+  PreviewBrowserKeyboardInput,
+]);
+export type PreviewBrowserInput = typeof PreviewBrowserInput.Type;
+
+export const PreviewBrowserHistoryInput = Schema.Struct({
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+  action: Schema.Literals(["back", "forward"]),
+});
+export type PreviewBrowserHistoryInput = typeof PreviewBrowserHistoryInput.Type;
+
+export class PreviewBrowserUnavailableError extends Schema.TaggedErrorClass<PreviewBrowserUnavailableError>()(
+  "PreviewBrowserUnavailableError",
+  {
+    message: Schema.String,
+  },
+) {}
+
+export class PreviewBrowserOperationError extends Schema.TaggedErrorClass<PreviewBrowserOperationError>()(
+  "PreviewBrowserOperationError",
+  {
+    operation: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export const PreviewBrowserError = Schema.Union([
+  PreviewBrowserUnavailableError,
+  PreviewBrowserOperationError,
+]);
+export type PreviewBrowserError = typeof PreviewBrowserError.Type;
 
 const PreviewEventBaseSchema = Schema.Struct({
   threadId: TrimmedNonEmptyString,
