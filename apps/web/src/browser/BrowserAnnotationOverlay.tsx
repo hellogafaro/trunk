@@ -457,7 +457,7 @@ export function BrowserAnnotationOverlay(props: {
       </div>
 
       <div
-        className="pointer-events-auto absolute left-1/2 top-2 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-border/80 bg-background/95 p-1 shadow-lg backdrop-blur-md"
+        className="pointer-events-auto absolute left-1/2 top-2 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-zinc-200 bg-white/95 p-1 text-zinc-700 shadow-lg backdrop-blur-md"
         role="toolbar"
         aria-label="Annotation tools"
       >
@@ -472,8 +472,9 @@ export function BrowserAnnotationOverlay(props: {
               aria-pressed={tool === item.id}
               title={item.label}
               className={cn(
+                "text-zinc-700 hover:bg-zinc-100 [&_svg:not([class*='text-'])]:text-zinc-500",
                 tool === item.id &&
-                  "bg-blue-500/15 text-blue-600 hover:bg-blue-500/20 hover:text-blue-600 dark:text-blue-400",
+                  "bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-700 [&_svg:not([class*='text-'])]:text-blue-600",
               )}
               onClick={() => setTool(item.id)}
             >
@@ -481,12 +482,13 @@ export function BrowserAnnotationOverlay(props: {
             </Button>
           );
         })}
-        <span className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
+        <span className="mx-0.5 h-5 w-px bg-zinc-200" aria-hidden="true" />
         <Button
           variant="ghost"
           size="icon-sm"
           aria-label="Undo annotation"
           title="Undo"
+          className="text-zinc-700 hover:bg-zinc-100 [&_svg:not([class*='text-'])]:text-zinc-500"
           disabled={marks.length === 0}
           onClick={() => {
             setMarks((current) => current.slice(0, -1));
@@ -502,6 +504,7 @@ export function BrowserAnnotationOverlay(props: {
           size="icon-sm"
           aria-label="Cancel annotation"
           title="Cancel (Esc)"
+          className="text-zinc-700 hover:bg-zinc-100 [&_svg:not([class*='text-'])]:text-zinc-500"
           onClick={onCancel}
         >
           <X />
@@ -550,7 +553,7 @@ export function BrowserAnnotationOverlay(props: {
           </Button>
         </div>
       ) : (
-        <div className="pointer-events-none absolute left-1/2 top-13 -translate-x-1/2 rounded-md border border-border/70 bg-background/90 px-2.5 py-1.5 text-xs text-muted-foreground shadow-md backdrop-blur-sm">
+        <div className="pointer-events-none absolute left-1/2 top-13 -translate-x-1/2 rounded-md border border-zinc-200 bg-white/95 px-2.5 py-1.5 text-xs text-zinc-600 shadow-md backdrop-blur-sm">
           {tool === "select"
             ? "Click an element"
             : tool === "region"

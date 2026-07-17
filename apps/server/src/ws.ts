@@ -339,6 +339,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.previewBrowserInput, AuthOrchestrationOperateScope],
   [WS_METHODS.previewBrowserViewport, AuthOrchestrationOperateScope],
   [WS_METHODS.previewBrowserHistory, AuthOrchestrationOperateScope],
+  [WS_METHODS.previewBrowserInspect, AuthOrchestrationReadScope],
   [WS_METHODS.previewAutomationConnect, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationRespond, AuthOrchestrationOperateScope],
   [WS_METHODS.previewAutomationFocusHost, AuthOrchestrationOperateScope],
