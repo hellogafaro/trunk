@@ -6,30 +6,26 @@ import {
   PREVIEW_VIEWPORT_MIN_DIMENSION,
   type PreviewViewportSetting,
 } from "@t3tools/contracts";
-import { PREVIEW_VIEWPORT_PRESETS, resolvePreviewViewport } from "@t3tools/shared/previewViewport";
-import { Link2, X } from "lucide-react";
+import { Link2, Monitor, Smartphone, Tablet, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import {
-  Select,
-  SelectGroup,
-  SelectGroupLabel,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { cn } from "~/lib/utils";
 
 import { BROWSER_DEVICE_TOOLBAR_HEIGHT, resizeFreeformViewport } from "./browserViewportLayout";
 import { commitViewportAndAspectRatio } from "./browserDeviceToolbarState";
+import {
+  BROWSER_QUICK_VIEWPORTS,
+  browserQuickViewportValue,
+  type BrowserQuickViewport,
+} from "./browserQuickViewports";
 
-const RESPONSIVE_VALUE = "responsive";
-const SELECT_ITEMS = [
-  { value: RESPONSIVE_VALUE, label: "Responsive" },
-  ...PREVIEW_VIEWPORT_PRESETS.map((preset) => ({ value: preset.id, label: preset.label })),
+const QUICK_VIEWPORT_ITEMS = [
+  { value: "mobile" as const, icon: Smartphone },
+  { value: "tablet" as const, icon: Tablet },
+  { value: "desktop" as const, icon: Monitor },
 ];
 
 function ScreenRotationIcon() {
@@ -76,11 +72,7 @@ export function BrowserDeviceToolbar({
     width: String(setting.width),
     height: String(setting.height),
   };
-  const selectedValue =
-    setting._tag === "preset" &&
-    PREVIEW_VIEWPORT_PRESETS.some((preset) => preset.id === setting.presetId)
-      ? setting.presetId
-      : RESPONSIVE_VALUE;
+  const selectedValue = browserQuickViewportValue(setting);
   const customWidth = Number(presentedSize.width);
   const customHeight = Number(presentedSize.height);
   const customValid =
@@ -139,19 +131,9 @@ export function BrowserDeviceToolbar({
     });
   };
 
-  const selectViewport = (value: string | null) => {
-    if (!value) return;
-    if (value === RESPONSIVE_VALUE) {
-      if (setting._tag === "freeform") return;
-      apply({ _tag: "freeform", width: setting.width, height: setting.height });
-      return;
-    }
-    const preset = PREVIEW_VIEWPORT_PRESETS.find((candidate) => candidate.id === value);
-    if (!preset) return;
-    apply(
-      resolvePreviewViewport({ mode: "preset", preset: preset.id }),
-      aspectRatio === null ? null : preset.width / preset.height,
-    );
+  const selectViewport = (value: BrowserQuickViewport) => {
+    const next = BROWSER_QUICK_VIEWPORTS[value].setting;
+    apply(next, aspectRatio === null ? null : next.width / next.height);
   };
 
   const rotate = () => {
@@ -180,58 +162,40 @@ export function BrowserDeviceToolbar({
       onBlur={(event) => {
         const nextTarget = event.relatedTarget;
         if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
-        const eventTarget = event.target;
-        if (
-          (nextTarget instanceof HTMLElement &&
-            nextTarget.closest('[data-slot="select-positioner"]')) ||
-          (eventTarget instanceof HTMLElement &&
-            eventTarget.closest('[data-slot="select-positioner"]'))
-        ) {
-          return;
-        }
         applyCustomSize();
       }}
     >
-      {width >= 560 ? (
-        <span className="mr-0.5 shrink-0 text-[11px] font-medium text-muted-foreground">
-          Dimensions
-        </span>
-      ) : null}
-      <Select
-        modal={false}
-        value={selectedValue}
-        onValueChange={selectViewport}
-        items={SELECT_ITEMS}
-        disabled={pending}
+      <ToggleGroup
+        className="shrink-0"
+        variant="outline"
+        size="xs"
+        value={selectedValue ? [selectedValue] : []}
+        onValueChange={(value) => {
+          const next = value[0];
+          if (next === "mobile" || next === "tablet" || next === "desktop") {
+            selectViewport(next);
+          }
+        }}
+        aria-label="Viewport size"
       >
-        <SelectTrigger
-          variant="ghost"
-          size="xs"
-          className={cn(
-            "shrink-0 justify-between px-1.5 font-medium",
-            width >= 440 ? "w-36" : "w-24",
-          )}
-          aria-label="Browser device preset"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectPopup align="start" alignItemWithTrigger={false} className="min-w-64">
-          <SelectItem value={RESPONSIVE_VALUE}>Responsive</SelectItem>
-          <SelectGroup>
-            <SelectGroupLabel>Standard</SelectGroupLabel>
-            {PREVIEW_VIEWPORT_PRESETS.map((preset) => (
-              <SelectItem key={preset.id} value={preset.id}>
-                <span className="flex w-full items-center justify-between gap-5">
-                  <span>{preset.label}</span>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {preset.detail}
-                  </span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectPopup>
-      </Select>
+        {QUICK_VIEWPORT_ITEMS.map((item) => {
+          const definition = BROWSER_QUICK_VIEWPORTS[item.value];
+          const Icon = item.icon;
+          return (
+            <Toggle
+              key={item.value}
+              value={item.value}
+              disabled={pending}
+              aria-label={`${definition.label} viewport`}
+              title={`${definition.label} · ${definition.detail}`}
+              className="rounded-sm px-2"
+            >
+              <Icon />
+              {width >= 620 ? <span>{definition.label}</span> : null}
+            </Toggle>
+          );
+        })}
+      </ToggleGroup>
 
       <form
         className="m-0 flex min-w-0 shrink-0 items-center gap-0.5 border-0 p-0"

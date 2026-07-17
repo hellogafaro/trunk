@@ -33,7 +33,7 @@ import {
   commitBrowserViewportChange,
   subscribeBrowserViewportChange,
 } from "~/browser/browserViewportActions";
-import { resolveResponsiveBrowserViewportSize } from "~/browser/browserViewportLayout";
+import { BROWSER_QUICK_VIEWPORTS } from "~/browser/browserQuickViewports";
 import {
   cancelBrowserAnnotation,
   toggleBrowserAnnotation,
@@ -43,7 +43,6 @@ import { PreviewUnreachable } from "./PreviewUnreachable";
 import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
-import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { useLoadingProgress } from "./useLoadingProgress";
 import { usePreviewSession } from "./usePreviewSession";
 import { ZoomIndicator } from "./ZoomIndicator";
@@ -120,9 +119,6 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         }) ?? undefined)
       : undefined;
   const viewport = snapshot?.viewport ?? FILL_PREVIEW_VIEWPORT;
-  const panelRect = useBrowserSurfaceStore((state) =>
-    tabId ? (state.byTabId[tabId]?.rect ?? null) : null,
-  );
 
   const handleSubmitUrl = useCallback(
     async (next: string) => {
@@ -215,10 +211,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
       return;
     }
 
-    const responsiveSize = panelRect
-      ? resolveResponsiveBrowserViewportSize(panelRect, desktopOverlay?.zoomFactor)
-      : { width: 1024, height: 768 };
-    void commitBrowserViewportChange(tabId, { _tag: "freeform", ...responsiveSize }).catch(
+    void commitBrowserViewportChange(tabId, BROWSER_QUICK_VIEWPORTS.desktop.setting).catch(
       () => undefined,
     );
   };

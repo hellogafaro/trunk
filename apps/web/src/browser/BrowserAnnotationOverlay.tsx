@@ -1,5 +1,6 @@
 "use client";
 
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type {
   PreviewAnnotationElementTarget,
   PreviewAnnotationPayload,
@@ -86,6 +87,7 @@ export function BrowserAnnotationOverlay(props: {
   const [drawing, setDrawing] = useState<ReadonlyArray<BrowserAnnotationPoint>>([]);
   const inspectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inspectionSequenceRef = useRef(0);
+  const pickingRef = useRef(false);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
 
   const pagePoint = useCallback(
@@ -122,7 +124,8 @@ export function BrowserAnnotationOverlay(props: {
           y: point.y,
         },
       });
-      return result._tag === "Success" ? result.value : [];
+      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      return result.value;
     },
     [inspectBrowserPoint, snapshot.tabId, threadRef],
   );
@@ -133,9 +136,11 @@ export function BrowserAnnotationOverlay(props: {
       const sequence = ++inspectionSequenceRef.current;
       inspectionTimerRef.current = setTimeout(() => {
         inspectionTimerRef.current = null;
-        void inspectPoint(point).then((elements) => {
-          if (sequence === inspectionSequenceRef.current) setHovered(elements[0] ?? null);
-        });
+        void inspectPoint(point)
+          .then((elements) => {
+            if (sequence === inspectionSequenceRef.current) setHovered(elements[0] ?? null);
+          })
+          .catch(() => undefined);
       }, 60);
     },
     [inspectPoint],
@@ -191,14 +196,32 @@ export function BrowserAnnotationOverlay(props: {
     event.currentTarget.setPointerCapture(event.pointerId);
     setHovered(null);
     if (tool === "select") {
-      void inspectPoint(point).then((elements) => {
-        const inspected = elements[0];
-        if (!inspected) return;
-        addMark({
-          kind: "element",
-          target: { id: newId("element"), element: inspected.element, rect: inspected.rect },
+      if (inspectionTimerRef.current !== null) {
+        clearTimeout(inspectionTimerRef.current);
+        inspectionTimerRef.current = null;
+      }
+      const sequence = ++inspectionSequenceRef.current;
+      pickingRef.current = true;
+      void inspectPoint(point)
+        .then((elements) => {
+          if (sequence !== inspectionSequenceRef.current) return;
+          const inspected = elements[0];
+          if (!inspected) return;
+          addMark({
+            kind: "element",
+            target: { id: newId("element"), element: inspected.element, rect: inspected.rect },
+          });
+        })
+        .catch((error) => {
+          toastManager.add({
+            type: "error",
+            title: "Unable to inspect browser element",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          });
+        })
+        .finally(() => {
+          if (sequence === inspectionSequenceRef.current) pickingRef.current = false;
         });
-      });
       return;
     }
     if (tool === "erase") {
@@ -214,7 +237,7 @@ export function BrowserAnnotationOverlay(props: {
     const point = pagePoint(event);
     if (!point) return;
     if (!dragStart) {
-      if (tool === "select") queueInspection(point);
+      if (tool === "select" && !pickingRef.current) queueInspection(point);
       return;
     }
     setDragPoint(point);
@@ -370,12 +393,12 @@ export function BrowserAnnotationOverlay(props: {
           draggable={false}
           className="pointer-events-none absolute inset-0 size-full select-none"
         />
-        <div className="pointer-events-none absolute inset-0 bg-primary/[0.025]" />
+        <div className="pointer-events-none absolute inset-0 bg-blue-500/[0.025]" />
         {hovered ? (
           <AnnotationRect
             rect={hovered.rect}
             frame={frame}
-            className="border-primary/80 bg-primary/10"
+            className="border-blue-500/90 bg-blue-500/10"
           />
         ) : null}
         {marks.map((mark, index) =>
@@ -401,7 +424,7 @@ export function BrowserAnnotationOverlay(props: {
           ),
         )}
         {draftRect && tool === "region" ? (
-          <AnnotationRect rect={draftRect} frame={frame} dashed className="bg-primary/10" />
+          <AnnotationRect rect={draftRect} frame={frame} dashed className="bg-blue-500/10" />
         ) : null}
         <svg
           className="pointer-events-none absolute inset-0 size-full overflow-visible"
@@ -443,11 +466,15 @@ export function BrowserAnnotationOverlay(props: {
           return (
             <Button
               key={item.id}
-              variant={tool === item.id ? "secondary" : "ghost"}
+              variant="ghost"
               size="icon-sm"
               aria-label={item.label}
               aria-pressed={tool === item.id}
               title={item.label}
+              className={cn(
+                tool === item.id &&
+                  "bg-blue-500/15 text-blue-600 hover:bg-blue-500/20 hover:text-blue-600 dark:text-blue-400",
+              )}
               onClick={() => setTool(item.id)}
             >
               <Icon />
@@ -552,9 +579,9 @@ function AnnotationRect(props: {
       type="button"
       tabIndex={-1}
       className={cn(
-        "pointer-events-none absolute border-2 border-primary bg-primary/[0.06] p-0",
+        "pointer-events-none absolute border-2 border-blue-500 bg-blue-500/[0.08] p-0",
         dashed && "border-dashed",
-        active && "ring-2 ring-primary/30 ring-offset-1",
+        active && "ring-2 ring-blue-500/30 ring-offset-1",
         onSelect && "pointer-events-auto",
         className,
       )}
@@ -572,7 +599,7 @@ function AnnotationRect(props: {
       data-browser-annotation-target
     >
       {label ? (
-        <span className="absolute -left-2 -top-2 flex size-5 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm">
+        <span className="absolute -left-2 -top-2 flex size-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-semibold text-white shadow-sm">
           {label}
         </span>
       ) : null}
