@@ -58,8 +58,9 @@ import {
   WrenchIcon,
   XIcon,
   ZapIcon,
-} from "lucide-react";
+} from "~/components/ui/icons";
 import { Button } from "../ui/button";
+import { TrunkLogo } from "../ui/trunk-logo";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
@@ -459,10 +460,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   if (rows.length === 0 && !isWorking) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground/30">
-          Send a message to start the conversation.
-        </p>
+      <div className="flex h-full flex-col items-center justify-center gap-6 text-center text-muted-foreground/78">
+        <TrunkLogo className="size-9 opacity-30" />
+        <p className="text-base text-inherit">Send a message to start the conversation.</p>
       </div>
     );
   }

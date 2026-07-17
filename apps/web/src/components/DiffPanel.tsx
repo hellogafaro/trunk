@@ -123,6 +123,10 @@ const DIFF_PANEL_UNSAFE_CSS = `
   position: sticky !important;
   top: 0;
   z-index: 4;
+  min-height: 40px !important;
+  height: 40px !important;
+  padding-block: 0 !important;
+  padding-inline: 12px !important;
   background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
   border-bottom: 1px solid var(--border) !important;
   align-items: center !important;
@@ -685,10 +689,10 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
             }
           }}
         >
-          <Toggle aria-label="Stacked diff view" value="stacked">
+          <Toggle aria-label="Stacked diff view" value="stacked" className="rounded-sm">
             <Rows3Icon className="size-3" />
           </Toggle>
-          <Toggle aria-label="Split diff view" value="split">
+          <Toggle aria-label="Split diff view" value="split" className="rounded-sm">
             <Columns2Icon className="size-3" />
           </Toggle>
         </ToggleGroup>
@@ -778,7 +782,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
                   }
                 />
               ) : (
-                <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground/70">
+                <div className="flex h-full items-center justify-center px-3 py-2 text-sm text-muted-foreground/70">
                   <p>
                     {hasNoNetChanges
                       ? "No net changes in this selection."

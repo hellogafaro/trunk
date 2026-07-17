@@ -1,7 +1,7 @@
 "use client";
 
 import { Dialog as CommandDialogPrimitive } from "@base-ui/react/dialog";
-import { SearchIcon } from "lucide-react";
+import { SearchIcon } from "~/components/ui/icons";
 import type * as React from "react";
 import { cn } from "~/lib/utils";
 import {
@@ -161,7 +161,14 @@ function CommandGroupLabel({
   ...props
 }: React.ComponentProps<typeof AutocompleteGroupLabel>) {
   return (
-    <AutocompleteGroupLabel className={className} data-slot="command-group-label" {...props} />
+    <AutocompleteGroupLabel
+      className={cn(
+        "px-2 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground",
+        className,
+      )}
+      data-slot="command-group-label"
+      {...props}
+    />
   );
 }
 
@@ -205,7 +212,7 @@ function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-2 rounded-b-[calc(var(--radius-2xl)-1px)] border-t px-5 py-3 text-muted-foreground text-xs",
+        "flex items-center justify-between gap-2 rounded-b-[calc(var(--radius-xl)-1px)] border-t px-3 py-2 text-muted-foreground text-xs",
         className,
       )}
       data-slot="command-footer"

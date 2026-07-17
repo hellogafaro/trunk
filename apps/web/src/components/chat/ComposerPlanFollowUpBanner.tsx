@@ -7,7 +7,7 @@ export const ComposerPlanFollowUpBanner = memo(function ComposerPlanFollowUpBann
   planTitle: string | null;
 }) {
   return (
-    <div className="px-4 py-3.5 sm:px-5 sm:py-4">
+    <div className="px-3 py-3 sm:px-3 sm:py-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge
           variant="info"

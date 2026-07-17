@@ -133,10 +133,21 @@ export function ThreadStatusLabel({
   status,
   compact = false,
 }: {
-  status: ThreadStatusPill;
+  status: ThreadStatusPill | null;
   compact?: boolean;
 }) {
   if (compact) {
+    if (!status) {
+      return (
+        <span
+          aria-hidden="true"
+          className="inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground"
+        >
+          <span className="size-[9px] rounded-full bg-border" />
+        </span>
+      );
+    }
+
     return (
       <Tooltip>
         <TooltipTrigger
@@ -155,6 +166,17 @@ export function ThreadStatusLabel({
         </TooltipTrigger>
         <TooltipPopup side="top">{status.label}</TooltipPopup>
       </Tooltip>
+    );
+  }
+
+  if (!status) {
+    return (
+      <span
+        aria-hidden="true"
+        className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-border" />
+      </span>
     );
   }
 
