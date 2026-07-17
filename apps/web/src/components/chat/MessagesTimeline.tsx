@@ -28,7 +28,7 @@ import {
   Undo2Icon,
   WrenchIcon,
   ZapIcon,
-} from "lucide-react";
+} from "~/components/ui/icons";
 import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
@@ -54,6 +54,7 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
+import { TrunkLogo } from "../ui/trunk-logo";
 
 import {
   buildInlineTerminalContextText,
@@ -230,7 +231,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden" data-timeline-root="true">
+      <div className="mx-auto w-full min-w-0 max-w-208 overflow-x-hidden" data-timeline-root="true">
         <TimelineRowContent row={item} />
       </div>
     ),
@@ -239,10 +240,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   if (rows.length === 0 && !isWorking) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground/30">
-          Send a message to start the conversation.
-        </p>
+      <div className="flex h-full flex-col items-center justify-center gap-6 text-center text-muted-foreground/78">
+        <TrunkLogo className="size-9 opacity-30" />
+        <p className="text-base text-inherit">Send a message to start the conversation.</p>
       </div>
     );
   }
@@ -306,48 +306,54 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
           const canRevertAgentWork = typeof row.revertTurnCount === "number";
           return (
             <div className="flex justify-end">
-              <div className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3">
-                {userImages.length > 0 && (
-                  <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-                    {userImages.map(
-                      (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
-                        <div
-                          key={image.id}
-                          className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
-                        >
-                          {image.previewUrl ? (
-                            <button
-                              type="button"
-                              className="h-full w-full cursor-zoom-in"
-                              aria-label={`Preview ${image.name}`}
-                              onClick={() => {
-                                const preview = buildExpandedImagePreview(userImages, image.id);
-                                if (!preview) return;
-                                ctx.onImageExpand(preview);
-                              }}
+              <div className="group relative max-w-[80%]">
+                {(userImages.length > 0 ||
+                  displayedUserMessage.visibleText.trim().length > 0 ||
+                  terminalContexts.length > 0) && (
+                  <div className="rounded-lg border border-border bg-secondary px-3 py-2">
+                    {userImages.length > 0 && (
+                      <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
+                        {userImages.map(
+                          (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
+                            <div
+                              key={image.id}
+                              className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
                             >
-                              <img
-                                src={image.previewUrl}
-                                alt={image.name}
-                                className="block h-auto max-h-[220px] w-full object-cover"
-                              />
-                            </button>
-                          ) : (
-                            <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
-                              {image.name}
+                              {image.previewUrl ? (
+                                <button
+                                  type="button"
+                                  className="h-full w-full cursor-zoom-in"
+                                  aria-label={`Preview ${image.name}`}
+                                  onClick={() => {
+                                    const preview = buildExpandedImagePreview(userImages, image.id);
+                                    if (!preview) return;
+                                    ctx.onImageExpand(preview);
+                                  }}
+                                >
+                                  <img
+                                    src={image.previewUrl}
+                                    alt={image.name}
+                                    className="block h-auto max-h-[220px] w-full object-cover"
+                                  />
+                                </button>
+                              ) : (
+                                <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
+                                  {image.name}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ),
+                          ),
+                        )}
+                      </div>
+                    )}
+                    {(displayedUserMessage.visibleText.trim().length > 0 ||
+                      terminalContexts.length > 0) && (
+                      <UserMessageBody
+                        text={displayedUserMessage.visibleText}
+                        terminalContexts={terminalContexts}
+                      />
                     )}
                   </div>
-                )}
-                {(displayedUserMessage.visibleText.trim().length > 0 ||
-                  terminalContexts.length > 0) && (
-                  <UserMessageBody
-                    text={displayedUserMessage.visibleText}
-                    terminalContexts={terminalContexts}
-                  />
                 )}
                 <div className="mt-1.5 flex items-center justify-end gap-2">
                   <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
@@ -393,9 +399,9 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
           return (
             <>
               {row.showCompletionDivider && (
-                <div className="my-3 flex items-center gap-3">
+                <div className="my-3 flex items-center gap-0">
                   <span className="h-px flex-1 bg-border" />
-                  <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80">
+                  <span className="rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/80">
                     {ctx.completionSummary ? `Response • ${ctx.completionSummary}` : "Response"}
                   </span>
                   <span className="h-px flex-1 bg-border" />
@@ -414,7 +420,7 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                   onOpenTurnDiff={ctx.onOpenTurnDiff}
                 />
                 <div className="mt-1.5 flex items-center gap-2">
-                  <p className="text-[10px] text-muted-foreground/30">
+                  <p className="text-xs text-muted-foreground/30">
                     {row.message.streaming ? (
                       <LiveMessageMeta
                         createdAt={row.message.createdAt}
@@ -458,13 +464,13 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
 
       {row.kind === "working" && (
         <div className="py-0.5 pl-1.5">
-          <div className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground/70">
-            <span className="inline-flex items-center gap-[3px]">
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:200ms]" />
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:400ms]" />
+          <div className="flex items-center gap-2 pt-1 text-sm text-muted-foreground/70">
+            <span className="inline-flex items-center gap-[3px] self-center">
+              <span className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
+              <span className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:200ms]" />
+              <span className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:400ms]" />
             </span>
-            <span>
+            <span className="self-center">
               {row.createdAt ? (
                 <>
                   Working for <WorkingTimer createdAt={row.createdAt} />
@@ -542,10 +548,10 @@ const WorkGroupSection = memo(function WorkGroupSection({
   const groupLabel = onlyToolEntries ? "Tool calls" : "Work log";
 
   return (
-    <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
+    <div className="rounded-lg border border-border/45 bg-card/25">
       {showHeader && (
-        <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
-          <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
+        <div className="flex items-center justify-between gap-2 px-3 pt-2 pb-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground/55">
             {groupLabel} ({groupedEntries.length})
           </p>
           {hasOverflow && (
@@ -559,7 +565,7 @@ const WorkGroupSection = memo(function WorkGroupSection({
           )}
         </div>
       )}
-      <div className="space-y-0.5">
+      <div className="space-y-0 divide-y divide-border/45">
         {visibleEntries.map((workEntry) => (
           <SimpleWorkEntryRow
             key={`work-row:${workEntry.id}`}
@@ -623,9 +629,9 @@ function AssistantChangedFilesSectionInner({
   const changedFileCountLabel = String(checkpointFiles.length);
 
   return (
-    <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2.5">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
+    <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2">
+      <div className="mb-1.5 flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground/65">
           <span>Changed files ({changedFileCountLabel})</span>
           {hasNonZeroStat(summaryStat) && (
             <>
@@ -951,19 +957,19 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
 
   return (
-    <div className="rounded-lg px-1 py-1">
-      <div className="flex items-center gap-2 transition-[opacity,translate] duration-200">
+    <div className="px-2 py-2">
+      <div className="flex items-center gap-1 transition-[opacity,translate] duration-200">
         <span
           className={cn("flex size-5 shrink-0 items-center justify-center", iconConfig.className)}
         >
-          <EntryIcon className="size-3" />
+          <EntryIcon className="size-3.5" />
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
           {rawCommand ? (
             <div className="max-w-full">
               <p
                 className={cn(
-                  "truncate text-xs leading-5",
+                  "truncate text-sm leading-5",
                   workToneClass(workEntry.tone),
                   preview ? "text-muted-foreground/70" : "",
                 )}
@@ -1006,7 +1012,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               >
                 <p
                   className={cn(
-                    "truncate text-[11px] leading-5",
+                    "truncate text-sm leading-5",
                     workToneClass(workEntry.tone),
                     preview ? "text-muted-foreground/70" : "",
                   )}

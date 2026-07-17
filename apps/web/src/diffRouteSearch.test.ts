@@ -39,6 +39,14 @@ describe("parseDiffRouteSearch", () => {
     });
   });
 
+  it("parses plan panel search values", () => {
+    expect(parseDiffRouteSearch({ plan: "1" })).toEqual({ plan: "1" });
+    expect(parseDiffRouteSearch({ plan: true })).toEqual({ plan: "1" });
+    expect(parseDiffRouteSearch({ tasks: "1" })).toEqual({ plan: "1" });
+    expect(parseDiffRouteSearch({ tasks: true })).toEqual({ plan: "1" });
+    expect(parseDiffRouteSearch({ tasks: "0" })).toEqual({});
+  });
+
   it("drops turn and file values when diff is closed", () => {
     const parsed = parseDiffRouteSearch({
       diff: "0",

@@ -31,6 +31,17 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --diff-font-size: var(--text-sm);
+  --text-xs: 0.625rem;
+  --text-sm: 0.75rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.125rem;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -72,23 +83,23 @@
   --radius: 0.625rem;
   --background: var(--color-white);
   --app-chrome-background: var(--background);
-  --foreground: var(--color-neutral-800);
+  --foreground: #0c0a09;
   --card: var(--color-white);
-  --card-foreground: var(--color-neutral-800);
+  --card-foreground: #0c0a09;
   --popover: var(--color-white);
-  --popover-foreground: var(--color-neutral-800);
-  --primary: oklch(0.488 0.217 264);
-  --primary-foreground: var(--color-white);
+  --popover-foreground: #0c0a09;
+  --primary: var(--color-stone-950);
+  --primary-foreground: var(--color-stone-50);
   --secondary: --alpha(var(--color-black) / 4%);
-  --secondary-foreground: var(--color-neutral-800);
+  --secondary-foreground: #0c0a09;
   --muted: --alpha(var(--color-black) / 4%);
-  --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-black));
+  --muted-foreground: color-mix(in srgb, var(--color-stone-500) 90%, var(--color-black));
   --accent: --alpha(var(--color-black) / 4%);
-  --accent-foreground: var(--color-neutral-800);
+  --accent-foreground: #0c0a09;
   --destructive: var(--color-red-500);
   --border: --alpha(var(--color-black) / 8%);
   --input: --alpha(var(--color-black) / 10%);
-  --ring: oklch(0.488 0.217 264);
+  --ring: var(--color-stone-400);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
   --info-foreground: var(--color-blue-700);
@@ -96,28 +107,33 @@
   --success-foreground: var(--color-emerald-700);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-700);
+  --sidebar: var(--background);
+  --sidebar-foreground: #0c0a09;
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: #0c0a09;
+  --sidebar-border: var(--border);
 
   @variant dark {
     color-scheme: dark;
-    --background: color-mix(in srgb, var(--color-neutral-950) 95%, var(--color-white));
+    --background: color-mix(in srgb, var(--color-stone-950) 95%, var(--color-white));
     --app-chrome-background: var(--background);
-    --foreground: var(--color-neutral-100);
+    --foreground: var(--color-stone-100);
     --card: color-mix(in srgb, var(--background) 98%, var(--color-white));
-    --card-foreground: var(--color-neutral-100);
+    --card-foreground: var(--color-stone-100);
     --popover: color-mix(in srgb, var(--background) 98%, var(--color-white));
-    --popover-foreground: var(--color-neutral-100);
-    --primary: oklch(0.588 0.217 264);
-    --primary-foreground: var(--color-white);
+    --popover-foreground: var(--color-stone-100);
+    --primary: var(--color-stone-50);
+    --primary-foreground: var(--color-stone-950);
     --secondary: --alpha(var(--color-white) / 4%);
-    --secondary-foreground: var(--color-neutral-100);
+    --secondary-foreground: var(--color-stone-100);
     --muted: --alpha(var(--color-white) / 4%);
-    --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
+    --muted-foreground: color-mix(in srgb, var(--color-stone-500) 90%, var(--color-white));
     --accent: --alpha(var(--color-white) / 4%);
-    --accent-foreground: var(--color-neutral-100);
+    --accent-foreground: var(--color-stone-100);
     --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
     --border: --alpha(var(--color-white) / 6%);
     --input: --alpha(var(--color-white) / 8%);
-    --ring: oklch(0.588 0.217 264);
+    --ring: var(--color-stone-500);
     --destructive-foreground: var(--color-red-400);
     --info: var(--color-blue-500);
     --info-foreground: var(--color-blue-400);
@@ -125,17 +141,16 @@
     --success-foreground: var(--color-emerald-400);
     --warning: var(--color-amber-500);
     --warning-foreground: var(--color-amber-400);
+    --sidebar: var(--background);
+    --sidebar-foreground: var(--color-stone-100);
+    --sidebar-accent: var(--accent);
+    --sidebar-accent-foreground: var(--color-stone-100);
+    --sidebar-border: var(--border);
   }
 }
 
 body {
-  font-family:
-    "DM Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   margin: 0;
   padding: 0;
   min-height: 100vh;
@@ -369,9 +384,9 @@ label:has(> select#reasoning-effort) select {
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-lg);
   background: var(--muted);
-  padding: 0.8rem 0.9rem;
+  padding: 0.5rem;
 }
 
 .chat-markdown pre code {
@@ -407,7 +422,7 @@ label:has(> select#reasoning-effort) select {
 
 .chat-markdown .chat-markdown-codeblock pre {
   margin: 0;
-  padding-right: calc(0.9rem + var(--chat-markdown-codeblock-copy-button-space));
+  padding-right: calc(0.5rem + var(--chat-markdown-codeblock-copy-button-space));
 }
 
 .chat-markdown .chat-markdown-copy-button {
@@ -467,7 +482,7 @@ label:has(> select#reasoning-effort) select {
 
 .diff-render-file {
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   overflow: clip;
   background: color-mix(in srgb, var(--card) 92%, var(--background));
 }

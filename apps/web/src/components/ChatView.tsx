@@ -102,7 +102,7 @@ import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { ChevronDownIcon } from "lucide-react";
+import { ArrowDownIcon } from "~/components/ui/icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -122,7 +122,7 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import { buildDraftThreadRouteParams } from "../threadRoutes";
+import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -683,7 +683,7 @@ export default function ChatView(props: ChatViewProps) {
   >({});
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+  const planSidebarOpen = rawSearch.plan === "1";
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
@@ -1472,6 +1472,7 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
   );
+  const planToggleShortcutLabel: string | null = null;
   const diffPanelShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
@@ -1909,22 +1910,45 @@ export default function ChatView(props: ChatViewProps) {
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
-  const togglePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen((open) => {
-      if (open) {
-        planSidebarDismissedForTurnRef.current =
-          activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-      } else {
-        planSidebarDismissedForTurnRef.current = null;
+  const setPlanSidebarOpenInUrl = useCallback(
+    (open: boolean, options?: { replace?: boolean }) => {
+      if (routeKind === "server") {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(routeThreadRef),
+          search: (previous) => ({ ...previous, plan: open ? "1" : undefined }),
+          ...(options?.replace !== undefined ? { replace: options.replace } : {}),
+        });
+        return;
       }
-      return !open;
-    });
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+
+      if (!draftId) {
+        return;
+      }
+
+      void navigate({
+        to: "/draft/$draftId",
+        params: buildDraftThreadRouteParams(draftId),
+        search: (previous) => ({ ...previous, plan: open ? "1" : undefined }),
+        ...(options?.replace !== undefined ? { replace: options.replace } : {}),
+      });
+    },
+    [draftId, navigate, routeKind, routeThreadRef],
+  );
+  const togglePlanSidebar = useCallback(() => {
+    if (planSidebarOpen) {
+      planSidebarDismissedForTurnRef.current =
+        activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
+    } else {
+      planSidebarDismissedForTurnRef.current = null;
+    }
+    setPlanSidebarOpenInUrl(!planSidebarOpen);
+  }, [activePlan?.turnId, planSidebarOpen, setPlanSidebarOpenInUrl, sidebarProposedPlan?.turnId]);
   const closePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen(false);
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+    setPlanSidebarOpenInUrl(false);
+  }, [activePlan?.turnId, setPlanSidebarOpenInUrl, sidebarProposedPlan?.turnId]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -2009,13 +2033,12 @@ export default function ChatView(props: ChatViewProps) {
     setShowScrollToBottom(false);
     if (planSidebarOpenOnNextThreadRef.current) {
       planSidebarOpenOnNextThreadRef.current = false;
-      setPlanSidebarOpen(true);
+      setPlanSidebarOpenInUrl(true, { replace: true });
     } else {
       planSidebarOpenOnNextThreadRef.current = false;
-      setPlanSidebarOpen(false);
     }
     planSidebarDismissedForTurnRef.current = null;
-  }, [activeThread?.id]);
+  }, [activeThread?.id, setPlanSidebarOpenInUrl]);
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).
@@ -2027,12 +2050,13 @@ export default function ChatView(props: ChatViewProps) {
     if (latestTurnId && activePlan.turnId !== latestTurnId) return;
     const turnKey = activePlan.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
     if (planSidebarDismissedForTurnRef.current === turnKey) return;
-    setPlanSidebarOpen(true);
+    setPlanSidebarOpenInUrl(true, { replace: true });
   }, [
     activePlan,
     activeLatestTurn?.turnId,
     autoOpenPlanSidebar,
     planSidebarOpen,
+    setPlanSidebarOpenInUrl,
     sidebarProposedPlan?.turnId,
   ]);
 
@@ -2961,7 +2985,7 @@ export default function ChatView(props: ChatViewProps) {
         // step-tracking activities that the sidebar will display.
         if (nextInteractionMode === "default" && autoOpenPlanSidebar) {
           planSidebarDismissedForTurnRef.current = null;
-          setPlanSidebarOpen(true);
+          setPlanSidebarOpenInUrl(true, { replace: true });
         }
         sendInFlightRef.current = false;
       } catch (err) {
@@ -2990,6 +3014,7 @@ export default function ChatView(props: ChatViewProps) {
       setThreadError,
       autoOpenPlanSidebar,
       environmentId,
+      setPlanSidebarOpenInUrl,
     ],
   );
 
@@ -3240,11 +3265,11 @@ export default function ChatView(props: ChatViewProps) {
           "border-b border-border px-3 sm:px-5",
           isElectron
             ? cn(
-                "drag-region flex h-[52px] items-center wco:h-[env(titlebar-area-height)]",
+                "drag-region flex h-12 items-center wco:h-[env(titlebar-area-height)]",
                 reserveTitleBarControlInset &&
                   "wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]",
               )
-            : "py-2 sm:py-3",
+            : "flex h-12 items-center",
         )}
       >
         <ChatHeader
@@ -3265,14 +3290,18 @@ export default function ChatView(props: ChatViewProps) {
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
+          planToggleShortcutLabel={planToggleShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          tasksLabel={planSidebarLabel}
+          tasksOpen={planSidebarOpen}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          onToggleTasks={togglePlanSidebar}
         />
       </header>
 
@@ -3314,16 +3343,17 @@ export default function ChatView(props: ChatViewProps) {
               onIsAtEndChange={onIsAtEndChange}
             />
 
-            {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
+            {/* scroll to bottom button — shown when user has scrolled away from the bottom */}
             {showScrollToBottom && (
               <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
                 <button
                   type="button"
+                  aria-label="Scroll to bottom"
+                  title="Scroll to bottom"
                   onClick={() => scrollToEnd(true)}
-                  className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
+                  className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-border/60 bg-card text-muted-foreground shadow-sm transition-colors hover:cursor-pointer hover:border-border hover:text-foreground"
                 >
-                  <ChevronDownIcon className="size-3.5" />
-                  Scroll to bottom
+                  <ArrowDownIcon aria-hidden="true" className="size-4" />
                 </button>
               </div>
             )}
@@ -3358,10 +3388,6 @@ export default function ChatView(props: ChatViewProps) {
               respondingRequestIds={respondingRequestIds}
               showPlanFollowUpPrompt={showPlanFollowUpPrompt}
               activeProposedPlan={activeProposedPlan}
-              activePlan={activePlan as { turnId?: TurnId } | null}
-              sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
-              planSidebarLabel={planSidebarLabel}
-              planSidebarOpen={planSidebarOpen}
               runtimeMode={runtimeMode}
               interactionMode={interactionMode}
               lockedProvider={lockedProvider}
@@ -3393,7 +3419,6 @@ export default function ChatView(props: ChatViewProps) {
               toggleInteractionMode={toggleInteractionMode}
               handleRuntimeModeChange={handleRuntimeModeChange}
               handleInteractionModeChange={handleInteractionModeChange}
-              togglePlanSidebar={togglePlanSidebar}
               focusComposer={focusComposer}
               scheduleComposerFocus={scheduleComposerFocus}
               setThreadError={setThreadError}
@@ -3457,7 +3482,6 @@ export default function ChatView(props: ChatViewProps) {
             workspaceRoot={activeWorkspaceRoot}
             timestampFormat={timestampFormat}
             mode="sidebar"
-            onClose={closePlanSidebar}
           />
         ) : null}
       </div>
@@ -3491,7 +3515,6 @@ export default function ChatView(props: ChatViewProps) {
             workspaceRoot={activeWorkspaceRoot}
             timestampFormat={timestampFormat}
             mode="sheet"
-            onClose={closePlanSidebar}
           />
         </RightPanelSheet>
       ) : null}

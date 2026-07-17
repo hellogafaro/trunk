@@ -1,7 +1,7 @@
 "use client";
 
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
-import { CheckIcon, ChevronsUpDownIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronsUpDownIcon, XIcon } from "~/components/ui/icons";
 import * as React from "react";
 
 import { cn } from "~/lib/utils";
@@ -273,7 +273,10 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
   return (
     <ScrollArea scrollbarGutter scrollFade>
       <ComboboxPrimitive.List
-        className={cn("not-empty:scroll-py-1 not-empty:px-1 not-empty:py-1", className)}
+        className={cn(
+          "not-empty:grid not-empty:gap-0.5 not-empty:scroll-py-1 not-empty:px-1 not-empty:py-1",
+          className,
+        )}
         data-slot="combobox-list"
         {...props}
       />
@@ -288,7 +291,7 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
 function ComboboxListVirtualized({ className, ...props }: ComboboxPrimitive.List.Props) {
   return (
     <ComboboxPrimitive.List
-      className={cn("not-empty:px-1 not-empty:py-1", className)}
+      className={cn("not-empty:grid not-empty:gap-0.5 not-empty:px-1 not-empty:py-1", className)}
       data-slot="combobox-list"
       {...props}
     />

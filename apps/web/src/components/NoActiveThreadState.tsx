@@ -1,5 +1,6 @@
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
+import { Empty, EmptyDescription, EmptyHeader } from "./ui/empty";
 import { SidebarInset, SidebarTrigger } from "./ui/sidebar";
+import { TrunkLogo } from "./ui/trunk-logo";
 import { isElectron } from "../env";
 import { cn } from "~/lib/utils";
 
@@ -11,8 +12,8 @@ export function NoActiveThreadState() {
           className={cn(
             "border-b border-border px-3 sm:px-5",
             isElectron
-              ? "drag-region flex h-[52px] items-center wco:h-[env(titlebar-area-height)]"
-              : "py-2 sm:py-3",
+              ? "drag-region flex h-12 items-center wco:h-[env(titlebar-area-height)]"
+              : "flex h-12 items-center",
           )}
         >
           {isElectron ? (
@@ -29,15 +30,13 @@ export function NoActiveThreadState() {
           )}
         </header>
 
-        <Empty className="flex-1">
-          <div className="w-full max-w-lg rounded-3xl border border-border/55 bg-card/20 px-8 py-12 shadow-sm/5">
-            <EmptyHeader className="max-w-none">
-              <EmptyTitle className="text-foreground text-xl">Pick a thread to continue</EmptyTitle>
-              <EmptyDescription className="mt-2 text-sm text-muted-foreground/78">
-                Select an existing thread or create a new one to get started.
-              </EmptyDescription>
-            </EmptyHeader>
-          </div>
+        <Empty className="flex-1 p-0 text-muted-foreground/78 md:p-0">
+          <TrunkLogo className="size-9 opacity-30" />
+          <EmptyHeader className="max-w-none">
+            <EmptyDescription className="text-base text-inherit">
+              Select an existing thread or create a new one to get started.
+            </EmptyDescription>
+          </EmptyHeader>
         </Empty>
       </div>
     </SidebarInset>

@@ -1,5 +1,11 @@
 import { memo } from "react";
-import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowUpLineIcon,
+  ChevronLeftIcon,
+  Loader2Icon,
+  StopIcon,
+} from "~/components/ui/icons";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -67,7 +73,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <Button
               size="icon-sm"
               variant="outline"
-              className="rounded-full"
+              className="rounded-sm"
               onClick={onPreviousPendingQuestion}
               disabled={pendingAction.isResponding}
               aria-label="Previous question"
@@ -78,7 +84,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <Button
               size="sm"
               variant="outline"
-              className="rounded-full"
+              className="rounded-sm"
               onClick={onPreviousPendingQuestion}
               disabled={pendingAction.isResponding}
             >
@@ -89,7 +95,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <Button
           type="submit"
           size="sm"
-          className={cn("rounded-full", compact ? "px-3" : "px-4")}
+          className={cn("rounded-sm", compact ? "px-3" : "px-4")}
           disabled={
             pendingAction.isResponding ||
             (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
@@ -110,13 +116,11 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     return (
       <button
         type="button"
-        className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105 sm:h-8 sm:w-8"
+        className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105"
         onClick={onInterrupt}
         aria-label="Stop generation"
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-          <rect x="2" y="2" width="8" height="8" rx="1.5" />
-        </svg>
+        <StopIcon className="size-4" aria-hidden="true" />
       </button>
     );
   }
@@ -127,7 +131,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <Button
           type="submit"
           size="sm"
-          className={cn("rounded-full", compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8")}
+          className={cn("rounded-sm", compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8")}
           disabled={isSendBusy || isConnecting}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Refine"}
@@ -140,7 +144,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <Button
           type="submit"
           size="sm"
-          className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+          className="h-9 rounded-l-sm rounded-r-none px-4 sm:h-8"
           disabled={isSendBusy || isConnecting}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Implement"}
@@ -151,13 +155,13 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               <Button
                 size="sm"
                 variant="default"
-                className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+                className="h-9 rounded-l-none rounded-r-sm border-l-white/12 px-2 sm:h-8"
                 aria-label="Implementation actions"
                 disabled={isSendBusy || isConnecting}
               />
             }
           >
-            <ChevronDownIcon className="size-3.5" />
+            <ArrowDownIcon className="size-3.5" />
           </MenuTrigger>
           <MenuPopup align="end" side="top">
             <MenuItem
@@ -175,7 +179,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   return (
     <button
       type="submit"
-      className="flex h-9 w-9 enabled:cursor-pointer items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:pointer-events-none disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
+      className="flex size-8 enabled:cursor-pointer items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:pointer-events-none disabled:opacity-30 disabled:hover:scale-100"
       disabled={isSendBusy || isConnecting || !hasSendableContent}
       aria-label={
         isConnecting
@@ -188,34 +192,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       }
     >
       {isConnecting || isSendBusy ? (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          className="animate-spin"
-          aria-hidden="true"
-        >
-          <circle
-            cx="7"
-            cy="7"
-            r="5.5"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeDasharray="20 12"
-          />
-        </svg>
+        <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
       ) : (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path
-            d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <ArrowUpLineIcon className="size-4" aria-hidden="true" />
       )}
     </button>
   );

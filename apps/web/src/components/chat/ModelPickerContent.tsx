@@ -1,4 +1,5 @@
 import {
+  DEFAULT_MODEL_BY_PROVIDER,
   type ProviderKind,
   PROVIDER_DISPLAY_NAMES,
   type ResolvedKeybindingsConfig,
@@ -6,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveSelectableModel } from "@t3tools/shared/model";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import { SearchIcon } from "lucide-react";
+import { SearchIcon } from "~/components/ui/icons";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
 import { isModelPickerNewModel } from "./modelPickerModelHighlights";
@@ -209,6 +210,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       }
       if (bOrder !== undefined) {
         return 1;
+      }
+      const aIsDefault = a.provider === "codex" && DEFAULT_MODEL_BY_PROVIDER[a.provider] === a.slug;
+      const bIsDefault = b.provider === "codex" && DEFAULT_MODEL_BY_PROVIDER[b.provider] === b.slug;
+      if (aIsDefault !== bIsDefault) {
+        return aIsDefault ? -1 : 1;
       }
       return 0;
     });

@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
+import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "~/components/ui/icons";
 import { GitHubIcon } from "./Icons";
 import {
   buildGitActionProgressStages,
@@ -883,7 +883,7 @@ export default function GitActionsControl({
                 render={
                   <Button
                     aria-disabled="true"
-                    className="cursor-not-allowed rounded-e-none border-e-0 opacity-64 before:rounded-e-none"
+                    className="cursor-not-allowed border-e-0 opacity-64"
                     size="xs"
                     variant="outline"
                   />

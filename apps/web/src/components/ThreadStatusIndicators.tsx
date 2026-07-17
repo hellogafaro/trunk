@@ -1,6 +1,6 @@
 import { scopeProjectRef, scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
 import type { GitStatusResult } from "@t3tools/contracts";
-import { CloudIcon, GitPullRequestIcon, TerminalIcon } from "lucide-react";
+import { CloudIcon, GitPullRequestIcon, TerminalIcon } from "~/components/ui/icons";
 import { useMemo } from "react";
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import {
@@ -88,21 +88,43 @@ export function ThreadStatusLabel({
   status,
   compact = false,
 }: {
-  status: ThreadStatusPill;
+  status: ThreadStatusPill | null;
   compact?: boolean;
 }) {
   if (compact) {
+    if (!status) {
+      return (
+        <span
+          aria-hidden="true"
+          className="inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground"
+        >
+          <span className="size-[9px] rounded-full bg-border" />
+        </span>
+      );
+    }
+
     return (
       <span
         title={status.label}
         className={`inline-flex size-3.5 shrink-0 items-center justify-center ${status.colorClass}`}
       >
         <span
-          className={`size-[9px] rounded-full ${status.dotClass} ${
+          className={`size-[9px] rounded-full border border-border/80 ${status.dotClass} ${
             status.pulse ? "animate-pulse" : ""
           }`}
         />
         <span className="sr-only">{status.label}</span>
+      </span>
+    );
+  }
+
+  if (!status) {
+    return (
+      <span
+        aria-hidden="true"
+        className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-border" />
       </span>
     );
   }
@@ -113,11 +135,11 @@ export function ThreadStatusLabel({
       className={`inline-flex items-center gap-1 text-[10px] ${status.colorClass}`}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${status.dotClass} ${
+        className={`h-1.5 w-1.5 rounded-full border border-border/80 ${status.dotClass} ${
           status.pulse ? "animate-pulse" : ""
         }`}
       />
-      <span className="hidden md:inline">{status.label}</span>
+      <span className="hidden">{status.label}</span>
     </span>
   );
 }
