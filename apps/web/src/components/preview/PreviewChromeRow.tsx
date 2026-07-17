@@ -3,10 +3,10 @@ import {
   ArrowRight,
   Camera,
   ExternalLink,
-  Maximize2,
   Monitor,
   MousePointerClick,
   RotateCw,
+  Scan,
   Smartphone,
   Tablet,
 } from "lucide-react";
@@ -27,7 +27,7 @@ import { cn } from "~/lib/utils";
 import type { BrowserViewportMode } from "~/browser/browserQuickViewports";
 
 const VIEWPORT_ITEMS = [
-  { value: "full" as const, label: "Full", icon: Maximize2 },
+  { value: "full" as const, label: "Full", icon: Scan },
   { value: "desktop" as const, label: "Desktop", icon: Monitor },
   { value: "tablet" as const, label: "Tablet", icon: Tablet },
   { value: "mobile" as const, label: "Mobile", icon: Smartphone },
