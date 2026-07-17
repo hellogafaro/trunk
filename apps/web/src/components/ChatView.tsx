@@ -65,6 +65,8 @@ import {
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
+import { APP_DISPLAY_NAME } from "../branding";
+import { formatProjectDocumentTitle } from "../branding.logic";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
 import {
@@ -1381,6 +1383,16 @@ function ChatViewContent(props: ChatViewProps) {
     ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
     : null;
   const activeProject = useProject(activeProjectRef);
+  const activeProjectTitle = activeProject?.title ?? null;
+  useEffect(() => {
+    document.title = formatProjectDocumentTitle({
+      baseName: APP_DISPLAY_NAME,
+      projectName: activeProjectTitle,
+    });
+    return () => {
+      document.title = APP_DISPLAY_NAME;
+    };
+  }, [activeProjectTitle]);
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );

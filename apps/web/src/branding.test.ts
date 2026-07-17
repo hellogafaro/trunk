@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+  formatProjectDocumentTitle,
   resolveServerBackedAppDisplayName,
   resolveServerBackedAppStageLabel,
 } from "./branding.logic";
@@ -61,6 +62,16 @@ describe("branding", () => {
 });
 
 describe("branding logic", () => {
+  it("adds the active project to the document title", () => {
+    expect(formatProjectDocumentTitle({ baseName: "Trunk", projectName: "ops" })).toBe(
+      "Trunk | ops",
+    );
+  });
+
+  it("uses the base name when no project is active", () => {
+    expect(formatProjectDocumentTitle({ baseName: "Trunk", projectName: null })).toBe("Trunk");
+  });
+
   it("returns Nightly for nightly primary server versions", () => {
     expect(
       resolveServerBackedAppStageLabel({

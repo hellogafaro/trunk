@@ -7,6 +7,14 @@ export function formatAppDisplayName(input: {
   return `${input.baseName} (${input.stageLabel})`;
 }
 
+export function formatProjectDocumentTitle(input: {
+  readonly baseName: string;
+  readonly projectName: string | null | undefined;
+}): string {
+  const projectName = input.projectName?.trim();
+  return projectName ? `${input.baseName} | ${projectName}` : input.baseName;
+}
+
 export function resolveServerBackedAppStageLabel(input: {
   readonly primaryServerVersion: string | null | undefined;
   readonly fallbackStageLabel: string;
