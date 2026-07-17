@@ -1,7 +1,7 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveChatHeaderTitle, shouldShowOpenInPicker } from "./ChatHeader";
+import { shouldShowOpenInPicker } from "./ChatHeader";
 
 describe("shouldShowOpenInPicker", () => {
   const primaryEnvironmentId = EnvironmentId.make("environment-primary");
@@ -44,25 +44,5 @@ describe("shouldShowOpenInPicker", () => {
         primaryEnvironmentId,
       }),
     ).toBe(false);
-  });
-});
-
-describe("resolveChatHeaderTitle", () => {
-  it("uses the Trunk project title when a project is active", () => {
-    expect(
-      resolveChatHeaderTitle({
-        activeThreadTitle: "New thread",
-        activeProjectName: "ops",
-      }),
-    ).toBe("Trunk | ops");
-  });
-
-  it("falls back to the thread title outside a project", () => {
-    expect(
-      resolveChatHeaderTitle({
-        activeThreadTitle: "New thread",
-        activeProjectName: undefined,
-      }),
-    ).toBe("New thread");
   });
 });

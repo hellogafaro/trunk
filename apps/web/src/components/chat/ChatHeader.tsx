@@ -17,7 +17,6 @@ import ProjectScriptsControl, {
 import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { cn } from "~/lib/utils";
-import { APP_DISPLAY_NAME } from "~/branding";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -53,15 +52,6 @@ export function shouldShowOpenInPicker(input: {
   );
 }
 
-export function resolveChatHeaderTitle(input: {
-  readonly activeThreadTitle: string;
-  readonly activeProjectName: string | undefined;
-}): string {
-  return input.activeProjectName
-    ? `${APP_DISPLAY_NAME} | ${input.activeProjectName}`
-    : input.activeThreadTitle;
-}
-
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
@@ -86,7 +76,6 @@ export const ChatHeader = memo(function ChatHeader({
     activeThreadEnvironmentId,
     primaryEnvironmentId,
   });
-  const displayTitle = resolveChatHeaderTitle({ activeThreadTitle, activeProjectName });
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -94,14 +83,14 @@ export const ChatHeader = memo(function ChatHeader({
           <TooltipTrigger
             render={
               <h2
-                aria-label={displayTitle}
+                aria-label={activeThreadTitle}
                 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground"
               >
-                {displayTitle}
+                {activeThreadTitle}
               </h2>
             }
           />
-          <TooltipPopup side="top">{displayTitle}</TooltipPopup>
+          <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
         </Tooltip>
       </div>
       <div
