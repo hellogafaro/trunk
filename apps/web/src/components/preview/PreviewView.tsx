@@ -34,6 +34,11 @@ import {
   subscribeBrowserViewportChange,
 } from "~/browser/browserViewportActions";
 import { resolveResponsiveBrowserViewportSize } from "~/browser/browserViewportLayout";
+import {
+  cancelBrowserAnnotation,
+  toggleBrowserAnnotation,
+  useBrowserAnnotationStore,
+} from "~/browser/browserAnnotationStore";
 import { PreviewUnreachable } from "./PreviewUnreachable";
 import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
@@ -90,6 +95,10 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   }, []);
 
   const tabId = requestedTabId ?? previewState.activeTabId;
+  const serverAnnotationActive = useBrowserAnnotationStore((state) =>
+    tabId ? Boolean(state.activeByTabId[tabId]) : false,
+  );
+  const annotationActive = previewBridge ? pickActive : serverAnnotationActive;
   const snapshot = tabId ? (previewState.sessions[tabId] ?? null) : null;
   const desktopOverlay = tabId ? (previewState.desktopByTabId[tabId] ?? null) : null;
   const navStatus = snapshot?.navStatus ?? { _tag: "Idle" as const };
@@ -118,6 +127,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const handleSubmitUrl = useCallback(
     async (next: string) => {
       try {
+        if (tabId && !previewBridge) cancelBrowserAnnotation(tabId);
         const resolvedUrl = resolveDiscoveredServerUrl(threadRef.environmentId, next);
         if (tabId && previewBridge) {
           // Drive the webview imperatively; `usePreviewBridge` mirrors the
@@ -152,6 +162,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
       void previewBridge.refresh(tabId);
       return;
     }
+    cancelBrowserAnnotation(tabId);
     void refresh({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, tabId },
@@ -173,6 +184,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const handleViewportChange = useCallback(
     async (nextViewport: PreviewViewportSetting) => {
       if (!tabId) return;
+      if (!previewBridge) cancelBrowserAnnotation(tabId);
       const result = await resize({
         environmentId: threadRef.environmentId,
         input: {
@@ -197,6 +209,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
 
   const handleToggleDeviceToolbar = () => {
     if (!tabId) return;
+    if (!previewBridge) cancelBrowserAnnotation(tabId);
     if (viewport._tag !== "fill") {
       void commitBrowserViewportChange(tabId, FILL_PREVIEW_VIEWPORT).catch(() => undefined);
       return;
@@ -221,6 +234,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
       void previewBridge.goBack(tabId);
       return;
     }
+    cancelBrowserAnnotation(tabId);
     void browserHistory({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, tabId, action: "back" },
@@ -233,6 +247,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
       void previewBridge.goForward(tabId);
       return;
     }
+    cancelBrowserAnnotation(tabId);
     void browserHistory({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, tabId, action: "forward" },
@@ -493,7 +508,11 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   );
 
   const handlePickElement = useCallback(() => {
-    if (!previewBridge || !tabId) return;
+    if (!tabId) return;
+    if (!previewBridge) {
+      toggleBrowserAnnotation(tabId);
+      return;
+    }
     if (pickActiveRef.current) {
       void previewBridge.cancelPickElement(tabId).catch(() => undefined);
       return;
@@ -612,8 +631,10 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         onCapture={previewBridge && tabId ? handleCapture : undefined}
         captureDisabled={!desktopOverlay || isUnreachable}
         recording={tabId !== null && activeRecordingTabId === tabId}
-        onPickElement={previewBridge && tabId ? handlePickElement : undefined}
-        pickActive={pickActive}
+        onPickElement={tabId ? handlePickElement : undefined}
+        pickActive={annotationActive}
+        onToggleDeviceToolbar={!previewBridge && tabId ? handleToggleDeviceToolbar : undefined}
+        deviceToolbarActive={viewport._tag !== "fill"}
         // Disable when there's no tab (nothing to pick on) OR the page
         // failed to load (a React overlay covers the webview, so the
         // user wouldn't be able to actually click anything underneath).

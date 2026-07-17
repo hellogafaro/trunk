@@ -9,6 +9,7 @@
  */
 import { Schema } from "effect";
 import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { PickedElementPayloadSchema, PreviewAnnotationRectSchema } from "./previewAnnotation.ts";
 
 const Url = TrimmedNonEmptyString.check(Schema.isMaxLength(2048));
 const Title = Schema.String.check(Schema.isMaxLength(512));
@@ -218,6 +219,23 @@ export const PreviewBrowserViewportInput = Schema.Struct({
   height: PreviewRenderedViewportSize.fields.height,
 });
 export type PreviewBrowserViewportInput = typeof PreviewBrowserViewportInput.Type;
+
+export const PreviewBrowserInspectInput = Schema.Struct({
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+  x: Schema.Number,
+  y: Schema.Number,
+});
+export type PreviewBrowserInspectInput = typeof PreviewBrowserInspectInput.Type;
+
+export const PreviewBrowserInspectedElement = Schema.Struct({
+  element: PickedElementPayloadSchema,
+  rect: PreviewAnnotationRectSchema,
+});
+export type PreviewBrowserInspectedElement = typeof PreviewBrowserInspectedElement.Type;
+
+export const PreviewBrowserInspectResult = Schema.Array(PreviewBrowserInspectedElement);
+export type PreviewBrowserInspectResult = typeof PreviewBrowserInspectResult.Type;
 
 const PreviewBrowserPointerButton = Schema.Literals(["left", "middle", "right"]);
 

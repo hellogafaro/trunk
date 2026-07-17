@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Camera,
   ExternalLink,
+  MonitorSmartphone,
   MousePointerClick,
   RotateCw,
 } from "lucide-react";
@@ -50,6 +51,8 @@ interface Props {
   pickDisabled?: boolean | undefined;
   /** Optional reason string surfaced in the disabled tooltip. */
   pickDisabledReason?: string | undefined;
+  onToggleDeviceToolbar?: (() => void) | undefined;
+  deviceToolbarActive?: boolean | undefined;
   /**
    * Trailing slot rendered after the URL input. Used by the preview view
    * to mount the three-dot menu (hard reload, devtools, zoom, clear data).
@@ -81,6 +84,8 @@ export function PreviewChromeRow({
   pickActive,
   pickDisabled,
   pickDisabledReason,
+  onToggleDeviceToolbar,
+  deviceToolbarActive,
   trailingActions,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -246,6 +251,27 @@ export function PreviewChromeRow({
                 : pickActive
                   ? "Cancel annotation (Esc)"
                   : "Annotate elements, regions, and drawings"}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
+        {onToggleDeviceToolbar ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant={deviceToolbarActive ? "secondary" : "ghost"}
+                  size="icon-xs"
+                  onClick={onToggleDeviceToolbar}
+                  aria-label={deviceToolbarActive ? "Close device toolbar" : "Open device toolbar"}
+                  aria-pressed={deviceToolbarActive ? "true" : "false"}
+                  type="button"
+                />
+              }
+            >
+              <MonitorSmartphone className={cn(deviceToolbarActive && "text-primary")} />
+            </TooltipTrigger>
+            <TooltipPopup>
+              {deviceToolbarActive ? "Close responsive viewport" : "Responsive viewport"}
             </TooltipPopup>
           </Tooltip>
         ) : null}

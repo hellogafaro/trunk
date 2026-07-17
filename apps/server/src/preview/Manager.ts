@@ -14,6 +14,8 @@ import {
   type PreviewBrowserFrame,
   type PreviewBrowserFramesInput,
   type PreviewBrowserHistoryInput,
+  type PreviewBrowserInspectInput,
+  type PreviewBrowserInspectResult,
   type PreviewBrowserInput,
   PreviewBrowserOperationError,
   type PreviewBrowserViewportInput,
@@ -80,6 +82,9 @@ export class PreviewManager extends Context.Service<
     readonly browserHistory: (
       input: PreviewBrowserHistoryInput,
     ) => Effect.Effect<void, PreviewBrowserError>;
+    readonly inspectBrowserPoint: (
+      input: PreviewBrowserInspectInput,
+    ) => Effect.Effect<PreviewBrowserInspectResult, PreviewBrowserError>;
   }
 >()("t3/preview/Manager/PreviewManager") {}
 
@@ -518,6 +523,13 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     yield* serverBrowser.history(input);
   });
 
+  const inspectBrowserPoint: PreviewManager["Service"]["inspectBrowserPoint"] = Effect.fn(
+    "PreviewManager.inspectBrowserPoint",
+  )(function* (input) {
+    yield* lookupBrowserSession(input.threadId, input.tabId);
+    return yield* serverBrowser.inspect(input);
+  });
+
   return PreviewManager.of({
     open,
     navigate,
@@ -532,6 +544,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     sendBrowserInput,
     setBrowserViewport,
     browserHistory,
+    inspectBrowserPoint,
   });
 }).pipe(Effect.withSpan("PreviewManager.make"));
 

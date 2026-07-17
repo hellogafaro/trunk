@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   DiscoveredLocalServer,
+  PreviewBrowserInspectResult,
   PreviewEvent,
   PreviewNavStatus,
   PreviewSessionSnapshot,
@@ -28,6 +29,31 @@ const decodeResizeResult = Schema.decodeUnknownSync(PreviewAutomationResizeResul
 const decodeAutomationHost = Schema.decodeUnknownSync(PreviewAutomationHost);
 const decodeAutomationError = Schema.decodeUnknownSync(PreviewAutomationError);
 const decodeAutomationStatus = Schema.decodeUnknownSync(PreviewAutomationStatus);
+const decodeBrowserInspectResult = Schema.decodeUnknownSync(PreviewBrowserInspectResult);
+
+describe("PreviewBrowserInspectResult", () => {
+  it("decodes structured element context and viewport bounds", () => {
+    expect(
+      decodeBrowserInspectResult([
+        {
+          element: {
+            pageUrl: "https://example.com",
+            pageTitle: "Example",
+            tagName: "button",
+            selector: "#submit",
+            htmlPreview: '<button id="submit">Save</button>',
+            componentName: "SaveButton",
+            source: null,
+            stack: [],
+            styles: "display: inline-flex;",
+            pickedAt: "2026-07-17T00:00:00.000Z",
+          },
+          rect: { x: 20, y: 30, width: 120, height: 32 },
+        },
+      ])[0]?.element.componentName,
+    ).toBe("SaveButton");
+  });
+});
 
 describe("PreviewNavStatus", () => {
   it("decodes Idle", () => {

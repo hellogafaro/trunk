@@ -24,6 +24,7 @@ export function createPreviewEnvironmentAtoms<R, E>(
   const statusScheduler = createAtomCommandScheduler();
   const automationScheduler = createAtomCommandScheduler();
   const browserInputScheduler = createAtomCommandScheduler();
+  const browserInspectScheduler = createAtomCommandScheduler();
   const lifecycleConcurrency = {
     mode: "serial" as const,
     key: ({ environmentId, input }: { environmentId: string; input: { threadId: string } }) =>
@@ -121,6 +122,16 @@ export function createPreviewEnvironmentAtoms<R, E>(
       tag: WS_METHODS.previewBrowserHistory,
       scheduler: lifecycleScheduler,
       concurrency: lifecycleConcurrency,
+    }),
+    inspectBrowserPoint: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:preview:browser-inspect",
+      tag: WS_METHODS.previewBrowserInspect,
+      scheduler: browserInspectScheduler,
+      concurrency: {
+        mode: "latest",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.threadId, input.tabId]),
+      },
     }),
     respondToAutomation: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:preview:automation-respond",

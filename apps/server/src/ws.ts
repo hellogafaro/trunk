@@ -1668,6 +1668,12 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.previewBrowserHistory, previewManager.browserHistory(input), {
             "rpc.aggregate": "preview-browser",
           }),
+        [WS_METHODS.previewBrowserInspect]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.previewBrowserInspect,
+            previewManager.inspectBrowserPoint(input),
+            { "rpc.aggregate": "preview-browser" },
+          ),
         [WS_METHODS.previewAutomationConnect]: (input) =>
           observeRpcStreamEffect(
             WS_METHODS.previewAutomationConnect,

@@ -98,6 +98,8 @@ import {
   PreviewBrowserFrame,
   PreviewBrowserFramesInput,
   PreviewBrowserHistoryInput,
+  PreviewBrowserInspectInput,
+  PreviewBrowserInspectResult,
   PreviewBrowserInput,
   PreviewBrowserViewportInput,
   PreviewCloseInput,
@@ -206,6 +208,7 @@ export const WS_METHODS = {
   previewBrowserInput: "preview.browser.input",
   previewBrowserViewport: "preview.browser.viewport",
   previewBrowserHistory: "preview.browser.history",
+  previewBrowserInspect: "preview.browser.inspect",
   previewAutomationConnect: "previewAutomation.connect",
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
@@ -588,6 +591,12 @@ export const WsPreviewBrowserHistoryRpc = Rpc.make(WS_METHODS.previewBrowserHist
   error: Schema.Union([PreviewBrowserError, EnvironmentAuthorizationError]),
 });
 
+export const WsPreviewBrowserInspectRpc = Rpc.make(WS_METHODS.previewBrowserInspect, {
+  payload: PreviewBrowserInspectInput,
+  success: PreviewBrowserInspectResult,
+  error: Schema.Union([PreviewBrowserError, EnvironmentAuthorizationError]),
+});
+
 export const WsPreviewAutomationConnectRpc = Rpc.make(WS_METHODS.previewAutomationConnect, {
   payload: PreviewAutomationHost,
   success: PreviewAutomationStreamEvent,
@@ -771,6 +780,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewBrowserInputRpc,
   WsPreviewBrowserViewportRpc,
   WsPreviewBrowserHistoryRpc,
+  WsPreviewBrowserInspectRpc,
   WsPreviewAutomationConnectRpc,
   WsPreviewAutomationRespondRpc,
   WsPreviewAutomationFocusHostRpc,

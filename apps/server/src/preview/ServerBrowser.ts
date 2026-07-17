@@ -2,6 +2,8 @@
 import {
   type PreviewBrowserFrame,
   type PreviewBrowserHistoryInput,
+  type PreviewBrowserInspectInput,
+  type PreviewBrowserInspectResult,
   type PreviewBrowserInput,
   PreviewBrowserOperationError,
   type PreviewBrowserViewportInput,
@@ -19,6 +21,8 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import type { BrowserContext, CDPSession, Page } from "playwright-core";
+
+import { browserElementsAtPointExpression } from "./BrowserElementInspection.ts";
 
 type ServerBrowserError = PreviewBrowserUnavailableError | PreviewBrowserOperationError;
 
@@ -133,6 +137,9 @@ export class ServerBrowser extends Context.Service<
     readonly history: (
       input: PreviewBrowserHistoryInput,
     ) => Effect.Effect<void, PreviewBrowserOperationError>;
+    readonly inspect: (
+      input: PreviewBrowserInspectInput,
+    ) => Effect.Effect<PreviewBrowserInspectResult, PreviewBrowserOperationError>;
     readonly statusEvents: Stream.Stream<PreviewReportStatusInput>;
   }
 >()("t3/preview/ServerBrowser") {}
@@ -421,6 +428,22 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     },
   );
 
+  const inspect: ServerBrowser["Service"]["inspect"] = Effect.fn("ServerBrowser.inspect")(
+    function* (input) {
+      const tab = yield* requireTab(input.threadId, input.tabId, "inspect");
+      const point = {
+        x: Math.min(tab.width - 1, Math.max(0, Math.round(input.x))),
+        y: Math.min(tab.height - 1, Math.max(0, Math.round(input.y))),
+      };
+      return yield* Effect.tryPromise({
+        try: () =>
+          tab.page.evaluate<PreviewBrowserInspectResult>(
+            browserElementsAtPointExpression(point.x, point.y),
+          ),
+        catch: (cause) => operationError("inspect", cause),
+      });
+    },
+  );
   yield* Effect.addFinalizer(() =>
     Effect.promise(async () => {
       const context = await contextPromise?.catch(() => null);
@@ -438,6 +461,7 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     sendInput,
     setViewport,
     history,
+    inspect,
     statusEvents: Stream.fromPubSub(statusPubSub),
   });
 }).pipe(Effect.withSpan("ServerBrowser.make"));
