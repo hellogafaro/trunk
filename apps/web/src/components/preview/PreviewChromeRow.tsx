@@ -240,32 +240,6 @@ export function PreviewChromeRow({
           ) : null}
         </InputGroup>
 
-        {onPickElement ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant={pickActive ? "secondary" : "ghost"}
-                  size="icon-xs"
-                  onClick={onPickElement}
-                  disabled={pickDisabled}
-                  aria-label={pickActive ? "Cancel annotation" : "Annotate preview"}
-                  aria-pressed={pickActive ? "true" : "false"}
-                  type="button"
-                />
-              }
-            >
-              <MousePointerClick className={cn(pickActive && "text-primary")} />
-            </TooltipTrigger>
-            <TooltipPopup>
-              {pickDisabled && pickDisabledReason
-                ? pickDisabledReason
-                : pickActive
-                  ? "Cancel annotation (Esc)"
-                  : "Annotate elements, regions, and drawings"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
         {viewportMode && onViewportModeChange ? (
           <ToggleGroup
             className="shrink-0"
@@ -296,6 +270,32 @@ export function PreviewChromeRow({
               );
             })}
           </ToggleGroup>
+        ) : null}
+        {onPickElement ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant={pickActive ? "secondary" : "ghost"}
+                  size="icon-xs"
+                  onClick={onPickElement}
+                  disabled={pickDisabled}
+                  aria-label={pickActive ? "Cancel annotation" : "Annotate preview"}
+                  aria-pressed={pickActive ? "true" : "false"}
+                  type="button"
+                />
+              }
+            >
+              <MousePointerClick className={cn(pickActive && "text-primary")} />
+            </TooltipTrigger>
+            <TooltipPopup>
+              {pickDisabled && pickDisabledReason
+                ? pickDisabledReason
+                : pickActive
+                  ? "Cancel annotation (Esc)"
+                  : "Annotate elements, regions, and drawings"}
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
         {onCapture ? (
           <Tooltip>
