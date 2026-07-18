@@ -550,7 +550,9 @@ export const make = Effect.gen(function* ServerBrowserMake() {
               if (popupUrl && popupUrl !== "about:blank") await navigatePage(created, popupUrl);
             })().catch(() => undefined);
           });
-          page.on("close", () => tabs.delete(key));
+          page.on("close", () => {
+            if (tabs.get(key) === created) tabs.delete(key);
+          });
           return created;
         },
         catch: unavailableError,
@@ -792,7 +794,14 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       const release = Effect.promise(async () => {
         tab.frameSubscribers = Math.max(0, tab.frameSubscribers - 1);
         if (tab.frameSubscribers === 0 && activeRecording?.tab.key !== tab.key) {
+          // A hidden surface is fully suspended, not merely paused. Reopening
+          // recreates the page from the persisted preview snapshot.
+          if (tabs.get(tab.key) === tab) tabs.delete(tab.key);
           await stopLiveScreencast(tab);
+          await Promise.race([
+            tab.page.close().catch(() => undefined),
+            NodeTimersPromises.setTimeout(BROWSER_CLEANUP_TIMEOUT_MS),
+          ]);
         }
       });
       return Stream.concat(

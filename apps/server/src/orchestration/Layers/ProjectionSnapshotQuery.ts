@@ -812,6 +812,31 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionThreadActivityDbRowSchema,
     execute: ({ threadId }) =>
       sql`
+        -- Initial thread snapshots share the interactive RPC WebSocket. Keep
+        -- recent activity detail within a bounded byte budget so historical
+        -- tool output cannot starve connection heartbeats and commands. The
+        -- durable projection remains complete in SQLite.
+        WITH ranked_activities AS (
+          SELECT
+            activity_id,
+            thread_id,
+            turn_id,
+            tone,
+            kind,
+            summary,
+            payload_json,
+            sequence,
+            created_at,
+            ROW_NUMBER() OVER (
+              ORDER BY sequence DESC, created_at DESC, activity_id DESC
+            ) AS recent_rank,
+            SUM(LENGTH(summary) + LENGTH(payload_json)) OVER (
+              ORDER BY sequence DESC, created_at DESC, activity_id DESC
+              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS cumulative_bytes
+          FROM projection_thread_activities
+          WHERE thread_id = ${threadId}
+        )
         SELECT
           activity_id AS "activityId",
           thread_id AS "threadId",
@@ -822,8 +847,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           payload_json AS "payload",
           sequence,
           created_at AS "createdAt"
-        FROM projection_thread_activities
-        WHERE thread_id = ${threadId}
+        FROM ranked_activities
+        WHERE cumulative_bytes <= 2097152 OR recent_rank <= 50
         ORDER BY
           sequence ASC,
           created_at ASC,
