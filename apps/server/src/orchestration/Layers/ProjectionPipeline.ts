@@ -130,52 +130,6 @@ function isStalePendingApprovalFailureDetail(detail: string | null): boolean {
   );
 }
 
-function derivePendingUserInputCountFromActivities(
-  activities: ReadonlyArray<ProjectionThreadActivity>,
-): number {
-  const openRequestIds = new Set<string>();
-  const ordered = [...activities].toSorted(
-    (left, right) =>
-      left.createdAt.localeCompare(right.createdAt) ||
-      left.activityId.localeCompare(right.activityId),
-  );
-
-  for (const activity of ordered) {
-    const requestId = extractActivityRequestId(activity.payload);
-    if (requestId === null) {
-      continue;
-    }
-    const payload =
-      typeof activity.payload === "object" && activity.payload !== null
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    const detail = typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
-
-    if (activity.kind === "user-input.requested") {
-      openRequestIds.add(requestId);
-      continue;
-    }
-
-    if (activity.kind === "user-input.resolved") {
-      openRequestIds.delete(requestId);
-      continue;
-    }
-
-    if (
-      activity.kind === "provider.user-input.respond.failed" &&
-      detail !== null &&
-      (detail.includes("stale pending user-input request") ||
-        detail.includes("unknown pending user-input request") ||
-        detail.includes("unknown pending user input request") ||
-        detail.includes("unknown pending codex user input request"))
-    ) {
-      openRequestIds.delete(requestId);
-    }
-  }
-
-  return openRequestIds.size;
-}
-
 function deriveHasActionableProposedPlan(input: {
   readonly latestTurnId: string | null;
   readonly proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>;
@@ -554,10 +508,43 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         return;
       }
 
-      const [messages, proposedPlans, activities, pendingApprovals] = yield* Effect.all([
+      const [messages, proposedPlans, pendingUserInputRows, pendingApprovals] = yield* Effect.all([
         projectionThreadMessageRepository.listByThreadId({ threadId }),
         projectionThreadProposedPlanRepository.listByThreadId({ threadId }),
-        projectionThreadActivityRepository.listByThreadId({ threadId }),
+        sql<{ readonly count: number }>`
+          WITH relevant_user_input AS (
+            SELECT
+              json_extract(payload_json, '$.requestId') AS request_id,
+              kind,
+              ROW_NUMBER() OVER (
+                PARTITION BY json_extract(payload_json, '$.requestId')
+                ORDER BY created_at DESC, activity_id DESC
+              ) AS recent_rank
+            FROM projection_thread_activities
+            WHERE thread_id = ${threadId}
+              AND json_type(payload_json, '$.requestId') = 'text'
+              AND (
+                kind IN ('user-input.requested', 'user-input.resolved')
+                OR (
+                  kind = 'provider.user-input.respond.failed'
+                  AND (
+                    LOWER(json_extract(payload_json, '$.detail')) LIKE '%stale pending user-input request%'
+                    OR LOWER(json_extract(payload_json, '$.detail')) LIKE '%unknown pending user-input request%'
+                    OR LOWER(json_extract(payload_json, '$.detail')) LIKE '%unknown pending user input request%'
+                    OR LOWER(json_extract(payload_json, '$.detail')) LIKE '%unknown pending codex user input request%'
+                  )
+                )
+              )
+          )
+          SELECT COUNT(*) AS count
+          FROM relevant_user_input
+          WHERE recent_rank = 1
+            AND kind = 'user-input.requested'
+        `.pipe(
+          Effect.mapError(
+            toPersistenceSqlError("ProjectionPipeline.refreshThreadShellSummary:pendingUserInput"),
+          ),
+        ),
         projectionPendingApprovalRepository.listByThreadId({ threadId }),
       ]);
 
@@ -574,7 +561,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       const pendingApprovalCount = pendingApprovals.filter(
         (approval) => approval.status === "pending",
       ).length;
-      const pendingUserInputCount = derivePendingUserInputCountFromActivities(activities);
+      const pendingUserInputCount = pendingUserInputRows[0]?.count ?? 0;
       const hasActionableProposedPlan = deriveHasActionableProposedPlan({
         latestTurnId: existingRow.value.latestTurnId,
         proposedPlans,
@@ -1412,8 +1399,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           // Only approval-requested activities should create pending-approval
           // rows.  Other activity kinds that happen to carry a requestId
           // (e.g. user-input.requested / user-input.resolved) must not
-          // pollute this projection — they have their own accounting via
-          // derivePendingUserInputCountFromActivities.
+          // pollute this projection — the thread shell summary accounts for
+          // user-input lifecycle activities separately.
           if (event.payload.activity.kind !== "approval.requested") {
             return;
           }
