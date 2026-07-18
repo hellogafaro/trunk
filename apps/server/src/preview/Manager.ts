@@ -10,6 +10,18 @@
  * fail an in-progress `navigate()`).
  */
 import {
+  type PreviewAutomationClickInput,
+  type PreviewAutomationEvaluateInput,
+  type PreviewAutomationNavigateInput,
+  type PreviewAutomationOpenInput,
+  type PreviewAutomationPressInput,
+  type PreviewAutomationRequest,
+  type PreviewAutomationResizeInput,
+  type PreviewAutomationResizeResult,
+  type PreviewAutomationScrollInput,
+  type PreviewAutomationStatus,
+  type PreviewAutomationTypeInput,
+  type PreviewAutomationWaitForInput,
   type PreviewBrowserError,
   type PreviewBrowserFrame,
   type PreviewBrowserFramesInput,
@@ -40,6 +52,7 @@ import {
   newPreviewTabId,
   normalizePreviewUrl,
 } from "@t3tools/shared/preview";
+import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -85,6 +98,9 @@ export class PreviewManager extends Context.Service<
     readonly inspectBrowserPoint: (
       input: PreviewBrowserInspectInput,
     ) => Effect.Effect<PreviewBrowserInspectResult, PreviewBrowserError>;
+    readonly automate: (
+      request: PreviewAutomationRequest,
+    ) => Effect.Effect<unknown, PreviewError | PreviewBrowserError>;
   }
 >()("t3/preview/Manager/PreviewManager") {}
 
@@ -530,6 +546,239 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     return yield* serverBrowser.inspect(input);
   });
 
+  const latestAutomationSession = Effect.fn("PreviewManager.latestAutomationSession")(function* (
+    threadId: string,
+    requestedTabId?: string,
+  ) {
+    const state = yield* SynchronizedRef.get(stateRef);
+    if (requestedTabId) {
+      return state.sessions.get(compositeKey(threadId, requestedTabId)) ?? null;
+    }
+    return (
+      sessionsForThread(state, threadId)
+        .toSorted((left, right) => left.snapshot.updatedAt.localeCompare(right.snapshot.updatedAt))
+        .at(-1) ?? null
+    );
+  });
+
+  const automationStatusForSession = Effect.fn("PreviewManager.automationStatusForSession")(
+    function* (
+      session: PreviewSessionState,
+    ): Effect.fn.Return<PreviewAutomationStatus, PreviewBrowserError> {
+      yield* serverBrowser.ensure(session.snapshot);
+      const status = yield* serverBrowser.automationStatus(
+        ThreadId.make(session.threadId),
+        session.tabId,
+      );
+      return {
+        ...status,
+        viewportSetting: session.snapshot.viewport ?? FILL_PREVIEW_VIEWPORT,
+      };
+    },
+  );
+
+  const requireAutomationSession = Effect.fn("PreviewManager.requireAutomationSession")(function* (
+    request: PreviewAutomationRequest,
+  ) {
+    const session = yield* latestAutomationSession(request.threadId, request.tabId);
+    if (session) return session;
+    return yield* new PreviewBrowserOperationError({
+      operation: "automation-tab-not-found",
+      message: request.tabId
+        ? `Preview tab ${request.tabId} was not found.`
+        : "No active preview tab was found.",
+    });
+  });
+
+  const automationNavigationUrl = (input: PreviewAutomationNavigateInput): string => {
+    const target = input.target;
+    if (!target) return input.url!;
+    if (target.kind === "url") return target.url;
+    const protocol = target.protocol ?? "http";
+    const path = target.path?.startsWith("/") ? target.path : `/${target.path ?? ""}`;
+    return `${protocol}://127.0.0.1:${target.port}${path}`;
+  };
+
+  const presentAutomationSession = Effect.fn("PreviewManager.presentAutomationSession")(function* (
+    session: PreviewSessionState,
+  ) {
+    const createdAt = yield* currentIsoTimestamp;
+    yield* PubSub.publish(eventsPubSub, {
+      type: "automationPresented",
+      threadId: session.threadId,
+      tabId: session.tabId,
+      createdAt,
+    });
+  });
+
+  const automate: PreviewManager["Service"]["automate"] = Effect.fn("PreviewManager.automate")(
+    function* (request) {
+      switch (request.operation) {
+        case "status": {
+          const session = yield* latestAutomationSession(request.threadId, request.tabId);
+          if (!session) {
+            return {
+              available: true,
+              visible: false,
+              tabId: null,
+              url: null,
+              title: null,
+              loading: false,
+              viewportSetting: FILL_PREVIEW_VIEWPORT,
+            } satisfies PreviewAutomationStatus;
+          }
+          return yield* automationStatusForSession(session);
+        }
+        case "open": {
+          const input = request.input as PreviewAutomationOpenInput;
+          const reusable =
+            input.reuseExistingTab === false
+              ? null
+              : yield* latestAutomationSession(request.threadId, request.tabId);
+          let snapshot: PreviewSessionSnapshot;
+          if (reusable) {
+            snapshot = reusable.snapshot;
+            if (input.url) {
+              snapshot = yield* navigate({
+                threadId: request.threadId,
+                tabId: reusable.tabId,
+                url: input.url,
+              });
+            }
+          } else {
+            snapshot = yield* open({
+              threadId: request.threadId,
+              ...(input.url ? { url: input.url } : {}),
+            });
+          }
+          yield* serverBrowser.ensure(snapshot);
+          const session = {
+            threadId: snapshot.threadId,
+            tabId: snapshot.tabId,
+            snapshot,
+          } satisfies PreviewSessionState;
+          if (input.show !== false) yield* presentAutomationSession(session);
+          return yield* automationStatusForSession(session);
+        }
+        case "navigate": {
+          const session = yield* requireAutomationSession(request);
+          yield* presentAutomationSession(session);
+          yield* serverBrowser.ensure(session.snapshot);
+          const input = request.input as PreviewAutomationNavigateInput;
+          const snapshot = yield* navigate({
+            threadId: request.threadId,
+            tabId: session.tabId,
+            url: automationNavigationUrl(input),
+          });
+          return yield* automationStatusForSession({ ...session, snapshot });
+        }
+        case "resize": {
+          const session = yield* requireAutomationSession(request);
+          yield* presentAutomationSession(session);
+          yield* serverBrowser.ensure(session.snapshot);
+          const setting = resolvePreviewViewport(request.input as PreviewAutomationResizeInput);
+          yield* resize({
+            threadId: request.threadId,
+            tabId: session.tabId,
+            viewport: setting,
+          });
+          const viewport =
+            setting._tag === "fill"
+              ? { width: 1280, height: 800 }
+              : { width: setting.width, height: setting.height };
+          yield* serverBrowser.setViewport({
+            threadId: request.threadId,
+            tabId: session.tabId,
+            ...viewport,
+          });
+          return {
+            tabId: session.tabId,
+            setting,
+            viewport,
+          } satisfies PreviewAutomationResizeResult;
+        }
+        case "snapshot": {
+          const session = yield* requireAutomationSession(request);
+          yield* serverBrowser.ensure(session.snapshot);
+          return yield* serverBrowser.automationSnapshot(request.threadId, session.tabId);
+        }
+        case "click": {
+          const session = yield* requireAutomationSession(request);
+          yield* presentAutomationSession(session);
+          yield* serverBrowser.ensure(session.snapshot);
+          yield* serverBrowser.automationClick(
+            request.threadId,
+            session.tabId,
+            request.input as PreviewAutomationClickInput,
+          );
+          return undefined;
+        }
+        case "type": {
+          const session = yield* requireAutomationSession(request);
+          yield* presentAutomationSession(session);
+          yield* serverBrowser.ensure(session.snapshot);
+          yield* serverBrowser.automationType(
+            request.threadId,
+            session.tabId,
+            request.input as PreviewAutomationTypeInput,
+          );
+          return undefined;
+        }
+        case "press": {
+          const session = yield* requireAutomationSession(request);
+          yield* presentAutomationSession(session);
+          yield* serverBrowser.ensure(session.snapshot);
+          yield* serverBrowser.automationPress(
+            request.threadId,
+            session.tabId,
+            request.input as PreviewAutomationPressInput,
+          );
+          return undefined;
+        }
+        case "scroll": {
+          const session = yield* requireAutomationSession(request);
+          yield* presentAutomationSession(session);
+          yield* serverBrowser.ensure(session.snapshot);
+          yield* serverBrowser.automationScroll(
+            request.threadId,
+            session.tabId,
+            request.input as PreviewAutomationScrollInput,
+          );
+          return undefined;
+        }
+        case "evaluate": {
+          const session = yield* requireAutomationSession(request);
+          yield* serverBrowser.ensure(session.snapshot);
+          return yield* serverBrowser.automationEvaluate(
+            request.threadId,
+            session.tabId,
+            request.input as PreviewAutomationEvaluateInput,
+          );
+        }
+        case "waitFor": {
+          const session = yield* requireAutomationSession(request);
+          yield* serverBrowser.ensure(session.snapshot);
+          yield* serverBrowser.automationWaitFor(
+            request.threadId,
+            session.tabId,
+            request.input as PreviewAutomationWaitForInput,
+          );
+          return undefined;
+        }
+        case "recordingStart": {
+          const session = yield* requireAutomationSession(request);
+          yield* presentAutomationSession(session);
+          yield* serverBrowser.ensure(session.snapshot);
+          return yield* serverBrowser.automationRecordingStart(request.threadId, session.tabId);
+        }
+        case "recordingStop":
+          return yield* serverBrowser.automationRecordingStop(
+            request.tabIdExplicit ? request.tabId : undefined,
+          );
+      }
+    },
+  );
+
   return PreviewManager.of({
     open,
     navigate,
@@ -545,6 +794,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     setBrowserViewport,
     browserHistory,
     inspectBrowserPoint,
+    automate,
   });
 }).pipe(Effect.withSpan("PreviewManager.make"));
 

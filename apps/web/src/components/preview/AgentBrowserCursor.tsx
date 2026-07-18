@@ -66,11 +66,15 @@ function AgentBrowserCursorEvent(props: {
       {event.phase === "click" ? (
         <span
           key={event.sequence}
-          className="absolute left-0.5 top-0.5 size-4 animate-ping rounded-full bg-primary/25 motion-reduce:animate-none"
+          className="absolute left-0.5 top-0.5 size-4 animate-ping rounded-full bg-blue-500/30 motion-reduce:animate-none"
         />
       ) : null}
       <MousePointer2
-        className="relative size-5 -translate-x-0.5 -translate-y-0.5 fill-background text-primary drop-shadow-sm"
+        className="relative size-5 -translate-x-0.5 -translate-y-0.5 fill-blue-500 text-white"
+        style={{
+          filter:
+            "drop-shadow(0 1px 1px rgb(0 0 0 / 0.7)) drop-shadow(0 0 7px rgb(59 130 246 / 0.55))",
+        }}
         strokeWidth={2}
       />
     </div>

@@ -209,6 +209,13 @@ export const PreviewBrowserFrame = Schema.Struct({
   data: Schema.String,
   width: Schema.Int.check(Schema.isGreaterThan(0)),
   height: Schema.Int.check(Schema.isGreaterThan(0)),
+  cursor: Schema.optional(
+    Schema.Struct({
+      phase: Schema.Literals(["move", "click"]),
+      x: Schema.Number,
+      y: Schema.Number,
+    }),
+  ),
 });
 export type PreviewBrowserFrame = typeof PreviewBrowserFrame.Type;
 
@@ -340,12 +347,18 @@ const PreviewClosedEvent = Schema.Struct({
   type: Schema.Literal("closed"),
 });
 
+const PreviewAutomationPresentedEvent = Schema.Struct({
+  ...PreviewEventBaseSchema.fields,
+  type: Schema.Literal("automationPresented"),
+});
+
 export const PreviewEvent = Schema.Union([
   PreviewOpenedEvent,
   PreviewNavigatedEvent,
   PreviewResizedEvent,
   PreviewFailedEvent,
   PreviewClosedEvent,
+  PreviewAutomationPresentedEvent,
 ]);
 export type PreviewEvent = typeof PreviewEvent.Type;
 

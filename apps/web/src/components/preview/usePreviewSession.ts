@@ -8,12 +8,13 @@ import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
 import {
-  applyPreviewServerEvent,
   applyPreviewServerSnapshot,
   readThreadPreviewState,
   reconcilePreviewServerSessions,
 } from "~/previewStateStore";
 import { previewEnvironment } from "~/state/preview";
+
+import { applyPreviewPresentationEvent } from "./applyPreviewPresentationEvent";
 
 class PreviewSessionThreadKeyParseError extends Schema.TaggedErrorClass<PreviewSessionThreadKeyParseError>()(
   "PreviewSessionThreadKeyParseError",
@@ -87,7 +88,7 @@ const previewSessionSyncAtom = Atom.family((threadKey: string) => {
 
     const applyLatestEvent = (result: Atom.Type<typeof eventsAtom>) => {
       if (!AsyncResult.isSuccess(result) || result.value.threadId !== threadRef.threadId) return;
-      applyPreviewServerEvent(threadRef, result.value);
+      applyPreviewPresentationEvent(threadRef, result.value);
       if (result.value.type === "opened" || result.value.type === "closed") {
         get.refresh(sessionsAtom);
       }
@@ -115,6 +116,12 @@ const previewSessionSyncAtom = Atom.family((threadKey: string) => {
   }).pipe(Atom.setIdleTTL(1_000), Atom.withLabel(`preview:session-sync:${threadKey}`));
 });
 
-export function usePreviewSession(threadRef: ScopedThreadRef): void {
-  useAtomValue(previewSessionSyncAtom(scopedThreadKey(threadRef)));
+const inactivePreviewSessionSyncAtom = Atom.make(undefined).pipe(
+  Atom.withLabel("preview:session-sync:inactive"),
+);
+
+export function usePreviewSession(threadRef: ScopedThreadRef | null): void {
+  useAtomValue(
+    threadRef ? previewSessionSyncAtom(scopedThreadKey(threadRef)) : inactivePreviewSessionSyncAtom,
+  );
 }

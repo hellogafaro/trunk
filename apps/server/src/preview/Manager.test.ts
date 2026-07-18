@@ -338,4 +338,52 @@ it.layer(PreviewManager.layer)("PreviewManager", (it) => {
       expect(bEvents.map((e) => e.type)).toEqual(["opened", "opened"]);
     }),
   );
+
+  it.effect("reports hosted automation availability before a tab is opened", () =>
+    Effect.gen(function* () {
+      const manager = yield* PreviewManager.PreviewManager;
+      const result = yield* manager.automate({
+        requestId: "automation-status-1",
+        threadId: freshThreadId(),
+        operation: "status",
+        input: {},
+        timeoutMs: 1_000,
+      });
+
+      expect(result).toEqual({
+        available: true,
+        visible: false,
+        tabId: null,
+        url: null,
+        title: null,
+        loading: false,
+        viewportSetting: { _tag: "fill" },
+      });
+    }),
+  );
+
+  it.effect("rejects hosted automation actions without an active tab", () =>
+    Effect.gen(function* () {
+      const manager = yield* PreviewManager.PreviewManager;
+      const result = yield* manager
+        .automate({
+          requestId: "automation-click-1",
+          threadId: freshThreadId(),
+          operation: "click",
+          input: { selector: "#missing" },
+          timeoutMs: 1_000,
+        })
+        .pipe(
+          Effect.match({
+            onFailure: (error) => ({ _tag: "Failure" as const, error }),
+            onSuccess: () => ({ _tag: "Success" as const }),
+          }),
+        );
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        error: { _tag: "PreviewBrowserOperationError" },
+      });
+    }),
+  );
 });

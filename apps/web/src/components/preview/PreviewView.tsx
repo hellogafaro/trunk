@@ -671,10 +671,10 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         {snapshot && desktopOverlay ? (
           <ZoomIndicator zoomFactor={desktopOverlay.zoomFactor} />
         ) : null}
-        {tabId && desktopOverlay && !showEmptyState && !isUnreachable ? (
+        {tabId && !showEmptyState && !isUnreachable ? (
           <AgentBrowserCursor
             tabId={tabId}
-            zoomFactor={desktopOverlay.zoomFactor}
+            zoomFactor={desktopOverlay?.zoomFactor ?? 1}
             controller={controller}
           />
         ) : null}

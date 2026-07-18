@@ -1,5 +1,18 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import {
+  type PreviewAutomationActionEvent,
+  type PreviewAutomationClickInput,
+  type PreviewAutomationConsoleEntry,
+  type PreviewAutomationEvaluateInput,
+  type PreviewAutomationNetworkEntry,
+  type PreviewAutomationPressInput,
+  type PreviewAutomationRecordingArtifact,
+  type PreviewAutomationRecordingStatus,
+  type PreviewAutomationScrollInput,
+  type PreviewAutomationSnapshot,
+  type PreviewAutomationStatus,
+  type PreviewAutomationTypeInput,
+  type PreviewAutomationWaitForInput,
   type PreviewBrowserFrame,
   type PreviewBrowserHistoryInput,
   type PreviewBrowserInspectInput,
@@ -13,14 +26,18 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeCrypto from "node:crypto";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import type { BrowserContext, CDPSession, Page } from "playwright-core";
+import type { BrowserContext, CDPSession, ConsoleMessage, Page, Request } from "playwright-core";
 
 import { browserElementsAtPointExpression } from "./BrowserElementInspection.ts";
 
@@ -33,13 +50,40 @@ interface BrowserTab {
   readonly page: Page;
   readonly cdp: CDPSession;
   readonly frames: PubSub.PubSub<PreviewBrowserFrame>;
+  readonly consoleEntries: PreviewAutomationConsoleEntry[];
+  readonly networkEntries: PreviewAutomationNetworkEntry[];
+  readonly actionTimeline: PreviewAutomationActionEvent[];
   width: number;
   height: number;
   sequence: number;
+  cursorX: number;
+  cursorY: number;
+}
+
+interface ActiveRecording {
+  readonly id: string;
+  readonly tab: BrowserTab;
+  readonly path: string;
+  readonly startedAt: string;
+  readonly onFrame: (event: { readonly data: string; readonly sessionId: number }) => void;
+  writePromise: Promise<void>;
 }
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 } as const;
+const MAX_VISIBLE_TEXT_LENGTH = 20_000;
+const MAX_INTERACTIVE_ELEMENTS = 200;
+const MAX_EVALUATION_BYTES = 64_000;
+const DIAGNOSTIC_BUFFER_LIMIT = 200;
 const tabKey = (threadId: string, tabId: string): string => `${threadId}\u0000${tabId}`;
+
+const appendBounded = <A>(entries: A[], entry: A): void => {
+  entries.push(entry);
+  if (entries.length > DIAGNOSTIC_BUFFER_LIMIT) {
+    entries.splice(0, entries.length - DIAGNOSTIC_BUFFER_LIMIT);
+  }
+};
+
+const isPreviewBrowserOperationError = Schema.is(PreviewBrowserOperationError);
 
 const pathExists = async (path: string): Promise<boolean> => {
   try {
@@ -109,6 +153,7 @@ const initialViewport = (snapshot: PreviewSessionSnapshot) => {
 export class ServerBrowser extends Context.Service<
   ServerBrowser,
   {
+    readonly ensure: (snapshot: PreviewSessionSnapshot) => Effect.Effect<void, ServerBrowserError>;
     readonly frames: (
       snapshot: PreviewSessionSnapshot,
     ) => Effect.Effect<Stream.Stream<PreviewBrowserFrame>, ServerBrowserError>;
@@ -140,17 +185,66 @@ export class ServerBrowser extends Context.Service<
     readonly inspect: (
       input: PreviewBrowserInspectInput,
     ) => Effect.Effect<PreviewBrowserInspectResult, PreviewBrowserOperationError>;
+    readonly automationStatus: (
+      threadId: ThreadId,
+      tabId: string,
+    ) => Effect.Effect<PreviewAutomationStatus, PreviewBrowserOperationError>;
+    readonly automationSnapshot: (
+      threadId: ThreadId,
+      tabId: string,
+    ) => Effect.Effect<PreviewAutomationSnapshot, PreviewBrowserOperationError>;
+    readonly automationClick: (
+      threadId: ThreadId,
+      tabId: string,
+      input: PreviewAutomationClickInput,
+    ) => Effect.Effect<void, PreviewBrowserOperationError>;
+    readonly automationType: (
+      threadId: ThreadId,
+      tabId: string,
+      input: PreviewAutomationTypeInput,
+    ) => Effect.Effect<void, PreviewBrowserOperationError>;
+    readonly automationPress: (
+      threadId: ThreadId,
+      tabId: string,
+      input: PreviewAutomationPressInput,
+    ) => Effect.Effect<void, PreviewBrowserOperationError>;
+    readonly automationScroll: (
+      threadId: ThreadId,
+      tabId: string,
+      input: PreviewAutomationScrollInput,
+    ) => Effect.Effect<void, PreviewBrowserOperationError>;
+    readonly automationEvaluate: (
+      threadId: ThreadId,
+      tabId: string,
+      input: PreviewAutomationEvaluateInput,
+    ) => Effect.Effect<unknown, PreviewBrowserOperationError>;
+    readonly automationWaitFor: (
+      threadId: ThreadId,
+      tabId: string,
+      input: PreviewAutomationWaitForInput,
+    ) => Effect.Effect<void, PreviewBrowserOperationError>;
+    readonly automationRecordingStart: (
+      threadId: ThreadId,
+      tabId: string,
+    ) => Effect.Effect<PreviewAutomationRecordingStatus, PreviewBrowserOperationError>;
+    readonly automationRecordingStop: (
+      tabId?: string,
+    ) => Effect.Effect<PreviewAutomationRecordingArtifact, PreviewBrowserOperationError>;
     readonly statusEvents: Stream.Stream<PreviewReportStatusInput>;
   }
 >()("t3/preview/ServerBrowser") {}
 
 export const make = Effect.gen(function* ServerBrowserMake() {
+  const clock = yield* Clock.Clock;
+  const nowMillis = () => clock.currentTimeMillisUnsafe();
+  const nowIso = () => DateTime.formatIso(DateTime.makeUnsafe(nowMillis()));
   const tabs = new Map<string, BrowserTab>();
   const statusPubSub = yield* PubSub.sliding<PreviewReportStatusInput>({
     capacity: 64,
     replay: 1,
   });
   let contextPromise: Promise<BrowserContext> | null = null;
+  let activeRecording: ActiveRecording | null = null;
 
   const getContext = async (): Promise<BrowserContext> => {
     if (!contextPromise) {
@@ -209,7 +303,10 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     });
   };
 
-  const publishCapturedFrame = async (tab: BrowserTab): Promise<PreviewBrowserFrame> => {
+  const publishCapturedFrame = async (
+    tab: BrowserTab,
+    cursor?: NonNullable<PreviewBrowserFrame["cursor"]>,
+  ): Promise<PreviewBrowserFrame> => {
     const data = await tab.page.screenshot({ type: "jpeg", quality: 72 });
     const frame: PreviewBrowserFrame = {
       threadId: tab.threadId,
@@ -219,6 +316,7 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       data: Buffer.from(data).toString("base64"),
       width: tab.width,
       height: tab.height,
+      ...(cursor ? { cursor } : {}),
     };
     PubSub.publishUnsafe(tab.frames, frame);
     return frame;
@@ -262,9 +360,14 @@ export const make = Effect.gen(function* ServerBrowserMake() {
             page,
             cdp,
             frames,
+            consoleEntries: [],
+            networkEntries: [],
+            actionTimeline: [],
             width: viewport.width,
             height: viewport.height,
             sequence: 0,
+            cursorX: viewport.width / 2,
+            cursorY: viewport.height / 2,
           };
           tabs.set(key, created);
 
@@ -274,6 +377,36 @@ export const make = Effect.gen(function* ServerBrowserMake() {
               .waitForTimeout(75)
               .then(() => publishCapturedFrame(created))
               .catch(() => undefined);
+          });
+          page.on("console", (message: ConsoleMessage) => {
+            const location = message.location();
+            appendBounded(created.consoleEntries, {
+              level: message.type(),
+              text: message.text(),
+              timestamp: nowIso(),
+              ...(location.url ? { source: location.url } : {}),
+            });
+          });
+          page.on("response", (response) => {
+            const request = response.request();
+            appendBounded(created.networkEntries, {
+              url: response.url(),
+              method: request.method(),
+              status: response.status(),
+              failed: false,
+              timestamp: nowIso(),
+            });
+          });
+          page.on("requestfailed", (request: Request) => {
+            const errorText = request.failure()?.errorText;
+            appendBounded(created.networkEntries, {
+              url: request.url(),
+              method: request.method(),
+              status: null,
+              failed: true,
+              ...(errorText ? { errorText } : {}),
+              timestamp: nowIso(),
+            });
           });
           page.on("close", () => tabs.delete(key));
           return created;
@@ -305,6 +438,141 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     return tab
       ? Effect.succeed(tab)
       : Effect.fail(operationError(operation, "The hosted browser tab is not connected."));
+  };
+
+  const withAutomationAction = async <A>(
+    tab: BrowserTab,
+    action: string,
+    run: () => Promise<A>,
+  ): Promise<A> => {
+    const startedAt = nowIso();
+    const event: PreviewAutomationActionEvent = {
+      id: `browser-action-${nowMillis().toString(36)}-${tab.actionTimeline.length.toString(36)}`,
+      action,
+      status: "running",
+      startedAt,
+    };
+    appendBounded(tab.actionTimeline, event);
+    try {
+      const result = await run();
+      const completed = {
+        ...event,
+        status: "succeeded" as const,
+        completedAt: nowIso(),
+      };
+      const index = tab.actionTimeline.findIndex((candidate) => candidate.id === event.id);
+      if (index >= 0) tab.actionTimeline[index] = completed;
+      return result;
+    } catch (cause) {
+      const completed = {
+        ...event,
+        status: "failed" as const,
+        completedAt: nowIso(),
+        error: cause instanceof Error ? cause.message : String(cause),
+      };
+      const index = tab.actionTimeline.findIndex((candidate) => candidate.id === event.id);
+      if (index >= 0) tab.actionTimeline[index] = completed;
+      throw cause;
+    }
+  };
+
+  const automationLocator = (
+    tab: BrowserTab,
+    input: { readonly locator?: string | undefined; readonly selector?: string | undefined },
+  ) => {
+    const selector = input.locator ?? input.selector;
+    return selector ? tab.page.locator(selector).first() : null;
+  };
+
+  const selectorOperationError = (
+    operation: string,
+    input: { readonly locator?: string | undefined; readonly selector?: string | undefined },
+    cause: unknown,
+  ): PreviewBrowserOperationError => {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    const invalidSelector =
+      /Error while parsing selector|InvalidSelectorError|Unexpected token|Unknown engine|not a valid selector/i.test(
+        message,
+      );
+    return operationError(
+      invalidSelector ? "automation-invalid-selector" : `automation-${operation}`,
+      `${input.locator !== undefined ? "locator" : "selector"}: ${message}`,
+    );
+  };
+
+  const captureAutomationSnapshot = async (tab: BrowserTab): Promise<PreviewAutomationSnapshot> => {
+    const pageState = await tab.page.evaluate<{
+      url: string;
+      title: string;
+      loading: boolean;
+      visibleText: string;
+      interactiveElements: PreviewAutomationSnapshot["interactiveElements"];
+    }>(`(() => {
+      const selectorFor = (element) => {
+        if (element.id) return "#" + CSS.escape(element.id);
+        for (const attribute of ["data-testid", "name"]) {
+          const value = element.getAttribute(attribute);
+          if (value) return element.tagName.toLowerCase() + "[" + attribute + "=" + JSON.stringify(value) + "]";
+        }
+        const buildParts = (current, parts = []) => {
+          if (!current || current.nodeType !== Node.ELEMENT_NODE || parts.length >= 8) return parts;
+          const parent = current.parentElement;
+          const siblings = parent
+            ? Array.from(parent.children).filter((child) => child.tagName === current.tagName)
+            : [];
+          const base = current.tagName.toLowerCase();
+          const part = siblings.length > 1
+            ? base + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")"
+            : base;
+          return buildParts(parent, [part, ...parts]);
+        };
+        return buildParts(element).join(" > ");
+      };
+      const visible = (element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+      };
+      const interactiveElements = Array.from(document.querySelectorAll(
+        "a[href],button,input,textarea,select,[role],[tabindex]"
+      )).filter(visible).slice(0, ${MAX_INTERACTIVE_ELEMENTS}).map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          role: element.getAttribute("role"),
+          name: element.getAttribute("aria-label") || element.innerText || element.getAttribute("name") || "",
+          selector: selectorFor(element),
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height
+        };
+      });
+      return {
+        url: location.href,
+        title: document.title,
+        loading: document.readyState !== "complete",
+        visibleText: (document.body?.innerText || "").slice(0, ${MAX_VISIBLE_TEXT_LENGTH}),
+        interactiveElements
+      };
+    })()`);
+    const [accessibilityTree, screenshot] = await Promise.all([
+      tab.cdp.send("Accessibility.getFullAXTree"),
+      tab.page.screenshot({ type: "png" }),
+    ]);
+    return {
+      ...pageState,
+      accessibilityTree,
+      consoleEntries: [...tab.consoleEntries],
+      networkEntries: [...tab.networkEntries],
+      actionTimeline: [...tab.actionTimeline],
+      screenshot: {
+        mimeType: "image/png",
+        data: Buffer.from(screenshot).toString("base64"),
+        width: tab.width,
+        height: tab.height,
+      },
+    };
   };
 
   const navigateIfOpen: ServerBrowser["Service"]["navigateIfOpen"] = Effect.fn(
@@ -343,6 +611,8 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     if (!tab) return false;
     tab.width = Math.max(1, Math.round(width));
     tab.height = Math.max(1, Math.round(height));
+    tab.cursorX = Math.min(tab.width - 1, Math.max(0, tab.cursorX));
+    tab.cursorY = Math.min(tab.height - 1, Math.max(0, tab.cursorY));
     yield* Effect.tryPromise({
       try: async () => {
         await tab.page.setViewportSize({ width: tab.width, height: tab.height });
@@ -366,6 +636,12 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     function* (snapshot) {
       const tab = yield* ensureTab(snapshot);
       return Stream.fromPubSub(tab.frames);
+    },
+  );
+
+  const ensure: ServerBrowser["Service"]["ensure"] = Effect.fn("ServerBrowser.ensure")(
+    function* (snapshot) {
+      yield* ensureTab(snapshot);
     },
   );
 
@@ -444,8 +720,359 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       });
     },
   );
+
+  const automationStatus: ServerBrowser["Service"]["automationStatus"] = Effect.fn(
+    "ServerBrowser.automationStatus",
+  )(function* (threadId, tabId) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    return {
+      available: !tab.page.isClosed(),
+      visible: true,
+      tabId: tab.tabId,
+      url: tab.page.url() || null,
+      title: yield* Effect.tryPromise({
+        try: () => tab.page.title(),
+        catch: (cause) => operationError("automation-status", cause),
+      }),
+      loading: yield* Effect.tryPromise({
+        try: () => tab.page.evaluate<boolean>("document.readyState !== 'complete'"),
+        catch: (cause) => operationError("automation-status", cause),
+      }),
+      viewport: { width: tab.width, height: tab.height },
+    };
+  });
+
+  const automationSnapshot: ServerBrowser["Service"]["automationSnapshot"] = Effect.fn(
+    "ServerBrowser.automationSnapshot",
+  )(function* (threadId, tabId) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    return yield* Effect.tryPromise({
+      try: () => withAutomationAction(tab, "snapshot", () => captureAutomationSnapshot(tab)),
+      catch: (cause) => operationError("automation-snapshot", cause),
+    });
+  });
+
+  const automationClick: ServerBrowser["Service"]["automationClick"] = Effect.fn(
+    "ServerBrowser.automationClick",
+  )(function* (threadId, tabId, input) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    yield* Effect.tryPromise({
+      try: () =>
+        withAutomationAction(tab, "click", async () => {
+          const locator = automationLocator(tab, input);
+          let point: { readonly x: number; readonly y: number };
+          if (locator) {
+            const timeout = input.timeoutMs ?? 15_000;
+            await locator.waitFor({ state: "visible", timeout });
+            await locator.scrollIntoViewIfNeeded({ timeout });
+            const box = await locator.boundingBox({ timeout });
+            if (!box) throw new Error("The target does not have a visible bounding box.");
+            point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+          } else {
+            const x = input.x!;
+            const y = input.y!;
+            if (x < 0 || y < 0 || x >= tab.width || y >= tab.height) {
+              throw new Error(
+                `Coordinates ${x},${y} are outside the ${tab.width}x${tab.height} viewport.`,
+              );
+            }
+            point = { x, y };
+          }
+          await publishCapturedFrame(tab, { phase: "move", ...point });
+          tab.cursorX = point.x;
+          tab.cursorY = point.y;
+          await tab.page.waitForTimeout(160);
+          await publishCapturedFrame(tab, { phase: "click", ...point });
+          await tab.page.waitForTimeout(40);
+          if (locator) await locator.click({ timeout: input.timeoutMs ?? 15_000 });
+          else await tab.page.mouse.click(point.x, point.y);
+          await tab.page.waitForTimeout(50);
+          await publishCapturedFrame(tab, { phase: "click", ...point });
+        }),
+      catch: (cause) => selectorOperationError("click", input, cause),
+    });
+  });
+
+  const automationType: ServerBrowser["Service"]["automationType"] = Effect.fn(
+    "ServerBrowser.automationType",
+  )(function* (threadId, tabId, input) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    yield* Effect.tryPromise({
+      try: () =>
+        withAutomationAction(tab, "type", async () => {
+          const locator = automationLocator(tab, input) ?? tab.page.locator(":focus").first();
+          if ((await locator.count()) === 0) {
+            throw operationError(
+              "automation-target-not-editable",
+              "No editable target is focused.",
+            );
+          }
+          const editable = await locator.evaluate((element) => {
+            const candidate = element as unknown as {
+              readonly tagName: string;
+              readonly disabled?: boolean;
+              readonly readOnly?: boolean;
+              readonly type?: string;
+              readonly isContentEditable?: boolean;
+            };
+            if (candidate.tagName === "TEXTAREA") {
+              return !candidate.disabled && !candidate.readOnly;
+            }
+            if (candidate.tagName === "INPUT") {
+              return (
+                !candidate.disabled &&
+                !candidate.readOnly &&
+                !new Set([
+                  "button",
+                  "checkbox",
+                  "color",
+                  "file",
+                  "hidden",
+                  "image",
+                  "radio",
+                  "range",
+                  "reset",
+                  "submit",
+                ]).has(candidate.type ?? "text")
+              );
+            }
+            return candidate.isContentEditable === true;
+          });
+          if (!editable) {
+            throw operationError(
+              "automation-target-not-editable",
+              "The selected target is not editable.",
+            );
+          }
+          await locator.focus();
+          if (input.clear ?? false) await locator.fill("");
+          if (input.text.length > 0) await tab.page.keyboard.insertText(input.text);
+          await locator.evaluate((element) =>
+            element.dispatchEvent(new Event("change", { bubbles: true })),
+          );
+          await tab.page.waitForTimeout(50);
+          await publishCapturedFrame(tab);
+        }),
+      catch: (cause) =>
+        isPreviewBrowserOperationError(cause)
+          ? cause
+          : selectorOperationError("type", input, cause),
+    });
+  });
+
+  const automationPress: ServerBrowser["Service"]["automationPress"] = Effect.fn(
+    "ServerBrowser.automationPress",
+  )(function* (threadId, tabId, input) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    yield* Effect.tryPromise({
+      try: () =>
+        withAutomationAction(tab, "press", async () => {
+          const key = [...(input.modifiers ?? []), input.key].join("+");
+          await tab.page.keyboard.press(key);
+          await tab.page.waitForTimeout(50);
+          await publishCapturedFrame(tab);
+        }),
+      catch: (cause) => operationError("automation-press", cause),
+    });
+  });
+
+  const automationScroll: ServerBrowser["Service"]["automationScroll"] = Effect.fn(
+    "ServerBrowser.automationScroll",
+  )(function* (threadId, tabId, input) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    yield* Effect.tryPromise({
+      try: () =>
+        withAutomationAction(tab, "scroll", async () => {
+          const deltaX = input.deltaX ?? 0;
+          const deltaY = input.deltaY ?? 0;
+          const locator = automationLocator(tab, input);
+          let cursor = { x: tab.cursorX, y: tab.cursorY };
+          if (locator) {
+            await locator.scrollIntoViewIfNeeded({ timeout: 15_000 });
+            const box = await locator.boundingBox({ timeout: 15_000 });
+            if (box) cursor = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+            tab.cursorX = cursor.x;
+            tab.cursorY = cursor.y;
+            await publishCapturedFrame(tab, { phase: "move", ...cursor });
+            await tab.page.waitForTimeout(100);
+            await locator.evaluate(
+              (element, delta) =>
+                element.scrollBy({ left: delta.x, top: delta.y, behavior: "instant" }),
+              { x: deltaX, y: deltaY },
+            );
+          } else {
+            await publishCapturedFrame(tab, { phase: "move", ...cursor });
+            await tab.page.waitForTimeout(100);
+            await tab.page.evaluate(
+              `window.scrollBy({ left: ${JSON.stringify(deltaX)}, top: ${JSON.stringify(deltaY)}, behavior: "instant" })`,
+            );
+          }
+          await tab.page.waitForTimeout(50);
+          await publishCapturedFrame(tab, { phase: "move", ...cursor });
+        }),
+      catch: (cause) => selectorOperationError("scroll", input, cause),
+    });
+  });
+
+  const automationEvaluate: ServerBrowser["Service"]["automationEvaluate"] = Effect.fn(
+    "ServerBrowser.automationEvaluate",
+  )(function* (threadId, tabId, input) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    return yield* Effect.tryPromise({
+      try: () =>
+        withAutomationAction(tab, "evaluate", async () => {
+          const value = await tab.page.evaluate(input.expression);
+          const serialized = JSON.stringify(value);
+          const actualBytes = serialized === undefined ? 0 : Buffer.byteLength(serialized, "utf8");
+          if (actualBytes > MAX_EVALUATION_BYTES) {
+            throw operationError(
+              "automation-result-too-large",
+              `Evaluation result is ${actualBytes} bytes; maximum is ${MAX_EVALUATION_BYTES}.`,
+            );
+          }
+          return input.returnByValue === false ? null : value;
+        }),
+      catch: (cause) =>
+        isPreviewBrowserOperationError(cause)
+          ? cause
+          : operationError("automation-evaluate", cause),
+    });
+  });
+
+  const automationWaitFor: ServerBrowser["Service"]["automationWaitFor"] = Effect.fn(
+    "ServerBrowser.automationWaitFor",
+  )(function* (threadId, tabId, input) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    yield* Effect.tryPromise({
+      try: () =>
+        withAutomationAction(tab, "waitFor", async () => {
+          const timeoutMs = input.timeoutMs ?? 15_000;
+          const deadline = nowMillis() + timeoutMs;
+          const locator = automationLocator(tab, input);
+          while (nowMillis() <= deadline) {
+            const selectorMatched = locator ? (await locator.count()) > 0 : true;
+            const textMatched = input.text
+              ? (await tab.page.locator("body").innerText()).includes(input.text)
+              : true;
+            const urlMatched = input.urlIncludes
+              ? tab.page.url().includes(input.urlIncludes)
+              : true;
+            if (selectorMatched && textMatched && urlMatched) return;
+            await tab.page.waitForTimeout(50);
+          }
+          throw operationError(
+            "automation-timeout",
+            `Wait conditions did not match within ${timeoutMs}ms.`,
+          );
+        }),
+      catch: (cause) =>
+        isPreviewBrowserOperationError(cause)
+          ? cause
+          : selectorOperationError("wait-for", input, cause),
+    });
+  });
+
+  const automationRecordingStart: ServerBrowser["Service"]["automationRecordingStart"] = Effect.fn(
+    "ServerBrowser.automationRecordingStart",
+  )(function* (threadId, tabId) {
+    const tab = yield* requireTab(threadId, tabId, "automation-tab-not-found");
+    if (activeRecording) {
+      if (activeRecording.tab.key === tab.key) {
+        return {
+          tabId: tab.tabId,
+          recording: true,
+          startedAt: activeRecording.startedAt,
+        };
+      }
+      return yield* operationError(
+        "automation-recording-conflict",
+        `Tab ${activeRecording.tab.tabId} is already being recorded.`,
+      );
+    }
+    const recording = yield* Effect.tryPromise({
+      try: async () => {
+        const id = NodeCrypto.randomUUID();
+        const startedAt = nowIso();
+        const baseDir =
+          process.env["T3CODE_HOME"]?.trim() || NodePath.join(NodeOS.homedir(), ".t3");
+        const directory = NodePath.join(baseDir, "artifacts", "browser-recordings");
+        await NodeFSP.mkdir(directory, { recursive: true });
+        const path = NodePath.join(directory, `${id}.mjpeg`);
+        await NodeFSP.writeFile(path, new Uint8Array());
+        let active: ActiveRecording;
+        const onFrame = (event: { readonly data: string; readonly sessionId: number }) => {
+          active.writePromise = active.writePromise.then(() =>
+            NodeFSP.appendFile(active.path, Buffer.from(event.data, "base64")),
+          );
+          void tab.cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId });
+        };
+        active = {
+          id,
+          tab,
+          path,
+          startedAt,
+          writePromise: Promise.resolve(),
+          onFrame,
+        };
+        tab.cdp.on("Page.screencastFrame", onFrame);
+        try {
+          await tab.cdp.send("Page.startScreencast", {
+            format: "jpeg",
+            quality: 80,
+            maxWidth: tab.width,
+            maxHeight: tab.height,
+            everyNthFrame: 1,
+          });
+        } catch (cause) {
+          tab.cdp.off("Page.screencastFrame", onFrame);
+          await NodeFSP.unlink(path).catch(() => undefined);
+          throw cause;
+        }
+        return active;
+      },
+      catch: (cause) => operationError("automation-recording-start", cause),
+    });
+    activeRecording = recording;
+    return { tabId: tab.tabId, recording: true, startedAt: recording.startedAt };
+  });
+
+  const automationRecordingStop: ServerBrowser["Service"]["automationRecordingStop"] = Effect.fn(
+    "ServerBrowser.automationRecordingStop",
+  )(function* (tabId) {
+    const recording = activeRecording;
+    if (!recording || (tabId !== undefined && recording.tab.tabId !== tabId)) {
+      return yield* operationError(
+        "automation-recording-not-active",
+        "No matching recording is active.",
+      );
+    }
+    activeRecording = null;
+    return yield* Effect.tryPromise({
+      try: async () => {
+        recording.tab.cdp.off("Page.screencastFrame", recording.onFrame);
+        await recording.tab.cdp.send("Page.stopScreencast").catch(() => undefined);
+        await recording.writePromise;
+        const stats = await NodeFSP.stat(recording.path);
+        return {
+          id: recording.id,
+          tabId: recording.tab.tabId,
+          path: recording.path,
+          mimeType: "video/x-motion-jpeg",
+          sizeBytes: stats.size,
+          createdAt: recording.startedAt,
+        };
+      },
+      catch: (cause) => operationError("automation-recording-stop", cause),
+    });
+  });
   yield* Effect.addFinalizer(() =>
     Effect.promise(async () => {
+      if (activeRecording) {
+        activeRecording.tab.cdp.off("Page.screencastFrame", activeRecording.onFrame);
+        await activeRecording.tab.cdp.send("Page.stopScreencast").catch(() => undefined);
+        await activeRecording.writePromise.catch(() => undefined);
+        activeRecording = null;
+      }
       const context = await contextPromise?.catch(() => null);
       await context?.close().catch(() => undefined);
       tabs.clear();
@@ -453,6 +1080,7 @@ export const make = Effect.gen(function* ServerBrowserMake() {
   );
 
   return ServerBrowser.of({
+    ensure,
     frames,
     navigateIfOpen,
     refreshIfOpen,
@@ -462,6 +1090,16 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     setViewport,
     history,
     inspect,
+    automationStatus,
+    automationSnapshot,
+    automationClick,
+    automationType,
+    automationPress,
+    automationScroll,
+    automationEvaluate,
+    automationWaitFor,
+    automationRecordingStart,
+    automationRecordingStop,
     statusEvents: Stream.fromPubSub(statusPubSub),
   });
 }).pipe(Effect.withSpan("ServerBrowser.make"));

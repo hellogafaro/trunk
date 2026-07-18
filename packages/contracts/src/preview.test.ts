@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   DiscoveredLocalServer,
+  PreviewBrowserFrame,
   PreviewBrowserInspectResult,
   PreviewEvent,
   PreviewNavStatus,
@@ -30,6 +31,24 @@ const decodeAutomationHost = Schema.decodeUnknownSync(PreviewAutomationHost);
 const decodeAutomationError = Schema.decodeUnknownSync(PreviewAutomationError);
 const decodeAutomationStatus = Schema.decodeUnknownSync(PreviewAutomationStatus);
 const decodeBrowserInspectResult = Schema.decodeUnknownSync(PreviewBrowserInspectResult);
+const decodeBrowserFrame = Schema.decodeUnknownSync(PreviewBrowserFrame);
+
+describe("PreviewBrowserFrame", () => {
+  it("decodes an agent cursor carried with a captured frame", () => {
+    expect(
+      decodeBrowserFrame({
+        threadId: "thread-1",
+        tabId: "tab_1",
+        sequence: 2,
+        mimeType: "image/jpeg",
+        data: "frame-data",
+        width: 1280,
+        height: 800,
+        cursor: { phase: "click", x: 40, y: 60 },
+      }).cursor,
+    ).toEqual({ phase: "click", x: 40, y: 60 });
+  });
+});
 
 describe("PreviewBrowserInspectResult", () => {
   it("decodes structured element context and viewport bounds", () => {
@@ -298,6 +317,16 @@ describe("PreviewEvent", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(event.type).toBe("closed");
+  });
+
+  it("decodes an automation presentation request", () => {
+    const event = decodePreviewEvent({
+      type: "automationPresented",
+      threadId: "t",
+      tabId: "preview-t",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(event.type).toBe("automationPresented");
   });
 });
 

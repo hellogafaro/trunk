@@ -17,6 +17,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { useActivePreviewSessions } from "~/previewStateStore";
 
 import { useBrowserSurfaceStore } from "./browserSurfaceStore";
+import { useBrowserPointerStore } from "./browserPointerStore";
 import { resolveHostedBrowserWebviewWrapperStyle } from "./hostedBrowserWebviewStyle";
 import { BrowserAnnotationOverlay } from "./BrowserAnnotationOverlay";
 import { cancelBrowserAnnotation, useBrowserAnnotationStore } from "./browserAnnotationStore";
@@ -131,6 +132,19 @@ function ServerBrowserTab(props: {
   }, [annotationActive, presentation.visible, tabId]);
 
   useEffect(() => () => cancelBrowserAnnotation(tabId), [tabId]);
+
+  useEffect(() => {
+    const cursor = frames.data?.cursor;
+    if (!cursor) return;
+    useBrowserPointerStore.getState().apply({
+      tabId,
+      ...cursor,
+      sequence: frames.data.sequence,
+      createdAt: new Date().toISOString(),
+    });
+  }, [frames.data, tabId]);
+
+  useEffect(() => () => useBrowserPointerStore.getState().clear(tabId), [tabId]);
 
   useEffect(() => {
     if (!active || !hasFrame) return;
