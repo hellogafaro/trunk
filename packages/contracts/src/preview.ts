@@ -254,6 +254,7 @@ const PreviewBrowserPointerInput = Schema.Struct({
   x: Schema.Number,
   y: Schema.Number,
   button: Schema.optional(PreviewBrowserPointerButton),
+  clickCount: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3 }))),
 });
 
 const PreviewBrowserWheelInput = Schema.Struct({

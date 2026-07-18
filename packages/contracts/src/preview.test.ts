@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   DiscoveredLocalServer,
   PreviewBrowserFrame,
+  PreviewBrowserInput,
   PreviewBrowserInspectResult,
   PreviewEvent,
   PreviewNavStatus,
@@ -32,6 +33,7 @@ const decodeAutomationError = Schema.decodeUnknownSync(PreviewAutomationError);
 const decodeAutomationStatus = Schema.decodeUnknownSync(PreviewAutomationStatus);
 const decodeBrowserInspectResult = Schema.decodeUnknownSync(PreviewBrowserInspectResult);
 const decodeBrowserFrame = Schema.decodeUnknownSync(PreviewBrowserFrame);
+const decodeBrowserInput = Schema.decodeUnknownSync(PreviewBrowserInput);
 
 describe("PreviewBrowserFrame", () => {
   it("decodes an agent cursor carried with a captured frame", () => {
@@ -47,6 +49,33 @@ describe("PreviewBrowserFrame", () => {
         cursor: { phase: "click", x: 40, y: 60 },
       }).cursor,
     ).toEqual({ phase: "click", x: 40, y: 60 });
+  });
+});
+
+describe("PreviewBrowserInput", () => {
+  it("accepts bounded click counts for native double and triple clicks", () => {
+    const input = decodeBrowserInput({
+      threadId: "thread-1",
+      tabId: "tab_1",
+      kind: "pointer",
+      action: "down",
+      x: 40,
+      y: 60,
+      button: "left",
+      clickCount: 2,
+    });
+    expect(input.kind === "pointer" ? input.clickCount : undefined).toBe(2);
+    expect(() =>
+      decodeBrowserInput({
+        threadId: "thread-1",
+        tabId: "tab_1",
+        kind: "pointer",
+        action: "down",
+        x: 40,
+        y: 60,
+        clickCount: 4,
+      }),
+    ).toThrow();
   });
 });
 

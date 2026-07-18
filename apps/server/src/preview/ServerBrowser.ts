@@ -58,6 +58,10 @@ interface BrowserTab {
   sequence: number;
   cursorX: number;
   cursorY: number;
+  cursorPhase: "move" | "click" | null;
+  latestFrameData: string | null;
+  screencastStarted: boolean;
+  onScreencastFrame: ((event: ScreencastFrameEvent) => void) | null;
 }
 
 interface ActiveRecording {
@@ -65,8 +69,12 @@ interface ActiveRecording {
   readonly tab: BrowserTab;
   readonly path: string;
   readonly startedAt: string;
-  readonly onFrame: (event: { readonly data: string; readonly sessionId: number }) => void;
   writePromise: Promise<void>;
+}
+
+interface ScreencastFrameEvent {
+  readonly data: string;
+  readonly sessionId: number;
 }
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 } as const;
@@ -303,17 +311,22 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     });
   };
 
-  const publishCapturedFrame = async (
+  const frameCursor = (tab: BrowserTab): NonNullable<PreviewBrowserFrame["cursor"]> | undefined =>
+    tab.cursorPhase === null
+      ? undefined
+      : { phase: tab.cursorPhase, x: tab.cursorX, y: tab.cursorY };
+
+  const publishFrame = (
     tab: BrowserTab,
-    cursor?: NonNullable<PreviewBrowserFrame["cursor"]>,
-  ): Promise<PreviewBrowserFrame> => {
-    const data = await tab.page.screenshot({ type: "jpeg", quality: 72 });
+    data: string,
+    cursor = frameCursor(tab),
+  ): PreviewBrowserFrame => {
     const frame: PreviewBrowserFrame = {
       threadId: tab.threadId,
       tabId: tab.tabId,
       sequence: tab.sequence++,
       mimeType: "image/jpeg",
-      data: Buffer.from(data).toString("base64"),
+      data,
       width: tab.width,
       height: tab.height,
       ...(cursor ? { cursor } : {}),
@@ -322,18 +335,86 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     return frame;
   };
 
+  const publishFallbackFrame = async (tab: BrowserTab): Promise<PreviewBrowserFrame> => {
+    const data = await tab.page.screenshot({ type: "jpeg", quality: 72 });
+    tab.latestFrameData = Buffer.from(data).toString("base64");
+    return publishFrame(tab, tab.latestFrameData);
+  };
+
+  const publishCursorFrame = (
+    tab: BrowserTab,
+    cursor: NonNullable<PreviewBrowserFrame["cursor"]>,
+  ): void => {
+    tab.cursorX = cursor.x;
+    tab.cursorY = cursor.y;
+    tab.cursorPhase = cursor.phase;
+    if (tab.latestFrameData !== null) publishFrame(tab, tab.latestFrameData, cursor);
+  };
+
+  const appendRecordingFrame = (tab: BrowserTab, data: string): void => {
+    const recording = activeRecording;
+    if (!recording || recording.tab.key !== tab.key) return;
+    recording.writePromise = recording.writePromise.then(() =>
+      NodeFSP.appendFile(recording.path, Buffer.from(data, "base64")),
+    );
+  };
+
+  const startLiveScreencast = async (tab: BrowserTab): Promise<void> => {
+    if (tab.screencastStarted) return;
+    const onFrame = (event: ScreencastFrameEvent): void => {
+      void tab.cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
+      if (tab.page.isClosed()) return;
+      tab.latestFrameData = event.data;
+      publishFrame(tab, event.data);
+      appendRecordingFrame(tab, event.data);
+    };
+    tab.onScreencastFrame = onFrame;
+    tab.screencastStarted = true;
+    tab.cdp.on("Page.screencastFrame", onFrame);
+    try {
+      await tab.cdp.send("Page.enable");
+      await tab.cdp.send("Page.startScreencast", {
+        format: "jpeg",
+        quality: 72,
+        everyNthFrame: 1,
+      });
+      void tab.page
+        .waitForTimeout(250)
+        .then(() => {
+          if (tab.latestFrameData === null && !tab.page.isClosed()) {
+            return publishFallbackFrame(tab);
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
+    } catch (cause) {
+      tab.screencastStarted = false;
+      tab.onScreencastFrame = null;
+      tab.cdp.off("Page.screencastFrame", onFrame);
+      throw cause;
+    }
+  };
+
+  const stopLiveScreencast = async (tab: BrowserTab): Promise<void> => {
+    if (!tab.screencastStarted) return;
+    tab.screencastStarted = false;
+    if (tab.onScreencastFrame) {
+      tab.cdp.off("Page.screencastFrame", tab.onScreencastFrame);
+      tab.onScreencastFrame = null;
+    }
+    await tab.cdp.send("Page.stopScreencast").catch(() => undefined);
+  };
+
   const navigatePage = async (tab: BrowserTab, url: string): Promise<void> => {
     await publishStatus(tab, "Loading", undefined, url);
     try {
       await tab.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await publishStatus(tab, "Success");
-      await publishCapturedFrame(tab);
     } catch (cause) {
       await publishStatus(tab, "LoadFailed", {
         code: 0,
         description: cause instanceof Error ? cause.message : "Page failed to load.",
       });
-      await publishCapturedFrame(tab).catch(() => undefined);
     }
   };
 
@@ -368,15 +449,15 @@ export const make = Effect.gen(function* ServerBrowserMake() {
             sequence: 0,
             cursorX: viewport.width / 2,
             cursorY: viewport.height / 2,
+            cursorPhase: null,
+            latestFrameData: null,
+            screencastStarted: false,
+            onScreencastFrame: null,
           };
           tabs.set(key, created);
 
           page.on("load", () => {
             void publishStatus(created, "Success");
-            void page
-              .waitForTimeout(75)
-              .then(() => publishCapturedFrame(created))
-              .catch(() => undefined);
           });
           page.on("console", (message: ConsoleMessage) => {
             const location = message.location();
@@ -408,7 +489,16 @@ export const make = Effect.gen(function* ServerBrowserMake() {
               timestamp: nowIso(),
             });
           });
+          page.on("popup", (popup) => {
+            void (async () => {
+              await popup.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => {});
+              const popupUrl = popup.url();
+              await popup.close().catch(() => {});
+              if (popupUrl && popupUrl !== "about:blank") await navigatePage(created, popupUrl);
+            })().catch(() => undefined);
+          });
           page.on("close", () => tabs.delete(key));
+          await startLiveScreencast(created);
           return created;
         },
         catch: unavailableError,
@@ -419,11 +509,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
         yield* Effect.tryPromise({
           try: () => navigatePage(tab, initialUrl),
           catch: (cause) => operationError("navigate", cause),
-        });
-      } else {
-        yield* Effect.tryPromise({
-          try: () => publishCapturedFrame(tab).then(() => undefined),
-          catch: (cause) => operationError("capture", cause),
         });
       }
       return tab;
@@ -597,7 +682,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
         await publishStatus(tab, "Loading");
         await tab.page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
         await publishStatus(tab, "Success");
-        await publishCapturedFrame(tab);
       },
       catch: (cause) => operationError("refresh", cause),
     });
@@ -616,7 +700,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     yield* Effect.tryPromise({
       try: async () => {
         await tab.page.setViewportSize({ width: tab.width, height: tab.height });
-        await publishCapturedFrame(tab);
       },
       catch: (cause) => operationError("resize", cause),
     });
@@ -629,6 +712,7 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       const tab = tabs.get(key);
       if (!tab) return;
       tabs.delete(key);
+      await stopLiveScreencast(tab);
       await tab.page.close().catch(() => undefined);
     });
 
@@ -653,9 +737,15 @@ export const make = Effect.gen(function* ServerBrowserMake() {
           if (input.kind === "pointer") {
             await tab.page.mouse.move(input.x, input.y);
             if (input.action === "down") {
-              await tab.page.mouse.down({ button: input.button ?? "left" });
+              await tab.page.mouse.down({
+                button: input.button ?? "left",
+                ...(input.clickCount ? { clickCount: input.clickCount } : {}),
+              });
             } else if (input.action === "up") {
-              await tab.page.mouse.up({ button: input.button ?? "left" });
+              await tab.page.mouse.up({
+                button: input.button ?? "left",
+                ...(input.clickCount ? { clickCount: input.clickCount } : {}),
+              });
             }
           } else if (input.kind === "wheel") {
             await tab.page.mouse.move(input.x, input.y);
@@ -664,14 +754,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
             await tab.page.keyboard.down(input.key);
           } else {
             await tab.page.keyboard.up(input.key);
-          }
-          const shouldCapture =
-            input.kind === "wheel" ||
-            (input.kind === "pointer" && input.action !== "move") ||
-            (input.kind === "keyboard" && input.action === "up");
-          if (shouldCapture) {
-            await tab.page.waitForTimeout(50);
-            await publishCapturedFrame(tab);
           }
         },
         catch: (cause) => operationError("input", cause),
@@ -697,7 +779,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
           if (input.action === "back") await tab.page.goBack({ waitUntil: "domcontentloaded" });
           else await tab.page.goForward({ waitUntil: "domcontentloaded" });
           await publishStatus(tab, "Success");
-          await publishCapturedFrame(tab);
         },
         catch: (cause) => operationError(input.action, cause),
       });
@@ -778,16 +859,24 @@ export const make = Effect.gen(function* ServerBrowserMake() {
             }
             point = { x, y };
           }
-          await publishCapturedFrame(tab, { phase: "move", ...point });
-          tab.cursorX = point.x;
-          tab.cursorY = point.y;
-          await tab.page.waitForTimeout(160);
-          await publishCapturedFrame(tab, { phase: "click", ...point });
-          await tab.page.waitForTimeout(40);
+          publishCursorFrame(tab, { phase: "move", ...point });
+          await tab.page.waitForTimeout(120);
+          publishCursorFrame(tab, { phase: "click", ...point });
           if (locator) await locator.click({ timeout: input.timeoutMs ?? 15_000 });
           else await tab.page.mouse.click(point.x, point.y);
-          await tab.page.waitForTimeout(50);
-          await publishCapturedFrame(tab, { phase: "click", ...point });
+          void tab.page
+            .waitForTimeout(180)
+            .then(() => {
+              if (
+                tab.cursorPhase === "click" &&
+                tab.cursorX === point.x &&
+                tab.cursorY === point.y &&
+                !tab.page.isClosed()
+              ) {
+                publishCursorFrame(tab, { phase: "move", ...point });
+              }
+            })
+            .catch(() => undefined);
         }),
       catch: (cause) => selectorOperationError("click", input, cause),
     });
@@ -850,8 +939,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
           await locator.evaluate((element) =>
             element.dispatchEvent(new Event("change", { bubbles: true })),
           );
-          await tab.page.waitForTimeout(50);
-          await publishCapturedFrame(tab);
         }),
       catch: (cause) =>
         isPreviewBrowserOperationError(cause)
@@ -869,8 +956,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
         withAutomationAction(tab, "press", async () => {
           const key = [...(input.modifiers ?? []), input.key].join("+");
           await tab.page.keyboard.press(key);
-          await tab.page.waitForTimeout(50);
-          await publishCapturedFrame(tab);
         }),
       catch: (cause) => operationError("automation-press", cause),
     });
@@ -891,24 +976,18 @@ export const make = Effect.gen(function* ServerBrowserMake() {
             await locator.scrollIntoViewIfNeeded({ timeout: 15_000 });
             const box = await locator.boundingBox({ timeout: 15_000 });
             if (box) cursor = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-            tab.cursorX = cursor.x;
-            tab.cursorY = cursor.y;
-            await publishCapturedFrame(tab, { phase: "move", ...cursor });
-            await tab.page.waitForTimeout(100);
+            publishCursorFrame(tab, { phase: "move", ...cursor });
             await locator.evaluate(
               (element, delta) =>
                 element.scrollBy({ left: delta.x, top: delta.y, behavior: "instant" }),
               { x: deltaX, y: deltaY },
             );
           } else {
-            await publishCapturedFrame(tab, { phase: "move", ...cursor });
-            await tab.page.waitForTimeout(100);
+            publishCursorFrame(tab, { phase: "move", ...cursor });
             await tab.page.evaluate(
               `window.scrollBy({ left: ${JSON.stringify(deltaX)}, top: ${JSON.stringify(deltaY)}, behavior: "instant" })`,
             );
           }
-          await tab.page.waitForTimeout(50);
-          await publishCapturedFrame(tab, { phase: "move", ...cursor });
         }),
       catch: (cause) => selectorOperationError("scroll", input, cause),
     });
@@ -999,40 +1078,18 @@ export const make = Effect.gen(function* ServerBrowserMake() {
         await NodeFSP.mkdir(directory, { recursive: true });
         const path = NodePath.join(directory, `${id}.mjpeg`);
         await NodeFSP.writeFile(path, new Uint8Array());
-        let active: ActiveRecording;
-        const onFrame = (event: { readonly data: string; readonly sessionId: number }) => {
-          active.writePromise = active.writePromise.then(() =>
-            NodeFSP.appendFile(active.path, Buffer.from(event.data, "base64")),
-          );
-          void tab.cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId });
-        };
-        active = {
+        return {
           id,
           tab,
           path,
           startedAt,
           writePromise: Promise.resolve(),
-          onFrame,
-        };
-        tab.cdp.on("Page.screencastFrame", onFrame);
-        try {
-          await tab.cdp.send("Page.startScreencast", {
-            format: "jpeg",
-            quality: 80,
-            maxWidth: tab.width,
-            maxHeight: tab.height,
-            everyNthFrame: 1,
-          });
-        } catch (cause) {
-          tab.cdp.off("Page.screencastFrame", onFrame);
-          await NodeFSP.unlink(path).catch(() => undefined);
-          throw cause;
-        }
-        return active;
+        } satisfies ActiveRecording;
       },
       catch: (cause) => operationError("automation-recording-start", cause),
     });
     activeRecording = recording;
+    if (tab.latestFrameData !== null) appendRecordingFrame(tab, tab.latestFrameData);
     return { tabId: tab.tabId, recording: true, startedAt: recording.startedAt };
   });
 
@@ -1049,8 +1106,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     activeRecording = null;
     return yield* Effect.tryPromise({
       try: async () => {
-        recording.tab.cdp.off("Page.screencastFrame", recording.onFrame);
-        await recording.tab.cdp.send("Page.stopScreencast").catch(() => undefined);
         await recording.writePromise;
         const stats = await NodeFSP.stat(recording.path);
         return {
@@ -1068,11 +1123,10 @@ export const make = Effect.gen(function* ServerBrowserMake() {
   yield* Effect.addFinalizer(() =>
     Effect.promise(async () => {
       if (activeRecording) {
-        activeRecording.tab.cdp.off("Page.screencastFrame", activeRecording.onFrame);
-        await activeRecording.tab.cdp.send("Page.stopScreencast").catch(() => undefined);
         await activeRecording.writePromise.catch(() => undefined);
         activeRecording = null;
       }
+      await Promise.all([...tabs.values()].map((tab) => stopLiveScreencast(tab)));
       const context = await contextPromise?.catch(() => null);
       await context?.close().catch(() => undefined);
       tabs.clear();
