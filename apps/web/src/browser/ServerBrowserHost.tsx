@@ -2,6 +2,7 @@
 
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import type {
+  PreviewBrowserEvent,
   PreviewBrowserFrame,
   PreviewSessionSnapshot,
   ScopedThreadRef,
@@ -64,6 +65,7 @@ function ServerBrowserTab(props: {
     reportFailure: false,
   });
   const [frozenFrame, setFrozenFrame] = useState<PreviewBrowserFrame | null>(null);
+  const [latestFrame, setLatestFrame] = useState<PreviewBrowserFrame | null>(null);
   const annotationActive = useBrowserAnnotationStore((state) =>
     Boolean(state.activeByTabId[tabId]),
   );
@@ -76,14 +78,16 @@ function ServerBrowserTab(props: {
       };
     }),
   );
-  const frames = useEnvironmentQuery(
-    previewEnvironment.browserFrames({
-      environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId, tabId },
-    }),
-  );
-  const hasFrame = frames.data !== undefined;
   const active = presentation.visible && presentation.rect !== null;
+  const frames = useEnvironmentQuery<PreviewBrowserEvent, unknown>(
+    active
+      ? previewEnvironment.browserFrames({
+          environmentId: threadRef.environmentId,
+          input: { threadId: threadRef.threadId, tabId },
+        })
+      : null,
+  );
+  const hasFrame = latestFrame !== null;
   const viewportSetting = snapshot.viewport ?? { _tag: "fill" as const };
   const hiddenSize =
     viewportSetting._tag === "fill"
@@ -112,16 +116,22 @@ function ServerBrowserTab(props: {
       : { width: viewportSetting.width, height: viewportSetting.height };
 
   useEffect(() => {
+    const event = frames.data;
+    if (!event || event._tag !== "Frame") return;
+    setLatestFrame(event);
+  }, [frames.data]);
+
+  useEffect(() => {
     if (!annotationActive) {
       annotationUrlRef.current = null;
       setFrozenFrame(null);
       return;
     }
-    setFrozenFrame((current) => current ?? frames.data ?? null);
+    setFrozenFrame((current) => current ?? latestFrame);
     const currentUrl = snapshot.navStatus._tag === "Idle" ? "about:blank" : snapshot.navStatus.url;
     if (annotationUrlRef.current === null) annotationUrlRef.current = currentUrl;
     else if (annotationUrlRef.current !== currentUrl) cancelBrowserAnnotation(tabId);
-  }, [annotationActive, frames.data, snapshot.navStatus, tabId]);
+  }, [annotationActive, latestFrame, snapshot.navStatus, tabId]);
 
   useEffect(() => {
     if (!annotationActive || presentation.visible) return;
@@ -131,12 +141,14 @@ function ServerBrowserTab(props: {
   useEffect(() => () => cancelBrowserAnnotation(tabId), [tabId]);
 
   useEffect(() => {
-    const cursor = frames.data?.cursor;
-    if (!cursor) return;
+    const cursor = frames.data;
+    if (!cursor || cursor._tag !== "Cursor") return;
     useBrowserPointerStore.getState().apply({
       tabId,
-      ...cursor,
-      sequence: frames.data.sequence,
+      phase: cursor.phase,
+      x: cursor.x,
+      y: cursor.y,
+      sequence: cursor.sequence,
       createdAt: new Date().toISOString(),
     });
   }, [frames.data, tabId]);
@@ -289,7 +301,7 @@ function ServerBrowserTab(props: {
     return () => window.cancelAnimationFrame(frameId);
   }, [layout, tabId]);
 
-  const displayFrame = frozenFrame ?? frames.data;
+  const displayFrame = frozenFrame ?? latestFrame;
 
   return (
     <div

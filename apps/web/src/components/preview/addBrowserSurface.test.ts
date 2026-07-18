@@ -31,6 +31,39 @@ beforeEach(() => {
 });
 
 describe("addBrowserSurface", () => {
+  it("shows the browser placeholder before preview.open resolves", async () => {
+    const opened = snapshot("tab-delayed");
+    let resolveOpen!: (
+      value: ReturnType<typeof AsyncResult.success<PreviewSessionSnapshot>>,
+    ) => void;
+    const pending = new Promise<ReturnType<typeof AsyncResult.success<PreviewSessionSnapshot>>>(
+      (resolve) => {
+        resolveOpen = resolve;
+      },
+    );
+    const openPreview = vi.fn(() => pending);
+
+    const result = addBrowserSurface({
+      threadRef,
+      openPreview: ({ input }) => {
+        expect(input).toEqual({ threadId: "thread-1" });
+        return openPreview();
+      },
+    });
+
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef)
+        .activeSurfaceId,
+    ).toBe("browser:new");
+
+    resolveOpen(AsyncResult.success(opened));
+    await result;
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef)
+        .activeSurfaceId,
+    ).toBe("browser:tab-delayed");
+  });
+
   it("creates another preview session when a browser tab is already active", async () => {
     const first = snapshot("tab-1");
     const second = snapshot("tab-2");

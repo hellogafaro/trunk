@@ -21,6 +21,7 @@ export function createPreviewEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
   const lifecycleScheduler = createAtomCommandScheduler();
+  const openScheduler = createAtomCommandScheduler();
   const statusScheduler = createAtomCommandScheduler();
   const automationScheduler = createAtomCommandScheduler();
   const browserInputScheduler = createAtomCommandScheduler();
@@ -60,8 +61,8 @@ export function createPreviewEnvironmentAtoms<R, E>(
     open: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:preview:open",
       tag: WS_METHODS.previewOpen,
-      scheduler: lifecycleScheduler,
-      concurrency: lifecycleConcurrency,
+      scheduler: openScheduler,
+      concurrency: { mode: "parallel" },
     }),
     navigate: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:preview:navigate",

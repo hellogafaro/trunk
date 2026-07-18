@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   DiscoveredLocalServer,
+  PreviewBrowserCursor,
   PreviewBrowserFrame,
   PreviewBrowserInput,
   PreviewBrowserInspectResult,
@@ -33,12 +34,14 @@ const decodeAutomationError = Schema.decodeUnknownSync(PreviewAutomationError);
 const decodeAutomationStatus = Schema.decodeUnknownSync(PreviewAutomationStatus);
 const decodeBrowserInspectResult = Schema.decodeUnknownSync(PreviewBrowserInspectResult);
 const decodeBrowserFrame = Schema.decodeUnknownSync(PreviewBrowserFrame);
+const decodeBrowserCursor = Schema.decodeUnknownSync(PreviewBrowserCursor);
 const decodeBrowserInput = Schema.decodeUnknownSync(PreviewBrowserInput);
 
 describe("PreviewBrowserFrame", () => {
-  it("decodes an agent cursor carried with a captured frame", () => {
+  it("decodes image frames without cursor payloads", () => {
     expect(
       decodeBrowserFrame({
+        _tag: "Frame",
         threadId: "thread-1",
         tabId: "tab_1",
         sequence: 2,
@@ -46,9 +49,22 @@ describe("PreviewBrowserFrame", () => {
         data: "frame-data",
         width: 1280,
         height: 800,
-        cursor: { phase: "click", x: 40, y: 60 },
-      }).cursor,
-    ).toEqual({ phase: "click", x: 40, y: 60 });
+      }).data,
+    ).toBe("frame-data");
+  });
+
+  it("decodes cursor updates independently from image data", () => {
+    const cursor = decodeBrowserCursor({
+      _tag: "Cursor",
+      threadId: "thread-1",
+      tabId: "tab_1",
+      sequence: 3,
+      phase: "click",
+      x: 40,
+      y: 60,
+    });
+    expect(cursor).toMatchObject({ phase: "click", x: 40, y: 60 });
+    expect(cursor).not.toHaveProperty("data");
   });
 });
 

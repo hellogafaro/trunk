@@ -95,7 +95,7 @@ import {
 import {
   DiscoveredLocalServerList,
   PreviewBrowserError,
-  PreviewBrowserFrame,
+  PreviewBrowserEvent,
   PreviewBrowserFramesInput,
   PreviewBrowserHistoryInput,
   PreviewBrowserInspectInput,
@@ -571,7 +571,7 @@ export const WsPreviewReportStatusRpc = Rpc.make(WS_METHODS.previewReportStatus,
 
 export const WsPreviewBrowserFramesRpc = Rpc.make(WS_METHODS.previewBrowserFrames, {
   payload: PreviewBrowserFramesInput,
-  success: PreviewBrowserFrame,
+  success: PreviewBrowserEvent,
   error: Schema.Union([PreviewBrowserError, EnvironmentAuthorizationError]),
   stream: true,
 });

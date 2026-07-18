@@ -13,6 +13,7 @@ import {
   type PreviewAutomationStatus,
   type PreviewAutomationTypeInput,
   type PreviewAutomationWaitForInput,
+  type PreviewBrowserEvent,
   type PreviewBrowserFrame,
   type PreviewBrowserHistoryInput,
   type PreviewBrowserInspectInput,
@@ -37,6 +38,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeCrypto from "node:crypto";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeTimersPromises from "node:timers/promises";
 import type { BrowserContext, CDPSession, ConsoleMessage, Page, Request } from "playwright-core";
 
 import { browserElementsAtPointExpression } from "./BrowserElementInspection.ts";
@@ -49,7 +51,7 @@ interface BrowserTab {
   readonly tabId: string;
   readonly page: Page;
   readonly cdp: CDPSession;
-  readonly frames: PubSub.PubSub<PreviewBrowserFrame>;
+  readonly frames: PubSub.PubSub<PreviewBrowserEvent>;
   readonly consoleEntries: PreviewAutomationConsoleEntry[];
   readonly networkEntries: PreviewAutomationNetworkEntry[];
   readonly actionTimeline: PreviewAutomationActionEvent[];
@@ -62,6 +64,10 @@ interface BrowserTab {
   latestFrameData: string | null;
   screencastStarted: boolean;
   onScreencastFrame: ((event: ScreencastFrameEvent) => void) | null;
+  frameSubscribers: number;
+  firstFramePublished: boolean;
+  screencastStartedAt: number;
+  droppedFrames: number;
 }
 
 interface ActiveRecording {
@@ -82,6 +88,8 @@ const MAX_VISIBLE_TEXT_LENGTH = 20_000;
 const MAX_INTERACTIVE_ELEMENTS = 200;
 const MAX_EVALUATION_BYTES = 64_000;
 const DIAGNOSTIC_BUFFER_LIMIT = 200;
+const TARGET_FRAME_INTERVAL_MS = 1000 / 15;
+const BROWSER_CLEANUP_TIMEOUT_MS = 2_000;
 const tabKey = (threadId: string, tabId: string): string => `${threadId}\u0000${tabId}`;
 
 const appendBounded = <A>(entries: A[], entry: A): void => {
@@ -164,7 +172,7 @@ export class ServerBrowser extends Context.Service<
     readonly ensure: (snapshot: PreviewSessionSnapshot) => Effect.Effect<void, ServerBrowserError>;
     readonly frames: (
       snapshot: PreviewSessionSnapshot,
-    ) => Effect.Effect<Stream.Stream<PreviewBrowserFrame>, ServerBrowserError>;
+    ) => Effect.Effect<Stream.Stream<PreviewBrowserEvent>, ServerBrowserError>;
     readonly navigateIfOpen: (
       threadId: ThreadId,
       tabId: string,
@@ -243,6 +251,8 @@ export class ServerBrowser extends Context.Service<
 >()("t3/preview/ServerBrowser") {}
 
 export const make = Effect.gen(function* ServerBrowserMake() {
+  const context = yield* Effect.context<never>();
+  const runFork = Effect.runForkWith(context);
   const clock = yield* Clock.Clock;
   const nowMillis = () => clock.currentTimeMillisUnsafe();
   const nowIso = () => DateTime.formatIso(DateTime.makeUnsafe(nowMillis()));
@@ -256,6 +266,7 @@ export const make = Effect.gen(function* ServerBrowserMake() {
 
   const getContext = async (): Promise<BrowserContext> => {
     if (!contextPromise) {
+      const startedAt = nowMillis();
       contextPromise = (async () => {
         const { chromium } = await import("playwright-core");
         const baseDir =
@@ -263,12 +274,18 @@ export const make = Effect.gen(function* ServerBrowserMake() {
         const userDataDir = NodePath.join(baseDir, "browser");
         await NodeFSP.mkdir(userDataDir, { recursive: true });
         const executablePath = await resolveChromiumExecutablePath(chromium.executablePath());
-        return await chromium.launchPersistentContext(userDataDir, {
+        const context = await chromium.launchPersistentContext(userDataDir, {
           headless: true,
           viewport: DEFAULT_VIEWPORT,
           executablePath,
           args: ["--disable-dev-shm-usage"],
         });
+        runFork(
+          Effect.logInfo("hosted browser chromium launched", {
+            durationMs: nowMillis() - startedAt,
+          }),
+        );
+        return context;
       })().catch((error) => {
         contextPromise = null;
         throw error;
@@ -311,17 +328,9 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     });
   };
 
-  const frameCursor = (tab: BrowserTab): NonNullable<PreviewBrowserFrame["cursor"]> | undefined =>
-    tab.cursorPhase === null
-      ? undefined
-      : { phase: tab.cursorPhase, x: tab.cursorX, y: tab.cursorY };
-
-  const publishFrame = (
-    tab: BrowserTab,
-    data: string,
-    cursor = frameCursor(tab),
-  ): PreviewBrowserFrame => {
+  const publishFrame = (tab: BrowserTab, data: string): PreviewBrowserFrame => {
     const frame: PreviewBrowserFrame = {
+      _tag: "Frame",
       threadId: tab.threadId,
       tabId: tab.tabId,
       sequence: tab.sequence++,
@@ -329,9 +338,18 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       data,
       width: tab.width,
       height: tab.height,
-      ...(cursor ? { cursor } : {}),
     };
     PubSub.publishUnsafe(tab.frames, frame);
+    if (!tab.firstFramePublished) {
+      tab.firstFramePublished = true;
+      runFork(
+        Effect.logInfo("hosted browser first frame published", {
+          threadId: tab.threadId,
+          tabId: tab.tabId,
+          durationMs: nowMillis() - tab.screencastStartedAt,
+        }),
+      );
+    }
     return frame;
   };
 
@@ -343,12 +361,18 @@ export const make = Effect.gen(function* ServerBrowserMake() {
 
   const publishCursorFrame = (
     tab: BrowserTab,
-    cursor: NonNullable<PreviewBrowserFrame["cursor"]>,
+    cursor: { readonly phase: "move" | "click"; readonly x: number; readonly y: number },
   ): void => {
     tab.cursorX = cursor.x;
     tab.cursorY = cursor.y;
     tab.cursorPhase = cursor.phase;
-    if (tab.latestFrameData !== null) publishFrame(tab, tab.latestFrameData, cursor);
+    PubSub.publishUnsafe(tab.frames, {
+      _tag: "Cursor",
+      threadId: tab.threadId,
+      tabId: tab.tabId,
+      sequence: tab.sequence++,
+      ...cursor,
+    });
   };
 
   const appendRecordingFrame = (tab: BrowserTab, data: string): void => {
@@ -361,12 +385,23 @@ export const make = Effect.gen(function* ServerBrowserMake() {
 
   const startLiveScreencast = async (tab: BrowserTab): Promise<void> => {
     if (tab.screencastStarted) return;
+    tab.screencastStartedAt = nowMillis();
+    tab.firstFramePublished = false;
     const onFrame = (event: ScreencastFrameEvent): void => {
-      void tab.cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
-      if (tab.page.isClosed()) return;
-      tab.latestFrameData = event.data;
-      publishFrame(tab, event.data);
-      appendRecordingFrame(tab, event.data);
+      if (!tab.page.isClosed()) {
+        tab.latestFrameData = event.data;
+        publishFrame(tab, event.data);
+        appendRecordingFrame(tab, event.data);
+      } else {
+        tab.droppedFrames += 1;
+      }
+      // Chromium emits at most one frame until it is acknowledged. Delaying
+      // the ACK provides real upstream backpressure and caps the stream at 15 FPS.
+      void NodeTimersPromises.setTimeout(TARGET_FRAME_INTERVAL_MS).then(() => {
+        void tab.cdp
+          .send("Page.screencastFrameAck", { sessionId: event.sessionId })
+          .catch(() => undefined);
+      });
     };
     tab.onScreencastFrame = onFrame;
     tab.screencastStarted = true;
@@ -378,6 +413,13 @@ export const make = Effect.gen(function* ServerBrowserMake() {
         quality: 72,
         everyNthFrame: 1,
       });
+      runFork(
+        Effect.logInfo("hosted browser screencast started", {
+          threadId: tab.threadId,
+          tabId: tab.tabId,
+          targetFps: 15,
+        }),
+      );
       void tab.page
         .waitForTimeout(250)
         .then(() => {
@@ -403,6 +445,13 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       tab.onScreencastFrame = null;
     }
     await tab.cdp.send("Page.stopScreencast").catch(() => undefined);
+    runFork(
+      Effect.logInfo("hosted browser screencast stopped", {
+        threadId: tab.threadId,
+        tabId: tab.tabId,
+        droppedFrames: tab.droppedFrames,
+      }),
+    );
   };
 
   const navigatePage = async (tab: BrowserTab, url: string): Promise<void> => {
@@ -426,7 +475,7 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       const existing = tabs.get(key);
       if (existing) return existing;
 
-      const frames = yield* PubSub.sliding<PreviewBrowserFrame>({ capacity: 2, replay: 1 });
+      const frames = yield* PubSub.sliding<PreviewBrowserEvent>({ capacity: 2, replay: 1 });
       const viewport = initialViewport(snapshot);
       const tab = yield* Effect.tryPromise({
         try: async () => {
@@ -453,6 +502,10 @@ export const make = Effect.gen(function* ServerBrowserMake() {
             latestFrameData: null,
             screencastStarted: false,
             onScreencastFrame: null,
+            frameSubscribers: 0,
+            firstFramePublished: false,
+            screencastStartedAt: 0,
+            droppedFrames: 0,
           };
           tabs.set(key, created);
 
@@ -498,7 +551,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
             })().catch(() => undefined);
           });
           page.on("close", () => tabs.delete(key));
-          await startLiveScreencast(created);
           return created;
         },
         catch: unavailableError,
@@ -707,19 +759,46 @@ export const make = Effect.gen(function* ServerBrowserMake() {
   });
 
   const close = (threadId: ThreadId, tabId: string): Effect.Effect<void> =>
-    Effect.promise(async () => {
+    Effect.sync(() => {
       const key = tabKey(threadId, tabId);
       const tab = tabs.get(key);
       if (!tab) return;
       tabs.delete(key);
-      await stopLiveScreencast(tab);
-      await tab.page.close().catch(() => undefined);
+      const startedAt = nowMillis();
+      void Promise.race([
+        (async () => {
+          await stopLiveScreencast(tab);
+          await tab.page.close().catch(() => undefined);
+        })(),
+        NodeTimersPromises.setTimeout(BROWSER_CLEANUP_TIMEOUT_MS),
+      ]).finally(() => {
+        runFork(
+          Effect.logInfo("hosted browser cleanup completed", {
+            threadId,
+            tabId,
+            durationMs: nowMillis() - startedAt,
+          }),
+        );
+      });
     });
 
   const frames: ServerBrowser["Service"]["frames"] = Effect.fn("ServerBrowser.frames")(
     function* (snapshot) {
       const tab = yield* ensureTab(snapshot);
-      return Stream.fromPubSub(tab.frames);
+      const acquire = Effect.promise(async () => {
+        tab.frameSubscribers += 1;
+        if (tab.frameSubscribers === 1) await startLiveScreencast(tab);
+      });
+      const release = Effect.promise(async () => {
+        tab.frameSubscribers = Math.max(0, tab.frameSubscribers - 1);
+        if (tab.frameSubscribers === 0 && activeRecording?.tab.key !== tab.key) {
+          await stopLiveScreencast(tab);
+        }
+      });
+      return Stream.concat(
+        Stream.fromEffect(acquire).pipe(Stream.drain),
+        Stream.fromPubSub(tab.frames),
+      ).pipe(Stream.ensuring(release));
     },
   );
 
@@ -1089,6 +1168,10 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       catch: (cause) => operationError("automation-recording-start", cause),
     });
     activeRecording = recording;
+    yield* Effect.tryPromise({
+      try: () => startLiveScreencast(tab),
+      catch: (cause) => operationError("automation-recording-start", cause),
+    });
     if (tab.latestFrameData !== null) appendRecordingFrame(tab, tab.latestFrameData);
     return { tabId: tab.tabId, recording: true, startedAt: recording.startedAt };
   });
@@ -1104,6 +1187,9 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       );
     }
     activeRecording = null;
+    if (recording.tab.frameSubscribers === 0) {
+      yield* Effect.promise(() => stopLiveScreencast(recording.tab));
+    }
     return yield* Effect.tryPromise({
       try: async () => {
         await recording.writePromise;

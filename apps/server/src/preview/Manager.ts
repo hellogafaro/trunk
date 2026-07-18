@@ -23,7 +23,7 @@ import {
   type PreviewAutomationTypeInput,
   type PreviewAutomationWaitForInput,
   type PreviewBrowserError,
-  type PreviewBrowserFrame,
+  type PreviewBrowserEvent,
   type PreviewBrowserFramesInput,
   type PreviewBrowserHistoryInput,
   type PreviewBrowserInspectInput,
@@ -83,7 +83,7 @@ export class PreviewManager extends Context.Service<
     readonly browserFrames: (
       input: PreviewBrowserFramesInput,
     ) => Effect.Effect<
-      Stream.Stream<PreviewBrowserFrame, PreviewBrowserError>,
+      Stream.Stream<PreviewBrowserEvent, PreviewBrowserError>,
       PreviewBrowserError
     >;
     readonly sendBrowserInput: (
@@ -275,6 +275,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
 
   const open: PreviewManager["Service"]["open"] = Effect.fn("PreviewManager.open")(
     function* (input) {
+      const startedAt = yield* DateTime.now;
       const tabId = newPreviewTabId();
       const updatedAt = yield* currentIsoTimestamp;
       const snapshot = input.url
@@ -301,6 +302,12 @@ export const make = Effect.gen(function* PreviewManagerMake() {
         tabId,
         createdAt: snapshot.updatedAt,
         snapshot,
+      });
+      const completedAt = yield* DateTime.now;
+      yield* Effect.logInfo("preview session opened", {
+        threadId: input.threadId,
+        tabId,
+        durationMs: DateTime.toEpochMillis(completedAt) - DateTime.toEpochMillis(startedAt),
       });
       return snapshot;
     },

@@ -201,7 +201,7 @@ export const PreviewBrowserFramesInput = Schema.Struct({
 });
 export type PreviewBrowserFramesInput = typeof PreviewBrowserFramesInput.Type;
 
-export const PreviewBrowserFrame = Schema.Struct({
+export const PreviewBrowserFrame = Schema.TaggedStruct("Frame", {
   threadId: ThreadId,
   tabId: PreviewTabId,
   sequence: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -209,15 +209,22 @@ export const PreviewBrowserFrame = Schema.Struct({
   data: Schema.String,
   width: Schema.Int.check(Schema.isGreaterThan(0)),
   height: Schema.Int.check(Schema.isGreaterThan(0)),
-  cursor: Schema.optional(
-    Schema.Struct({
-      phase: Schema.Literals(["move", "click"]),
-      x: Schema.Number,
-      y: Schema.Number,
-    }),
-  ),
 });
 export type PreviewBrowserFrame = typeof PreviewBrowserFrame.Type;
+
+export const PreviewBrowserCursor = Schema.TaggedStruct("Cursor", {
+  threadId: ThreadId,
+  tabId: PreviewTabId,
+  sequence: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  phase: Schema.Literals(["move", "click"]),
+  x: Schema.Number,
+  y: Schema.Number,
+});
+export type PreviewBrowserCursor = typeof PreviewBrowserCursor.Type;
+
+/** Lightweight cursor events never duplicate the latest JPEG frame. */
+export const PreviewBrowserEvent = Schema.Union([PreviewBrowserFrame, PreviewBrowserCursor]);
+export type PreviewBrowserEvent = typeof PreviewBrowserEvent.Type;
 
 export const PreviewBrowserViewportInput = Schema.Struct({
   threadId: ThreadId,
