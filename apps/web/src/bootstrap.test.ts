@@ -15,13 +15,15 @@ describe("renderer bootstrap ordering", () => {
     const migrationImportIndex = BOOTSTRAP_SOURCE.indexOf('import "./storageOriginMigration";');
     const signedOutBootstrapIndex = BOOTSTRAP_SOURCE.indexOf("bootstrapSignedOutScreen()");
     const pairingBootstrapIndex = BOOTSTRAP_SOURCE.indexOf("bootstrapPairingSession()");
+    const authBootstrapIndex = BOOTSTRAP_SOURCE.indexOf("bootstrapAuthSession()");
     const appImportIndex = BOOTSTRAP_SOURCE.indexOf('import("./main")');
     expect(migrationImportIndex).toBeGreaterThanOrEqual(0);
     expect(signedOutBootstrapIndex).toBeGreaterThan(migrationImportIndex);
     expect(pairingBootstrapIndex).toBeGreaterThan(migrationImportIndex);
     expect(pairingBootstrapIndex).toBeGreaterThan(signedOutBootstrapIndex);
+    expect(authBootstrapIndex).toBeGreaterThan(pairingBootstrapIndex);
     expect(appImportIndex).toBeGreaterThan(migrationImportIndex);
-    expect(appImportIndex).toBeGreaterThan(pairingBootstrapIndex);
+    expect(appImportIndex).toBeGreaterThan(authBootstrapIndex);
 
     expect(MAIN_SOURCE).not.toContain('import "./storageOriginMigration";');
   });
