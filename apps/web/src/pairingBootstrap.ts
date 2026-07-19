@@ -64,7 +64,7 @@ export async function bootstrapPairingSession(
   }
 
   try {
-    const response = await dependencies.fetch("/api/auth/bootstrap", {
+    const response = await dependencies.fetch.call(globalThis, "/api/auth/bootstrap", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },

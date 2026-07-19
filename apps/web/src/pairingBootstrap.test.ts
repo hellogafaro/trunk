@@ -61,6 +61,18 @@ describe("bootstrapPairingSession", () => {
     });
   });
 
+  it("invokes browser fetch with the global receiver", async () => {
+    const test = makeDependencies({});
+    const fetch = vi.fn(function (this: unknown) {
+      expect(this).toBe(globalThis);
+      return Promise.resolve({ ok: true } as Response);
+    });
+    test.dependencies.fetch = fetch as typeof globalThis.fetch;
+
+    await expect(bootstrapPairingSession(test.dependencies)).resolves.toBe("redirecting");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("renders a token-free failure state when the exchange is rejected", async () => {
     const test = makeDependencies({ responseOk: false });
 
