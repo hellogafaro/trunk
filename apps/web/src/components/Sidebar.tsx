@@ -6536,8 +6536,8 @@ export default function Sidebar() {
       },
       {
         id: "feedback",
-        label: "Feedback Synara",
-        description: "Send feedback or report an issue to the Synara team.",
+        label: "Feedback Trunk",
+        description: "Send feedback or report an issue to the Trunk team.",
         keywords: ["feedback", "bug", "issue", "problem", "report", "support", "synara"],
       },
       {
@@ -6771,6 +6771,8 @@ export default function Sidebar() {
   const wordmark = (
     <div className="flex w-full items-center gap-1.5">
       <SidebarTrigger className="shrink-0 text-muted-foreground/75 hover:text-foreground md:hidden" />
+      <SynaraLogo aria-label="Trunk" className="size-4" />
+      <span className="text-sm font-medium tracking-tight">Trunk</span>
       {headerControls}
     </div>
   );
@@ -6823,7 +6825,7 @@ export default function Sidebar() {
           >
             {titlebarControls}
             <SynaraLogo
-              aria-label="Synara"
+              aria-label="Trunk"
               className="pointer-events-none ml-auto size-3.5 text-[var(--color-text-foreground-secondary)] opacity-80"
             />
           </SidebarHeader>

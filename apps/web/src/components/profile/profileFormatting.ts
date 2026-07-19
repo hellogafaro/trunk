@@ -44,7 +44,7 @@ export function toDisplayName(basename: string): string {
     .trim()
     .replace(/\s+/g, " ");
   if (!cleaned) {
-    return "Synara";
+    return "Trunk";
   }
   return cleaned
     .split(" ")
