@@ -6772,7 +6772,6 @@ export default function Sidebar() {
     <div className="flex w-full items-center gap-1.5">
       <SidebarTrigger className="shrink-0 text-muted-foreground/75 hover:text-foreground md:hidden" />
       <SynaraLogo aria-label="Trunk" className="size-4" />
-      <span className="text-sm font-medium tracking-tight">Trunk</span>
       {headerControls}
     </div>
   );
