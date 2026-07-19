@@ -117,7 +117,7 @@ function StudioIndexRouteView() {
   // A hidden Studio tab must never start the restore/create flow: a direct /studio link would
   // otherwise race the sidebar's hidden-section redirect and could mint a hidden Studio draft.
   const navigate = useNavigate();
-  const studioSectionVisible = appSettings.showStudioSection;
+  const studioSectionVisible = false;
   useEffect(() => {
     if (!studioSectionVisible) {
       void navigate({ to: "/", replace: true });

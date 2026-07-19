@@ -1485,10 +1485,10 @@ export default function Sidebar() {
     [automationListQuery.data],
   );
   const { settings: appSettings, updateSettings } = useAppSettings();
-  // Threads is always available; Studio, Workspace, and the standalone Chats footer
-  // can be hidden independently from Settings.
+  // Threads is always available; Workspace and the standalone Chats footer
+  // can be hidden independently from Settings. Trunk intentionally has no Studio surface.
   const chatsSectionVisible = appSettings.showChatsSection;
-  const studioSectionVisible = appSettings.showStudioSection;
+  const studioSectionVisible = false;
   const workspaceSectionVisible = appSettings.showWorkspaceSection;
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();

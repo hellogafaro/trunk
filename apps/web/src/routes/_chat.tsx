@@ -20,7 +20,6 @@ import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useHandleNewStudioChat } from "../hooks/useHandleNewStudioChat";
 import { useTemporaryThreadLifecycle } from "../hooks/useTemporaryThreadLifecycle";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useRecentViewSwitcher } from "../hooks/useRecentViewSwitcher";
@@ -33,13 +32,11 @@ import {
 import { resolveInheritedThreadContext } from "../lib/threadBootstrap";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
-import { startFreshChatForActiveSurface } from "../lib/startContainerChat";
 import { resolveShortcutCommand } from "../keybindings";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { onServerMaintenanceUpdated } from "../wsNativeApi";
-import { useWorkspaceStore } from "../workspaceStore";
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { resolveProviderSendAvailabilityWithRefresh } from "~/lib/providerAvailability";
@@ -76,7 +73,6 @@ const MAINTENANCE_EVENT_STALE_MS = 5 * 60 * 1000;
 type MaintenanceToastId = ReturnType<typeof toastManager.add>;
 
 function BrowserTabTitle() {
-  const pathname = useLocation({ select: (location) => location.pathname });
   const routeProjectId = useParams({
     strict: false,
     select: (params) => params.projectId ?? null,
@@ -86,9 +82,7 @@ function BrowserTabTitle() {
     (store) => store.projects.find((project) => project.id === routeProjectId) ?? null,
   );
   const project = activeProject ?? routeProject;
-  const context = pathname.startsWith("/studio")
-    ? "Studio"
-    : (project?.localName ?? project?.name ?? null);
+  const context = project?.localName ?? project?.name ?? null;
 
   useEffect(() => {
     document.title = context ? `${APP_DISPLAY_NAME} | ${context}` : APP_DISPLAY_NAME;
@@ -229,9 +223,6 @@ function isRecentViewSwitcherCommitKey(event: KeyboardEvent): boolean {
 
 function ChatRouteGlobalShortcuts() {
   const navigate = useNavigate();
-  const isStudioRoute = useLocation({
-    select: (location) => location.pathname.startsWith("/studio"),
-  });
   const { toggleSidebar } = useSidebar();
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -257,10 +248,6 @@ function ChatRouteGlobalShortcuts() {
     projects,
   });
   const { handleNewChat } = useHandleNewChat();
-  const { handleNewStudioChat } = useHandleNewStudioChat();
-  const homeDir = useWorkspaceStore((state) => state.homeDir);
-  const chatWorkspaceRoot = useWorkspaceStore((state) => state.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspaceStore((state) => state.studioWorkspaceRoot);
   const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
   const setLatestProjectId = useLatestProjectStore((state) => state.setLatestProjectId);
   const clearLatestProjectId = useLatestProjectStore((state) => state.clearLatestProjectId);
@@ -287,23 +274,8 @@ function ChatRouteGlobalShortcuts() {
   const currentProjectId = resolveCurrentProjectTargetId(projects, activeProject?.id ?? null);
   const latestUsableProjectId = resolveLatestProjectTargetId(projects, latestProjectId);
   const handleNewChatForActiveSurface = useCallback(
-    () =>
-      startFreshChatForActiveSurface({
-        activeProject,
-        isStudioRoute,
-        paths: { homeDir, chatWorkspaceRoot, studioWorkspaceRoot },
-        handleNewChat,
-        handleNewStudioChat,
-      }),
-    [
-      activeProject,
-      chatWorkspaceRoot,
-      handleNewChat,
-      handleNewStudioChat,
-      homeDir,
-      isStudioRoute,
-      studioWorkspaceRoot,
-    ],
+    () => handleNewChat({ fresh: true }),
+    [handleNewChat],
   );
 
   useEffect(() => {
