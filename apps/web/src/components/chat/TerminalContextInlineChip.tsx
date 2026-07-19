@@ -1,4 +1,4 @@
-import { TerminalIcon } from "~/lib/icons";
+import { TerminalIcon } from "~/components/ui/icons";
 
 import { cn } from "~/lib/utils";
 import {

@@ -1,79 +1,38 @@
 {
-  "name": "@synara/monorepo",
+  "name": "@t3tools/monorepo",
   "private": true,
-  "workspaces": {
-    "packages": [
-      "apps/*",
-      "packages/*",
-      "scripts"
-    ],
-    "catalog": {
-      "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@8881a9b",
-      "@effect/platform-node": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/platform-node@8881a9b",
-      "@effect/openapi-generator": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/openapi-generator@8881a9b",
-      "@effect/sql-sqlite-bun": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/sql-sqlite-bun@8881a9b",
-      "@effect/vitest": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/vitest@8881a9b",
-      "@effect/language-service": "0.75.1",
-      "@types/bun": "^1.3.9",
-      "@types/node": "^24.10.13",
-      "tsdown": "^0.20.3",
-      "typescript": "^5.7.3",
-      "vitest": "^4.1.10"
-    }
-  },
   "type": "module",
   "scripts": {
+    "prepare": "effect-tsgo patch",
     "dev": "node scripts/dev-runner.ts dev",
     "dev:server": "node scripts/dev-runner.ts dev:server",
     "dev:web": "node scripts/dev-runner.ts dev:web",
-    "start": "turbo run start --filter=@synara/cli",
-    "build": "turbo run build",
-    "typecheck": "turbo run typecheck",
-    "lint": "oxlint --report-unused-disable-directives",
-    "test": "turbo run test",
-    "brand:check": "node scripts/check-brand-identity.ts",
-    "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check",
-    "build:contracts": "turbo run build --filter=@synara/contracts",
-    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules scripts/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo"
+    "start": "vp run --filter t3 start",
+    "build": "vp run --filter './apps/*' --filter './packages/*' --filter './oxlint-plugin-t3code' --filter './scripts' build",
+    "typecheck": "vp run -r --concurrency-limit 2 typecheck",
+    "tc": "vp run -r --concurrency-limit 2 typecheck",
+    "lint": "vp lint --report-unused-disable-directives",
+    "test": "vp run -r test",
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "build:contracts": "vp run --filter @t3tools/contracts build",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus"
   },
   "devDependencies": {
+    "@babel/plugin-transform-react-jsx": "7.28.6",
+    "@effect/tsgo": "catalog:",
+    "@oxlint/plugins": "^1.63.0",
     "@types/node": "catalog:",
-    "oxfmt": "^0.40.0",
-    "oxlint": "^1.55.0",
-    "turbo": "^2.9.14",
-    "vitest": "catalog:"
-  },
-  "overrides": {
-    "axios": "^1.16.0",
-    "defu": "^6.1.5",
-    "fast-uri": "^3.1.2",
-    "follow-redirects": "^1.16.0",
-    "form-data": "^4.0.6",
-    "hono": "^4.12.25",
-    "ip-address": "^10.2.0",
-    "joi": "^18.2.1",
-    "lodash": "^4.18.1",
-    "postcss": "^8.5.10",
-    "protobufjs": "^7.6.3",
-    "qs": "^6.15.2",
-    "smol-toml": "^1.6.1",
-    "uuid": "^13.0.1",
-    "vite": "^8.1.4",
-    "ws": "^8.21.0",
-    "yaml": "^2.8.3"
+    "@typescript/native-preview": "catalog:",
+    "vite-plus": "catalog:"
   },
   "engines": {
-    "bun": "^1.3.9",
     "node": "^24.13.1"
   },
-  "packageManager": "bun@1.3.12",
+  "packageManager": "pnpm@10.24.0",
   "msw": {
     "workerDirectory": [
       "apps/web/public"
     ]
-  },
-  "patchedDependencies": {
-    "@effect/platform-node-shared@https://pkg.pr.new/Effect-TS/effect-smol/@effect/platform-node-shared@8881a9b606d84a6f5eb6615279138322984f5368": "patches/@effect%2Fplatform-node-shared@8881a9b.patch"
   }
 }

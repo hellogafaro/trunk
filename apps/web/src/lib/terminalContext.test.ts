@@ -1,9 +1,7 @@
-import { ThreadId } from "@synara/contracts";
-import { describe, expect, it } from "vitest";
+import { ThreadId } from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
-  appendOriginalComposerPromptBlocks,
-  appendOriginalTerminalContextBlock,
   appendTerminalContextsToPrompt,
   buildTerminalContextPreviewTitle,
   buildTerminalContextBlock,
@@ -15,8 +13,6 @@ import {
   formatInlineTerminalContextLabel,
   formatTerminalContextLabel,
   hasTerminalContextText,
-  IMAGE_ONLY_BOOTSTRAP_PROMPT,
-  IMAGE_ONLY_VISIBLE_PLACEHOLDER,
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   insertInlineTerminalContextPlaceholder,
   isTerminalContextExpired,
@@ -25,14 +21,11 @@ import {
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "./terminalContext";
-import { appendAssistantSelectionsToPrompt } from "./assistantSelections";
-import { appendPastedTextsToPrompt, createPastedTextDraft } from "./composerPastedText";
-import { appendFileCommentsToPrompt } from "./fileComments";
 
 function makeContext(overrides?: Partial<TerminalContextDraft>): TerminalContextDraft {
   return {
     id: "context-1",
-    threadId: ThreadId.makeUnsafe("thread-1"),
+    threadId: ThreadId.make("thread-1"),
     terminalId: "default",
     terminalLabel: "Terminal 1",
     lineStart: 12,
@@ -82,69 +75,6 @@ describe("terminalContext", () => {
     );
   });
 
-  it("preserves the original terminal context block when editing display text", () => {
-    const originalPrompt = appendTerminalContextsToPrompt("Investigate this", [makeContext()]);
-    expect(
-      appendOriginalTerminalContextBlock({
-        editedPrompt: "Investigate this edited",
-        originalPrompt,
-      }),
-    ).toBe(
-      [
-        "Investigate this edited",
-        "",
-        "<terminal_context>",
-        "- Terminal 1 lines 12-13:",
-        "  12 | git status",
-        "  13 | On branch main",
-        "</terminal_context>",
-      ].join("\n"),
-    );
-  });
-
-  it("preserves all hidden composer blocks when editing display text", () => {
-    const assistantSelections = [{ assistantMessageId: "msg-1", text: "selected line" }];
-    const contexts = [makeContext()];
-    const fileComments = [
-      { path: "src/app.ts", startLine: 3, endLine: 5, text: "rename this helper" },
-    ];
-    const pastedTexts = [
-      createPastedTextDraft({
-        id: "paste-1",
-        createdAt: "2026-06-15T00:00:00.000Z",
-        text: ["before", "</pasted_text>", "after"].join("\n"),
-      }),
-    ];
-    const originalPrompt = appendPastedTextsToPrompt(
-      appendFileCommentsToPrompt(
-        appendTerminalContextsToPrompt(
-          appendAssistantSelectionsToPrompt("Investigate this", assistantSelections),
-          contexts,
-        ),
-        fileComments,
-      ),
-      pastedTexts,
-    );
-
-    expect(
-      appendOriginalComposerPromptBlocks({
-        editedPrompt: "Investigate this edited",
-        originalPrompt,
-      }),
-    ).toBe(
-      appendPastedTextsToPrompt(
-        appendFileCommentsToPrompt(
-          appendTerminalContextsToPrompt(
-            appendAssistantSelectionsToPrompt("Investigate this edited", assistantSelections),
-            contexts,
-          ),
-          fileComments,
-        ),
-        pastedTexts,
-      ),
-    );
-  });
-
   it("replaces inline placeholders with inline terminal labels before appending context blocks", () => {
     expect(
       appendTerminalContextsToPrompt(
@@ -183,7 +113,7 @@ describe("terminalContext", () => {
     const prompt = appendTerminalContextsToPrompt("Investigate this", [makeContext()]);
     expect(deriveDisplayedUserMessageState(prompt)).toEqual({
       visibleText: "Investigate this",
-      copyText: "Investigate this",
+      copyText: prompt,
       contextCount: 1,
       previewTitle: "Terminal 1 lines 12-13\n12 | git status\n13 | On branch main",
       contexts: [
@@ -192,86 +122,7 @@ describe("terminalContext", () => {
           body: "12 | git status\n13 | On branch main",
         },
       ],
-      assistantSelections: [],
-      fileComments: [],
-      pastedTexts: [],
-    });
-  });
-
-  it("strips assistant selection transport markup from displayed and copied text", () => {
-    const prompt = appendAssistantSelectionsToPrompt("Investigate this", [
-      {
-        assistantMessageId: "msg-1",
-        text: "selected line",
-      },
-    ]);
-    expect(deriveDisplayedUserMessageState(prompt)).toEqual({
-      visibleText: "Investigate this",
-      copyText: "Investigate this",
-      contextCount: 0,
-      previewTitle: null,
-      contexts: [],
-      assistantSelections: [{ assistantMessageId: "msg-1", text: "selected line" }],
-      fileComments: [],
-      pastedTexts: [],
-    });
-  });
-
-  it("keeps assistant selections and terminal context separate from the copied bubble text", () => {
-    const prompt = appendTerminalContextsToPrompt(
-      appendAssistantSelectionsToPrompt("Investigate this", [
-        {
-          assistantMessageId: "msg-1",
-          text: "selected line",
-        },
-      ]),
-      [makeContext()],
-    );
-
-    expect(deriveDisplayedUserMessageState(prompt)).toEqual({
-      visibleText: "Investigate this",
-      copyText: "Investigate this",
-      contextCount: 1,
-      previewTitle: "Terminal 1 lines 12-13\n12 | git status\n13 | On branch main",
-      contexts: [
-        {
-          header: "Terminal 1 lines 12-13",
-          body: "12 | git status\n13 | On branch main",
-        },
-      ],
-      assistantSelections: [{ assistantMessageId: "msg-1", text: "selected line" }],
-      fileComments: [],
-      pastedTexts: [],
-    });
-  });
-
-  it("separates file comments, terminal context, and assistant selections in display state", () => {
-    // Mirror the composer send path: assistant selections, then terminal
-    // contexts, then file comments (outermost).
-    const prompt = appendFileCommentsToPrompt(
-      appendTerminalContextsToPrompt(
-        appendAssistantSelectionsToPrompt("Investigate this", [
-          { assistantMessageId: "msg-1", text: "selected line" },
-        ]),
-        [makeContext()],
-      ),
-      [{ path: "src/app.ts", startLine: 3, endLine: 5, text: "rename this helper" }],
-    );
-
-    expect(deriveDisplayedUserMessageState(prompt)).toEqual({
-      visibleText: "Investigate this",
-      copyText: "Investigate this",
-      contextCount: 1,
-      previewTitle: "Terminal 1 lines 12-13\n12 | git status\n13 | On branch main",
-      contexts: [
-        {
-          header: "Terminal 1 lines 12-13",
-          body: "12 | git status\n13 | On branch main",
-        },
-      ],
-      assistantSelections: [{ assistantMessageId: "msg-1", text: "selected line" }],
-      fileComments: [{ path: "src/app.ts", startLine: 3, endLine: 5, text: "rename this helper" }],
-      pastedTexts: [],
+      elementContexts: [],
     });
   });
 
@@ -281,23 +132,6 @@ describe("terminalContext", () => {
       contextCount: 0,
       previewTitle: null,
       contexts: [],
-    });
-  });
-
-  it("hides the image-only bootstrap prompt when requested for transcript display", () => {
-    expect(
-      deriveDisplayedUserMessageState(IMAGE_ONLY_BOOTSTRAP_PROMPT, {
-        hideImageOnlyBootstrapPrompt: true,
-      }),
-    ).toEqual({
-      visibleText: IMAGE_ONLY_VISIBLE_PLACEHOLDER,
-      copyText: "",
-      contextCount: 0,
-      previewTitle: null,
-      contexts: [],
-      assistantSelections: [],
-      fileComments: [],
-      pastedTexts: [],
     });
   });
 

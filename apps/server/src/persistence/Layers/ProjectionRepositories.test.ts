@@ -1,21 +1,20 @@
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId, ProviderInstanceId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { ProjectionProjectRepositoryLive } from "./ProjectionProjects.ts";
 import { ProjectionThreadRepositoryLive } from "./ProjectionThreads.ts";
-import { ProjectionStateRepositoryLive } from "./ProjectionState.ts";
 import { ProjectionProjectRepository } from "../Services/ProjectionProjects.ts";
 import { ProjectionThreadRepository } from "../Services/ProjectionThreads.ts";
-import { ProjectionStateRepository } from "../Services/ProjectionState.ts";
 
 const projectionRepositoriesLayer = it.layer(
   Layer.mergeAll(
     ProjectionProjectRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionThreadRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
-    ProjectionStateRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     SqlitePersistenceMemory,
   ),
 );
@@ -27,16 +26,14 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* projects.upsert({
-        projectId: ProjectId.makeUnsafe("project-null-options"),
-        kind: "project",
+        projectId: ProjectId.make("project-null-options"),
         title: "Null options project",
         workspaceRoot: "/tmp/project-null-options",
         defaultModelSelection: {
-          provider: "codex",
+          instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.4",
         },
         scripts: [],
-        isPinned: false,
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
         deletedAt: null,
@@ -51,22 +48,23 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       `;
       const row = rows[0];
       if (!row) {
-        return yield* Effect.fail(new Error("Expected projection_projects row to exist."));
+        return yield* Effect.die("Expected projection_projects row to exist.");
       }
 
       assert.strictEqual(
         row.defaultModelSelection,
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({
-          provider: "codex",
+          instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.4",
         }),
       );
 
       const persisted = yield* projects.getById({
-        projectId: ProjectId.makeUnsafe("project-null-options"),
+        projectId: ProjectId.make("project-null-options"),
       });
       assert.deepStrictEqual(Option.getOrNull(persisted)?.defaultModelSelection, {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5.4",
       });
     }),
@@ -78,34 +76,25 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* threads.upsert({
-        threadId: ThreadId.makeUnsafe("thread-null-options"),
-        projectId: ProjectId.makeUnsafe("project-null-options"),
+        threadId: ThreadId.make("thread-null-options"),
+        projectId: ProjectId.make("project-null-options"),
         title: "Null options thread",
         modelSelection: {
-          provider: "claudeAgent",
+          instanceId: ProviderInstanceId.make("claudeAgent"),
           model: "claude-opus-4-6",
         },
         runtimeMode: "full-access",
         interactionMode: "default",
-        envMode: "local",
         branch: null,
         worktreePath: null,
-        associatedWorktreePath: null,
-        associatedWorktreeBranch: null,
-        associatedWorktreeRef: null,
-        createBranchFlowCompleted: false,
-        lastKnownPr: null,
         latestTurnId: null,
-        handoff: null,
-        pinnedMessages: null,
-        threadMarkers: null,
-        notes: null,
+        createdAt: "2026-03-24T00:00:00.000Z",
+        updatedAt: "2026-03-24T00:00:00.000Z",
+        archivedAt: null,
         latestUserMessageAt: null,
         pendingApprovalCount: 0,
         pendingUserInputCount: 0,
         hasActionableProposedPlan: 0,
-        createdAt: "2026-03-24T00:00:00.000Z",
-        updatedAt: "2026-03-24T00:00:00.000Z",
         deletedAt: null,
       });
 
@@ -118,47 +107,24 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       `;
       const row = rows[0];
       if (!row) {
-        return yield* Effect.fail(new Error("Expected projection_threads row to exist."));
+        return yield* Effect.die("Expected projection_threads row to exist.");
       }
 
       assert.strictEqual(
         row.modelSelection,
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({
-          provider: "claudeAgent",
+          instanceId: ProviderInstanceId.make("claudeAgent"),
           model: "claude-opus-4-6",
         }),
       );
 
       const persisted = yield* threads.getById({
-        threadId: ThreadId.makeUnsafe("thread-null-options"),
+        threadId: ThreadId.make("thread-null-options"),
       });
       assert.deepStrictEqual(Option.getOrNull(persisted)?.modelSelection, {
-        provider: "claudeAgent",
+        instanceId: ProviderInstanceId.make("claudeAgent"),
         model: "claude-opus-4-6",
-      });
-    }),
-  );
-
-  it.effect("keeps projection cursors monotonic during concurrent catch-up", () =>
-    Effect.gen(function* () {
-      const states = yield* ProjectionStateRepository;
-
-      yield* states.upsert({
-        projector: "projection.hot",
-        lastAppliedSequence: 20,
-        updatedAt: "2026-07-09T00:00:20.000Z",
-      });
-      yield* states.upsert({
-        projector: "projection.hot",
-        lastAppliedSequence: 10,
-        updatedAt: "2026-07-09T00:00:10.000Z",
-      });
-
-      const persisted = yield* states.getByProjector({ projector: "projection.hot" });
-      assert.deepStrictEqual(Option.getOrNull(persisted), {
-        projector: "projection.hot",
-        lastAppliedSequence: 20,
-        updatedAt: "2026-07-09T00:00:20.000Z",
       });
     }),
   );

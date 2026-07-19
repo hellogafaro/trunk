@@ -7,23 +7,20 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
+  CheckpointRef,
   OrchestrationCheckpointSummary,
   OrchestrationProject,
   OrchestrationProjectShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
-  OrchestrationThreadDetailSnapshot,
   OrchestrationThread,
   OrchestrationThreadShell,
-  CheckpointRef,
   ProjectId,
-  ProjectKind,
   ThreadId,
-  ThreadEnvironmentMode,
-  TurnId,
-} from "@synara/contracts";
-import { ServiceMap } from "effect";
-import type { Effect, Option } from "effect";
+} from "@t3tools/contracts";
+import * as Context from "effect/Context";
+import type * as Option from "effect/Option";
+import type * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
 
@@ -39,34 +36,17 @@ export interface ProjectionSnapshotSequence {
 export interface ProjectionThreadCheckpointContext {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId;
-  readonly projectKind: ProjectKind;
   readonly workspaceRoot: string;
-  readonly envMode: ThreadEnvironmentMode;
   readonly worktreePath: string | null;
   readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
-  /** Completed file-change payloads, newest first, when explicitly requested by the caller. */
-  readonly fileChangeActivityPayloads?: ReadonlyArray<unknown>;
-}
-
-export interface ProjectionThreadCheckpointContextOptions {
-  /** Include the narrow activity payload set used to attribute files in non-Git workspaces. */
-  readonly includeFileChangeActivityPayloads?: boolean;
-}
-
-export interface ProjectionGeneratedImageActivityRecord {
-  readonly kind: string;
-  readonly payload: unknown;
 }
 
 export interface ProjectionFullThreadDiffContext {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId;
-  readonly projectKind: ProjectKind;
   readonly workspaceRoot: string;
-  readonly envMode: ThreadEnvironmentMode;
   readonly worktreePath: string | null;
   readonly latestCheckpointTurnCount: number;
-  readonly baselineCheckpointRef: CheckpointRef | null;
   readonly toCheckpointRef: CheckpointRef | null;
 }
 
@@ -92,12 +72,30 @@ export interface ProjectionSnapshotQueryShape {
   readonly getSnapshot: () => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
 
   /**
-   * Read aggregate projection counts without hydrating the full read model.
+   * Read the latest orchestration shell snapshot.
+   *
+   * Returns only projects and thread shell summaries so clients can bootstrap
+   * lightweight navigation state without hydrating every thread body.
    */
-  readonly getCounts: () => Effect.Effect<ProjectionSnapshotCounts, ProjectionRepositoryError>;
+  readonly getShellSnapshot: () => Effect.Effect<
+    OrchestrationShellSnapshot,
+    ProjectionRepositoryError
+  >;
 
   /**
-   * Read the latest projection snapshot sequence without hydrating read-model entities.
+   * Read archived thread shell summaries for the archive page.
+   *
+   * This query is separate from the main shell snapshot so archived threads
+   * are never bootstrapped into normal navigation state.
+   */
+  readonly getArchivedShellSnapshot: () => Effect.Effect<
+    OrchestrationShellSnapshot,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read the latest projection snapshot sequence without hydrating read-model
+   * entities.
    */
   readonly getSnapshotSequence: () => Effect.Effect<
     ProjectionSnapshotSequence,
@@ -105,15 +103,9 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
-   * Read the latest orchestration shell snapshot.
-   *
-   * Returns only project rows plus thread shell summaries so clients can
-   * bootstrap navigation state without hydrating every thread body.
+   * Read aggregate projection counts without hydrating the full read model.
    */
-  readonly getShellSnapshot: () => Effect.Effect<
-    OrchestrationShellSnapshot,
-    ProjectionRepositoryError
-  >;
+  readonly getCounts: () => Effect.Effect<ProjectionSnapshotCounts, ProjectionRepositoryError>;
 
   /**
    * Read the active project for an exact workspace root match.
@@ -141,24 +133,11 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getThreadCheckpointContext: (
     threadId: ThreadId,
-    options?: ProjectionThreadCheckpointContextOptions,
   ) => Effect.Effect<Option.Option<ProjectionThreadCheckpointContext>, ProjectionRepositoryError>;
 
   /**
-   * Read the durable generated-image records for one turn. This narrow query is
-   * intentionally independent of the bounded thread-detail activity window so
-   * long turns and server restarts can still materialize transcript references.
-   */
-  readonly listGeneratedImageActivitiesByTurn: (
-    threadId: ThreadId,
-    turnId: TurnId,
-  ) => Effect.Effect<
-    ReadonlyArray<ProjectionGeneratedImageActivityRecord>,
-    ProjectionRepositoryError
-  >;
-
-  /**
-   * Read the narrow context needed to diff a whole thread through one checkpoint.
+   * Read only the narrow context needed to compute a full-thread diff from
+   * checkpoint 0 to a specific turn count.
    */
   readonly getFullThreadDiffContext: (
     threadId: ThreadId,
@@ -173,38 +152,17 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<Option.Option<OrchestrationThreadShell>, ProjectionRepositoryError>;
 
   /**
-   * Recover the parent thread for legacy synthetic subagent IDs.
-   */
-  readonly findSyntheticSubagentParentThread: (
-    threadId: ThreadId,
-  ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
-
-  /**
    * Read a single active thread detail snapshot by id.
    */
   readonly getThreadDetailById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
-
-  /**
-   * Read a single active thread detail snapshot by id with the full message history.
-   */
-  readonly getThreadDetailForExportById: (
-    threadId: ThreadId,
-  ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
-
-  /**
-   * Read a single active thread detail snapshot and its projection cursor in one transaction.
-   */
-  readonly getThreadDetailSnapshotById: (
-    threadId: ThreadId,
-  ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
 }
 
 /**
  * ProjectionSnapshotQuery - Service tag for projection snapshot queries.
  */
-export class ProjectionSnapshotQuery extends ServiceMap.Service<
+export class ProjectionSnapshotQuery extends Context.Service<
   ProjectionSnapshotQuery,
   ProjectionSnapshotQueryShape
->()("synara/orchestration/Services/ProjectionSnapshotQuery") {}
+>()("t3/orchestration/Services/ProjectionSnapshotQuery") {}

@@ -1,43 +1,29 @@
-// Note: option rows render through the shared ComposerChoiceRow (number chip +
-// label + description) so this card and the pending-approval card stay identical;
-// the nav arrows stay raw <button> since they are compact icon controls. The card
-// is rendered detached, floating just above the composer (not fused into the
-// composer surface), so it reuses the composer surface chrome to stay in-tint.
-import { memo, useEffect, useEffectEvent, useRef } from "react";
+import { type ApprovalRequestId } from "@t3tools/contracts";
+import { memo, useEffect, useEffectEvent, useRef, useState } from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
   derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
-import { CheckIcon, ChevronLeftIcon, ChevronRightIcon } from "~/lib/icons";
+import { CheckIcon } from "~/components/ui/icons";
 import { cn } from "~/lib/utils";
-import { ComposerChoiceRow } from "./ComposerChoiceRow";
-import { COMPOSER_INPUT_SURFACE_CLASS_NAME } from "./composerPickerStyles";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
-  isResponding: boolean;
+  respondingRequestIds: ApprovalRequestId[];
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
-  onToggleOption: (questionId: string, optionLabel: string) => PendingUserInputDraftAnswer | null;
-  onAdvance: (answerOverrides?: Record<string, PendingUserInputDraftAnswer>) => void;
-  onPrevious: () => void;
-  onCancel: () => void;
+  onToggleOption: (questionId: string, optionLabel: string) => void;
+  onAdvance: () => void;
 }
 
-const NAV_BUTTON_CLASS_NAME =
-  "flex size-5 items-center justify-center rounded-md text-[var(--color-text-foreground-tertiary)] transition-colors duration-150 hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] disabled:pointer-events-none disabled:opacity-30";
-
-// Keep pending-input choices neutral so they read like Codex list controls instead of accent buttons.
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
   pendingUserInputs,
-  isResponding,
+  respondingRequestIds,
   answers,
   questionIndex,
   onToggleOption,
   onAdvance,
-  onPrevious,
-  onCancel,
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
   const activePrompt = pendingUserInputs[0];
@@ -45,15 +31,13 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
 
   return (
     <ComposerPendingUserInputCard
-      key={`${activePrompt.requestId}:${activePrompt.lifecycleGeneration ?? "legacy"}`}
+      key={activePrompt.requestId}
       prompt={activePrompt}
-      isResponding={isResponding}
+      isResponding={respondingRequestIds.includes(activePrompt.requestId)}
       answers={answers}
       questionIndex={questionIndex}
       onToggleOption={onToggleOption}
       onAdvance={onAdvance}
-      onPrevious={onPrevious}
-      onCancel={onCancel}
     />
   );
 });
@@ -65,54 +49,76 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   questionIndex,
   onToggleOption,
   onAdvance,
-  onPrevious,
-  onCancel,
 }: {
   prompt: PendingUserInput;
   isResponding: boolean;
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
-  onToggleOption: (questionId: string, optionLabel: string) => PendingUserInputDraftAnswer | null;
-  onAdvance: (answerOverrides?: Record<string, PendingUserInputDraftAnswer>) => void;
-  onPrevious: () => void;
-  onCancel: () => void;
+  onToggleOption: (questionId: string, optionLabel: string) => void;
+  onAdvance: () => void;
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const onAdvanceRef = useRef(onAdvance);
+  const [optimisticSingleSelect, setOptimisticSingleSelect] = useState<{
+    questionId: string;
+    optionLabel: string;
+  } | null>(null);
+
   useEffect(() => {
     onAdvanceRef.current = onAdvance;
   }, [onAdvance]);
 
-  // Cancel a pending auto-advance on unmount, and whenever the active question
-  // changes or a response goes in flight — otherwise a manual Next/Submit landing
-  // inside the 200ms window leaves a stale timer that advances or submits again.
+  useEffect(() => {
+    if (!activeQuestion || activeQuestion.multiSelect || !optimisticSingleSelect) {
+      return;
+    }
+    if (optimisticSingleSelect.questionId !== activeQuestion.id) {
+      setOptimisticSingleSelect(null);
+      return;
+    }
+    if (
+      progress.customAnswer.trim().length === 0 &&
+      progress.selectedOptionLabels.includes(optimisticSingleSelect.optionLabel)
+    ) {
+      setOptimisticSingleSelect(null);
+    }
+  }, [
+    activeQuestion,
+    optimisticSingleSelect,
+    progress.customAnswer,
+    progress.selectedOptionLabels,
+  ]);
+
+  // Clear auto-advance timer on unmount
   useEffect(() => {
     return () => {
       if (autoAdvanceTimerRef.current !== null) {
         window.clearTimeout(autoAdvanceTimerRef.current);
-        autoAdvanceTimerRef.current = null;
       }
     };
-  }, [activeQuestion?.id, isResponding]);
+  }, []);
 
   const handleOptionSelection = useEffectEvent((questionId: string, optionLabel: string) => {
-    const nextDraftAnswer = onToggleOption(questionId, optionLabel);
     if (activeQuestion?.multiSelect) {
+      onToggleOption(questionId, optionLabel);
       return;
     }
+    setOptimisticSingleSelect({ questionId, optionLabel });
+    onToggleOption(questionId, optionLabel);
     if (autoAdvanceTimerRef.current !== null) {
       window.clearTimeout(autoAdvanceTimerRef.current);
     }
     autoAdvanceTimerRef.current = window.setTimeout(() => {
       autoAdvanceTimerRef.current = null;
-      onAdvanceRef.current(nextDraftAnswer ? { [questionId]: nextDraftAnswer } : undefined);
+      onAdvanceRef.current();
     }, 200);
   });
 
-  // Keyboard shortcut: digits toggle options for multi-select prompts and preserve
-  // the current auto-advance behavior for single-select questions.
+  // Keyboard shortcut: number keys 1-9 select corresponding options when focus is
+  // outside editable fields. Multi-select prompts toggle options in place; single-
+  // select prompts keep the existing auto-advance behavior.
   useEffect(() => {
     if (!activeQuestion || isResponding) return;
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -121,8 +127,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         return;
       }
-      // Let digit input pass through whenever focus is inside an editable region,
-      // including nested contenteditable descendants inside the composer.
       if (
         target instanceof HTMLElement &&
         target.closest('[contenteditable]:not([contenteditable="false"])')
@@ -146,84 +150,78 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     return null;
   }
 
-  const questionCount = prompt.questions.length;
-  const showNavigation = questionCount > 1;
-  const canGoBack = progress.questionIndex > 0;
-  const canGoForward = !progress.isLastQuestion && progress.canAdvance;
+  const customAnswerActive = progress.customAnswer.trim().length > 0;
 
   return (
-    <div className={cn(COMPOSER_INPUT_SURFACE_CLASS_NAME, "overflow-hidden px-3.5 py-3")}>
-      <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 text-[13px] font-medium leading-snug text-foreground/90">
-          {activeQuestion.question}
-        </p>
-        {showNavigation ? (
-          <div className="flex shrink-0 items-center gap-0.5 pt-px text-muted-foreground/70">
-            <button
-              type="button"
-              disabled={!canGoBack || isResponding}
-              onClick={onPrevious}
-              className={NAV_BUTTON_CLASS_NAME}
-              aria-label="Previous question"
-            >
-              <ChevronLeftIcon className="size-3.5" />
-            </button>
-            <span className="px-0.5 text-[11px] tabular-nums">
-              {progress.questionIndex + 1} of {questionCount}
-            </span>
-            <button
-              type="button"
-              disabled={!canGoForward || isResponding}
-              onClick={() => onAdvance()}
-              className={NAV_BUTTON_CLASS_NAME}
-              aria-label="Next question"
-            >
-              <ChevronRightIcon className="size-3.5" />
-            </button>
-          </div>
+    <div className="px-4 py-3 sm:px-5">
+      <div className="mb-2 flex items-center gap-3">
+        <span className="text-[11px] font-semibold tracking-widest text-muted-foreground/55 uppercase">
+          {activeQuestion.header}
+        </span>
+        {prompt.questions.length > 1 ? (
+          <span className="flex h-5 items-center rounded-md bg-muted/60 px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground/60">
+            {questionIndex + 1}/{prompt.questions.length}
+          </span>
         ) : null}
       </div>
+      <p className="text-sm text-foreground/90">{activeQuestion.question}</p>
       {activeQuestion.multiSelect ? (
-        <p className="mt-1 text-[11px] text-muted-foreground/55">Select one or more.</p>
+        <p className="mt-1 text-xs text-muted-foreground/65">Select one or more options.</p>
       ) : null}
-      {activeQuestion.options.length > 0 ? (
-        <div className="mt-2.5 space-y-0.5">
-          {activeQuestion.options.map((option, index) => {
-            const isSelected = progress.selectedOptionLabels.includes(option.label);
-            const shortcutKey = index < 9 ? index + 1 : null;
-            return (
-              <ComposerChoiceRow
-                key={`${activeQuestion.id}:${option.label}`}
-                shortcut={shortcutKey}
-                label={option.label}
-                description={option.description}
-                selected={isSelected}
-                disabled={isResponding}
-                onSelect={() => handleOptionSelection(activeQuestion.id, option.label)}
-                trailing={
-                  isSelected ? (
-                    <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--color-text-foreground)]" />
-                  ) : null
-                }
-              />
-            );
-          })}
-        </div>
-      ) : (
-        <div className="mt-2.5 flex justify-end">
-          <button
-            type="button"
-            disabled={isResponding}
-            onClick={onCancel}
-            className={cn(
-              "rounded-md px-2 py-1 text-[12px] text-[var(--color-text-foreground-secondary)] transition-colors duration-150 hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
-              isResponding && "cursor-not-allowed opacity-50",
-            )}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+      <div className="mt-3 space-y-1.5">
+        {activeQuestion.options.map((option, index) => {
+          const isOptimisticallySelected =
+            optimisticSingleSelect?.questionId === activeQuestion.id &&
+            optimisticSingleSelect.optionLabel === option.label;
+          const isSelected =
+            isOptimisticallySelected ||
+            (!customAnswerActive && progress.selectedOptionLabels.includes(option.label));
+          const shortcutKey = index < 9 ? index + 1 : null;
+          const className = cn(
+            "group flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left outline-none transition-all duration-150 focus-visible:border-primary/40 focus-visible:ring-1 focus-visible:ring-primary/25",
+            isSelected
+              ? "border-primary/30 bg-primary/8 text-foreground"
+              : "border-transparent bg-muted/22 text-foreground/85 hover:border-border/45 hover:bg-muted/34",
+            isResponding && "opacity-50 cursor-not-allowed",
+            !isResponding && "cursor-pointer",
+          );
+          const content = (
+            <>
+              <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                <span className="text-sm font-medium">{option.label}</span>
+                {option.description && option.description !== option.label ? (
+                  <span className="text-xs text-muted-foreground/50">{option.description}</span>
+                ) : null}
+              </div>
+              {isSelected ? (
+                <CheckIcon className="size-3.5 shrink-0 text-primary" />
+              ) : shortcutKey !== null ? (
+                <kbd
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center rounded border border-border/50 text-[11px] font-medium tabular-nums transition-colors duration-150",
+                    "bg-background/35 text-muted-foreground/70 group-hover:border-border/70 group-hover:text-muted-foreground",
+                  )}
+                >
+                  {shortcutKey}
+                </kbd>
+              ) : null}
+            </>
+          );
+          return (
+            <button
+              key={`${activeQuestion.id}:${option.label}`}
+              type="button"
+              disabled={isResponding}
+              onClick={() => {
+                handleOptionSelection(activeQuestion.id, option.label);
+              }}
+              className={className}
+            >
+              {content}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 });

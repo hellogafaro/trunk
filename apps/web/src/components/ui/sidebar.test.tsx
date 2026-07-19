@@ -1,16 +1,14 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
-  SidebarHeaderTrigger,
-  SidebarInset,
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuSubButton,
   SidebarProvider,
+  SidebarTrigger,
 } from "./sidebar";
+import { resolveSidebarState } from "./sidebarState";
 
 function renderSidebarButton(className?: string) {
   return renderToStaticMarkup(
@@ -20,13 +18,38 @@ function renderSidebarButton(className?: string) {
   );
 }
 
-function renderWithQueryClient(node: ReactNode) {
-  return renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>,
-  );
-}
-
 describe("sidebar interactive cursors", () => {
+  it("uses mobile sheet visibility for the shared responsive state", () => {
+    expect(resolveSidebarState({ isMobile: true, open: true, openMobile: false })).toBe(
+      "collapsed",
+    );
+    expect(resolveSidebarState({ isMobile: true, open: false, openMobile: true })).toBe("expanded");
+    expect(resolveSidebarState({ isMobile: false, open: true, openMobile: false })).toBe(
+      "expanded",
+    );
+  });
+
+  it("exposes collapsed state for shared titlebar inset styling", () => {
+    const html = renderToStaticMarkup(
+      <SidebarProvider defaultOpen={false}>
+        <div />
+      </SidebarProvider>,
+    );
+
+    expect(html).toContain('data-sidebar-state="collapsed"');
+  });
+
+  it("keeps the sidebar trigger interactive inside Electron drag regions", () => {
+    const html = renderToStaticMarkup(
+      <SidebarProvider>
+        <SidebarTrigger />
+      </SidebarProvider>,
+    );
+
+    expect(html).toContain("[-webkit-app-region:no-drag]");
+    expect(html).toContain("size-[var(--workspace-titlebar-control-size)]!");
+  });
+
   it("uses a pointer cursor for menu buttons by default", () => {
     const html = renderSidebarButton();
 
@@ -59,42 +82,5 @@ describe("sidebar interactive cursors", () => {
 
     expect(html).toContain('data-slot="sidebar-menu-sub-button"');
     expect(html).toContain("cursor-pointer");
-  });
-
-  it("keeps inset layout classes on the outer shell", () => {
-    const html = renderToStaticMarkup(
-      <SidebarProvider>
-        <SidebarInset className="h-dvh overflow-hidden rounded-l-2xl">Content</SidebarInset>
-      </SidebarProvider>,
-    );
-
-    expect(html).toContain('data-slot="sidebar-inset"');
-    expect(html).toContain("h-dvh");
-    expect(html).toContain("overflow-hidden");
-    expect(html).toContain("rounded-l-2xl");
-    expect(html).toContain('data-slot="sidebar-inset-surface"');
-  });
-
-  it("renders the header trigger when the desktop sidebar is collapsed", () => {
-    const html = renderWithQueryClient(
-      <SidebarProvider open={false}>
-        <SidebarHeaderTrigger />
-      </SidebarProvider>,
-    );
-
-    expect(html).toContain('data-slot="sidebar-trigger"');
-    expect(html).toContain("Toggle Sidebar");
-  });
-
-  it("omits the header trigger when the desktop sidebar is expanded", () => {
-    const html = renderWithQueryClient(
-      <SidebarProvider open>
-        <SidebarHeaderTrigger />
-      </SidebarProvider>,
-    );
-
-    expect(html).toContain('data-slot="sidebar-wrapper"');
-    expect(html).not.toContain('data-slot="sidebar-trigger"');
-    expect(html).not.toContain("Toggle Sidebar");
   });
 });

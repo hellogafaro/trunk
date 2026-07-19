@@ -1,7 +1,11 @@
-import { OrchestrationCheckpointFile } from "@synara/contracts";
+import { OrchestrationCheckpointFile } from "@t3tools/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Option, Schema, Struct } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct";
 
 import { toPersistenceDecodeError, toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -103,11 +107,8 @@ const makeProjectionCheckpointRepository = Effect.gen(function* () {
           assistant_message_id AS "assistantMessageId",
           completed_at AS "completedAt"
         FROM projection_turns
-        -- Checkpoint repository rows expose the completed checkpoint contract;
-        -- provider-diff placeholders remain readable through ProjectionTurns.
         WHERE thread_id = ${threadId}
           AND checkpoint_turn_count IS NOT NULL
-          AND completed_at IS NOT NULL
         ORDER BY checkpoint_turn_count ASC
       `,
   });
@@ -127,10 +128,8 @@ const makeProjectionCheckpointRepository = Effect.gen(function* () {
           assistant_message_id AS "assistantMessageId",
           completed_at AS "completedAt"
         FROM projection_turns
-        -- Incomplete provider-diff placeholders do not satisfy ProjectionCheckpoint.
         WHERE thread_id = ${threadId}
           AND checkpoint_turn_count = ${checkpointTurnCount}
-          AND completed_at IS NOT NULL
       `,
   });
 

@@ -8,20 +8,16 @@
  */
 import {
   ChatAttachment,
-  MessageDispatchOrigin,
-  OrchestrationMessageRole,
-  OrchestrationMessageSource,
-  TurnDispatchMode,
   MessageId,
-  ProviderMentionReference,
-  ProviderSkillReference,
+  OrchestrationMessageRole,
   ThreadId,
   TurnId,
   IsoDateTime,
-  NonNegativeInt,
-} from "@synara/contracts";
-import { Schema, ServiceMap } from "effect";
-import type { Effect, Option } from "effect";
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+import * as Context from "effect/Context";
+import type * as Option from "effect/Option";
+import type * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -32,14 +28,7 @@ export const ProjectionThreadMessage = Schema.Struct({
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
-  skills: Schema.optional(Schema.Array(ProviderSkillReference)),
-  mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
-  dispatchMode: Schema.optional(TurnDispatchMode),
-  dispatchOrigin: Schema.optional(MessageDispatchOrigin),
   isStreaming: Schema.Boolean,
-  source: OrchestrationMessageSource,
-  /** Server-owned orchestration event sequence for causal ordering. */
-  sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -51,7 +40,6 @@ export const ListProjectionThreadMessagesInput = Schema.Struct({
 export type ListProjectionThreadMessagesInput = typeof ListProjectionThreadMessagesInput.Type;
 
 export const GetProjectionThreadMessageInput = Schema.Struct({
-  threadId: ThreadId,
   messageId: MessageId,
 });
 export type GetProjectionThreadMessageInput = typeof GetProjectionThreadMessageInput.Type;
@@ -68,33 +56,27 @@ export interface ProjectionThreadMessageRepositoryShape {
   /**
    * Insert or replace a projected thread message row.
    *
-   * Upserts by the thread-scoped `(threadId, messageId)` identity.
+   * Upserts by `messageId`.
    */
   readonly upsert: (
     message: ProjectionThreadMessage,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 
   /**
-   * Read a projected thread message by its thread-scoped identity.
+   * Read a projected thread message by id.
    */
-  readonly getByThreadAndMessageId: (
+  readonly getByMessageId: (
     input: GetProjectionThreadMessageInput,
   ) => Effect.Effect<Option.Option<ProjectionThreadMessage>, ProjectionRepositoryError>;
 
   /**
    * List projected thread messages for a thread.
    *
-   * Returned in ascending server-owned causal order. Legacy rows without a
-   * sequence retain their timestamp order ahead of sequenced rows.
+   * Returned in ascending creation order.
    */
   readonly listByThreadId: (
     input: ListProjectionThreadMessagesInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadMessage>, ProjectionRepositoryError>;
-
-  /** Read the newest user-message timestamp used by sidebar summary state. */
-  readonly getLatestUserMessageAt: (
-    input: ListProjectionThreadMessagesInput,
-  ) => Effect.Effect<string | null, ProjectionRepositoryError>;
 
   /**
    * Delete projected thread messages by thread.
@@ -107,7 +89,7 @@ export interface ProjectionThreadMessageRepositoryShape {
 /**
  * ProjectionThreadMessageRepository - Service tag for message projection persistence.
  */
-export class ProjectionThreadMessageRepository extends ServiceMap.Service<
+export class ProjectionThreadMessageRepository extends Context.Service<
   ProjectionThreadMessageRepository,
   ProjectionThreadMessageRepositoryShape
->()("synara/persistence/Services/ProjectionThreadMessages/ProjectionThreadMessageRepository") {}
+>()("t3/persistence/Services/ProjectionThreadMessages/ProjectionThreadMessageRepository") {}

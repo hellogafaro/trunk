@@ -3,67 +3,61 @@ import type { ReactNode } from "react";
 import { isElectron } from "~/env";
 import { cn } from "~/lib/utils";
 
-import {
-  CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
-  CHAT_SURFACE_HEADER_HEIGHT_CLASS,
-} from "./chat/chatHeaderControls";
 import { Skeleton } from "./ui/skeleton";
 
-export type DiffPanelMode = "inline" | "sheet" | "sidebar";
+export type DiffPanelMode = "inline" | "sheet" | "sidebar" | "embedded";
 
 function getDiffPanelHeaderRowClassName(mode: DiffPanelMode) {
-  const shouldUseDragRegion = isElectron && mode !== "sheet";
-  // Match RightDock tab strip inset (`px-1.5`) so picker triggers line up under dock tabs.
+  const shouldUseDragRegion = isElectron && mode !== "sheet" && mode !== "embedded";
   return cn(
-    "flex w-full min-w-0 items-center gap-1.5 px-1.5",
-    CHAT_SURFACE_HEADER_HEIGHT_CLASS,
-    shouldUseDragRegion && cn("drag-region", CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME),
+    "flex items-center justify-between gap-2 px-4",
+    shouldUseDragRegion
+      ? "drag-region h-[52px] border-b border-border wco:h-[env(titlebar-area-height)] wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]"
+      : "surface-subheader",
   );
 }
 
 export function DiffPanelShell(props: {
   mode: DiffPanelMode;
-  header?: ReactNode;
+  header: ReactNode;
   children: ReactNode;
+  className?: string;
 }) {
-  const shouldUseDragRegion = isElectron && props.mode !== "sheet";
-  const hasHeader = props.header !== null && props.header !== undefined;
+  const shouldUseDragRegion = isElectron && props.mode !== "sheet" && props.mode !== "embedded";
 
   return (
     <div
       className={cn(
-        "flex h-full min-w-0 flex-col bg-[var(--color-background-surface)]",
+        "flex h-full min-w-0 flex-col bg-background",
         props.mode === "inline"
           ? "w-[42vw] min-w-[360px] max-w-[560px] shrink-0 border-l border-border"
           : "w-full",
+        props.className,
       )}
     >
-      {hasHeader ? (
-        shouldUseDragRegion ? (
-          <div className={getDiffPanelHeaderRowClassName(props.mode)}>{props.header}</div>
-        ) : (
-          <div className={CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME}>
-            <div className={getDiffPanelHeaderRowClassName(props.mode)}>{props.header}</div>
-          </div>
-        )
-      ) : null}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{props.children}</div>
+      {shouldUseDragRegion ? (
+        <div className={getDiffPanelHeaderRowClassName(props.mode)}>{props.header}</div>
+      ) : (
+        <div className={getDiffPanelHeaderRowClassName(props.mode)} data-surface-subheader>
+          {props.header}
+        </div>
+      )}
+      {props.children}
     </div>
   );
 }
 
 export function DiffPanelHeaderSkeleton() {
   return (
-    <div className="flex h-full w-full items-center gap-2">
-      <Skeleton className="h-8 w-28 shrink-0 rounded-lg" />
-      <Skeleton className="h-4 w-14 shrink-0 rounded-full" />
-      <div className="ml-auto flex items-center gap-1.5">
-        <Skeleton className="size-7 rounded-md" />
-        <Skeleton className="size-7 rounded-md" />
-        <Skeleton className="h-7 w-16 rounded-md" />
-        <Skeleton className="h-8 w-20 rounded-lg" />
+    <>
+      <div className="min-w-0 flex-1">
+        <Skeleton className="h-8 w-32 rounded-lg" />
       </div>
-    </div>
+      <div className="flex shrink-0 gap-1">
+        <Skeleton className="size-7 rounded-md" />
+        <Skeleton className="size-7 rounded-md" />
+      </div>
+    </>
   );
 }
 

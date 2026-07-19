@@ -13,9 +13,10 @@ import {
   OrchestrationThreadActivityTone,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { Schema, ServiceMap } from "effect";
-import type { Effect } from "effect";
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -77,7 +78,7 @@ export interface ProjectionThreadActivityRepositoryShape {
 /**
  * ProjectionThreadActivityRepository - Service tag for thread activity persistence.
  */
-export class ProjectionThreadActivityRepository extends ServiceMap.Service<
+export class ProjectionThreadActivityRepository extends Context.Service<
   ProjectionThreadActivityRepository,
   ProjectionThreadActivityRepositoryShape
->()("synara/persistence/Services/ProjectionThreadActivities/ProjectionThreadActivityRepository") {}
+>()("t3/persistence/Services/ProjectionThreadActivities/ProjectionThreadActivityRepository") {}

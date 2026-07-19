@@ -1,529 +1,293 @@
-// FILE: BranchToolbar.tsx
-// Purpose: Renders the chat thread's compact workspace controls, including the
-// local usage popover, inline workspace handoff actions, and runtime access toggle.
-import type { ThreadId, RuntimeMode } from "@synara/contracts";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
-  CheckIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
-  HandoffIcon,
-  WorktreeIcon,
-} from "~/lib/icons";
-import { HiOutlineHandRaised } from "react-icons/hi2";
-import { CentralIcon } from "~/lib/central-icons";
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useAppSettings } from "~/appSettings";
+  CloudIcon,
+  FolderGit2Icon,
+  FolderGitIcon,
+  FolderIcon,
+  MonitorIcon,
+} from "lucide-react";
+import { memo, useMemo } from "react";
 
-import { newCommandId, cn } from "../lib/utils";
-import { readNativeApi } from "../nativeApi";
-import { useComposerDraftStore } from "../composerDraftStore";
-import { useProviderUsageSummary } from "../hooks/useProviderUsageSummary";
-import { resolveThreadEnvironmentPresentation } from "../lib/threadEnvironment";
-import { useStore } from "../store";
+import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
+import { useProject, useThread } from "../state/entities";
+import { useIsMobile } from "../hooks/useMediaQuery";
 import {
-  createAllThreadsSelector,
-  createProjectSelector,
-  createThreadSelector,
-} from "../storeSelectors";
-import {
-  EnvMode,
-  resolveAssociatedWorktreeMetadataAfterWorkspacePatch,
-  resolveDraftEnvModeAfterBranchChange,
+  type EnvMode,
+  type EnvironmentOption,
+  resolveCurrentWorkspaceLabel,
+  resolveEnvModeLabel,
   resolveEffectiveEnvMode,
+  resolveLockedWorkspaceLabel,
 } from "./BranchToolbar.logic";
-import {
-  BranchToolbarBranchSelector,
-  type BranchSelectorVariant,
-} from "./BranchToolbarBranchSelector";
-import {
-  RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME,
-  COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
-  COMPOSER_TOOLBAR_PICKER_TRIGGER_CLASS_NAME,
-} from "./chat/composerPickerStyles";
-import {
-  ENVIRONMENT_ROW_CLASS_NAME,
-  ENVIRONMENT_ROW_ICON_CLASS_NAME,
-  EnvironmentRowBody,
-  EnvironmentRowChevron,
-} from "./chat/environment/EnvironmentRow";
-import type { ContextWindowSnapshot } from "../lib/contextWindow";
-import { ProviderUsagePanelContent } from "./ProviderUsagePanelContent";
-import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
+import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
+import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
+import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
 import { Button } from "./ui/button";
-import { Collapsible, CollapsiblePanel } from "./ui/collapsible";
 import {
   Menu,
   MenuGroup,
   MenuGroupLabel,
-  MenuItem,
+  MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
   MenuTrigger,
 } from "./ui/menu";
-import type { ThreadWorkspacePatch } from "../types";
+import { Separator } from "./ui/separator";
 
-function WorktreeGlyph({ className }: { className?: string }) {
-  return <WorktreeIcon className={className} />;
-}
-
-/** Leading glyph treatment shared by every "Continue in" menu row (16px, muted). */
-const ENV_MENU_ICON_CLASS_NAME = "size-3.5 text-muted-foreground";
-
-/**
- * One row of the "Continue in" menu: `[glyph] [label …grows] [✓ when selected]`.
- * Centralizes the icon/label/check treatment so the local, worktree, and handoff
- * entries stay on one grid instead of repeating the same class strings per row.
- */
-function ContinueInMenuItem({
-  icon,
-  label,
-  selected = false,
-  disabled = false,
-  onSelect,
-}: {
-  icon: ReactNode;
-  label: ReactNode;
-  selected?: boolean;
-  disabled?: boolean;
-  onSelect?: () => void;
-}) {
-  return (
-    <MenuItem disabled={disabled} {...(onSelect ? { onClick: onSelect } : {})}>
-      {icon}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {selected ? (
-        <CheckIcon className="size-3.5 shrink-0 text-[var(--color-text-foreground)]" />
-      ) : null}
-    </MenuItem>
-  );
-}
-
-export interface BranchToolbarProps {
+interface BranchToolbarProps {
+  environmentId: EnvironmentId;
   threadId: ThreadId;
-  className?: string;
+  draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
+  effectiveEnvModeOverride?: EnvMode;
+  activeThreadBranchOverride?: string | null;
+  onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
+  startFromOrigin: boolean;
+  onStartFromOriginChange: (startFromOrigin: boolean) => void;
   envLocked: boolean;
-  onHandoffToWorktree?: () => void;
-  onHandoffToLocal?: () => void;
-  handoffBusy?: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
-  // `toolbar` renders the compact composer-footer row; `panel` stacks the env and branch
-  // pickers as full-width Environment panel rows that open downward.
-  variant?: BranchSelectorVariant;
-  // Keeps the Local/Worktree control visible while hiding Git-only branch UI for non-repo cwd.
-  showBranchSelector?: boolean;
+  availableEnvironments?: readonly EnvironmentOption[];
+  onEnvironmentChange?: (environmentId: EnvironmentId) => void;
 }
 
-export interface RuntimeUsageControlsProps {
-  runtimeMode?: RuntimeMode | undefined;
-  onRuntimeModeChange?: ((mode: RuntimeMode) => void) | undefined;
-  contextWindow?: ContextWindowSnapshot | null | undefined;
-  cumulativeCostUsd?: number | null | undefined;
-  activeContextWindowLabel?: string | null | undefined;
-  pendingContextWindowLabel?: string | null | undefined;
-  className?: string | undefined;
-  // Force icon-only rendering regardless of container width. Used when the
-  // control is relocated outside the composer footer (which provides the
-  // @container the responsive sr-only fallback depends on).
-  hideLabel?: boolean | undefined;
+interface MobileRunContextSelectorProps {
+  envLocked: boolean;
+  envModeLocked: boolean;
+  environmentId: EnvironmentId;
+  availableEnvironments: readonly EnvironmentOption[] | undefined;
+  showEnvironmentPicker: boolean;
+  onEnvironmentChange: ((environmentId: EnvironmentId) => void) | undefined;
+  effectiveEnvMode: EnvMode;
+  activeWorktreePath: string | null;
+  onEnvModeChange: (mode: EnvMode) => void;
 }
 
-export function RuntimeUsageControls({
-  runtimeMode,
-  onRuntimeModeChange,
-  className,
-  hideLabel = false,
-}: RuntimeUsageControlsProps) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 text-[var(--color-text-foreground-secondary)]",
-        className,
-      )}
-    >
-      {runtimeMode && onRuntimeModeChange ? (
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                size="sm"
-                variant="chrome"
-                className={cn(
-                  "min-w-0 shrink-0 justify-start gap-1.5 whitespace-nowrap px-2 [&_svg]:mx-0 sm:px-2.5",
-                  COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
-                  runtimeMode === "full-access" && RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME,
-                )}
-                title={
-                  runtimeMode === "full-access"
-                    ? "Full access — click to change permissions"
-                    : "Default permissions — click to change permissions"
-                }
-              />
-            }
-          >
-            <span className="inline-flex items-center gap-1.5">
-              {runtimeMode === "full-access" ? (
-                <CentralIcon name="shield-access" className="size-3.5 shrink-0" />
-              ) : (
-                <HiOutlineHandRaised className="size-3.5 shrink-0" />
-              )}
-              <span className={cn("truncate", hideLabel ? "sr-only" : "@max-[480px]:sr-only")}>
-                {runtimeMode === "full-access" ? "Full access" : "Default permissions"}
-              </span>
-              <ChevronDownIcon
-                className={cn(
-                  "size-3 shrink-0 opacity-70",
-                  hideLabel ? "hidden" : "@max-[480px]:hidden",
-                )}
-              />
-            </span>
-          </MenuTrigger>
-          <ComposerPickerMenuPopup align="start" side="top" className="min-w-44">
-            <MenuRadioGroup
-              value={runtimeMode}
-              onValueChange={(value) => {
-                if (
-                  !value ||
-                  (value !== "full-access" && value !== "approval-required") ||
-                  value === runtimeMode
-                ) {
-                  return;
-                }
-                onRuntimeModeChange(value);
-              }}
-            >
-              <MenuRadioItem
-                value="full-access"
-                className="data-checked:text-[var(--runtime-full-access-accent)]"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <CentralIcon name="shield-access" className="size-4 shrink-0" />
-                  Full access
-                </span>
-              </MenuRadioItem>
-              <MenuRadioItem value="approval-required">
-                <span className="inline-flex items-center gap-2">
-                  <HiOutlineHandRaised className="size-4 shrink-0" />
-                  Default permissions
-                </span>
-              </MenuRadioItem>
-            </MenuRadioGroup>
-          </ComposerPickerMenuPopup>
-        </Menu>
-      ) : null}
-    </div>
-  );
-}
-
-export default function BranchToolbar({
-  threadId,
-  className,
-  onEnvModeChange,
+const MobileRunContextSelector = memo(function MobileRunContextSelector({
   envLocked,
-  onHandoffToWorktree,
-  onHandoffToLocal,
-  handoffBusy = false,
+  envModeLocked,
+  environmentId,
+  availableEnvironments,
+  showEnvironmentPicker,
+  onEnvironmentChange,
+  effectiveEnvMode,
+  activeWorktreePath,
+  onEnvModeChange,
+}: MobileRunContextSelectorProps) {
+  const activeEnvironment = useMemo(
+    () => availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null,
+    [availableEnvironments, environmentId],
+  );
+  const WorkspaceIcon =
+    effectiveEnvMode === "worktree"
+      ? FolderGit2Icon
+      : activeWorktreePath
+        ? FolderGitIcon
+        : FolderIcon;
+  const workspaceLabel = envModeLocked
+    ? resolveLockedWorkspaceLabel(activeWorktreePath)
+    : effectiveEnvMode === "worktree"
+      ? resolveEnvModeLabel("worktree")
+      : resolveCurrentWorkspaceLabel(activeWorktreePath);
+  const isLocked = envLocked || envModeLocked;
+  const EnvironmentIcon = activeEnvironment?.isPrimary ? MonitorIcon : CloudIcon;
+  const icon = showEnvironmentPicker ? (
+    // Button's base styles apply `-mx-0.5` to descendant SVGs, which eats 4px
+    // out of whatever gap we set. mx-0! cancels that so gap-0.5 reads as 2px.
+    <span className="inline-flex shrink-0 items-center gap-0.5">
+      <EnvironmentIcon className="size-3 shrink-0 mx-0!" />
+      <WorkspaceIcon className="size-3 shrink-0 mx-0!" />
+    </span>
+  ) : (
+    <WorkspaceIcon className="size-3 shrink-0" />
+  );
+  const triggerContent = (
+    <>
+      {icon}
+      <span className="min-w-0 truncate">
+        {showEnvironmentPicker ? (activeEnvironment?.label ?? "Run on") : workspaceLabel}
+      </span>
+    </>
+  );
+
+  if (isLocked) {
+    return (
+      <span className="inline-flex min-w-0 max-w-[48%] flex-1 items-center justify-start gap-1 rounded-md border border-transparent px-[calc(--spacing(2)-1px)] text-sm font-medium text-muted-foreground/70 md:hidden">
+        {triggerContent}
+      </span>
+    );
+  }
+
+  return (
+    <Menu>
+      <MenuTrigger
+        render={<Button variant="ghost" size="xs" />}
+        className="min-w-0 max-w-[48%] flex-1 justify-start text-muted-foreground/70 hover:text-foreground/80 md:hidden"
+      >
+        {triggerContent}
+        <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+      </MenuTrigger>
+      <MenuPopup align="start" side="top" className="w-64">
+        {showEnvironmentPicker && availableEnvironments && onEnvironmentChange ? (
+          <>
+            <MenuGroup>
+              <MenuGroupLabel>Run on</MenuGroupLabel>
+              <MenuRadioGroup
+                value={environmentId}
+                onValueChange={(value) => onEnvironmentChange(value as EnvironmentId)}
+              >
+                {availableEnvironments.map((env) => {
+                  const Icon = env.isPrimary ? MonitorIcon : CloudIcon;
+                  return (
+                    <MenuRadioItem
+                      key={env.environmentId}
+                      disabled={envLocked}
+                      value={env.environmentId}
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <Icon className="size-3" />
+                        <span className="min-w-0 truncate">{env.label}</span>
+                      </span>
+                    </MenuRadioItem>
+                  );
+                })}
+              </MenuRadioGroup>
+            </MenuGroup>
+            <MenuSeparator />
+          </>
+        ) : null}
+        <MenuGroup>
+          <MenuGroupLabel>Workspace</MenuGroupLabel>
+          <MenuRadioGroup
+            value={effectiveEnvMode}
+            onValueChange={(value) => onEnvModeChange(value as EnvMode)}
+          >
+            <MenuRadioItem disabled={envModeLocked} value="local">
+              <span className="flex min-w-0 items-center gap-1.5">
+                {activeWorktreePath ? (
+                  <FolderGitIcon className="size-3" />
+                ) : (
+                  <FolderIcon className="size-3" />
+                )}
+                <span className="min-w-0 truncate">
+                  {resolveCurrentWorkspaceLabel(activeWorktreePath)}
+                </span>
+              </span>
+            </MenuRadioItem>
+            <MenuRadioItem disabled={envModeLocked} value="worktree">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <FolderGit2Icon className="size-3" />
+                <span className="min-w-0 truncate">{resolveEnvModeLabel("worktree")}</span>
+              </span>
+            </MenuRadioItem>
+          </MenuRadioGroup>
+        </MenuGroup>
+      </MenuPopup>
+    </Menu>
+  );
+});
+
+export const BranchToolbar = memo(function BranchToolbar({
+  environmentId,
+  threadId,
+  draftId,
+  onEnvModeChange,
+  effectiveEnvModeOverride,
+  activeThreadBranchOverride,
+  onActiveThreadBranchOverrideChange,
+  startFromOrigin,
+  onStartFromOriginChange,
+  envLocked,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
-  variant = "toolbar",
-  showBranchSelector = true,
+  availableEnvironments,
+  onEnvironmentChange,
 }: BranchToolbarProps) {
-  const isPanel = variant === "panel";
-  const setThreadWorkspaceAction = useStore((store) => store.setThreadWorkspace);
-  const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
-  const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const threads = useStore(useRef(createAllThreadsSelector()).current);
-  const { settings } = useAppSettings();
-
-  const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
-  const activeProjectId = serverThread?.projectId ?? draftThread?.projectId ?? null;
-  const activeProject = useStore(
-    useMemo(() => createProjectSelector(activeProjectId), [activeProjectId]),
+  const threadRef = useMemo(
+    () => scopeThreadRef(environmentId, threadId),
+    [environmentId, threadId],
   );
-  const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
-  const activeThreadBranch = serverThread?.branch ?? draftThread?.branch ?? null;
+  const serverThread = useThread(threadRef);
+  const draftThread = useComposerDraftStore((store) =>
+    draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
+  );
+  const activeProjectRef = serverThread
+    ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
+    : draftThread
+      ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
+      : null;
+  const activeProject = useProject(activeProjectRef);
+  const hasActiveThread = serverThread !== null || draftThread !== null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
-  const activeProvider =
-    serverThread?.session?.provider ?? serverThread?.modelSelection.provider ?? null;
-  const branchCwd = activeWorktreePath ?? activeProject?.cwd ?? null;
-  const hasServerThread = serverThread !== undefined;
-  const effectiveEnvMode = resolveEffectiveEnvMode({
-    activeWorktreePath,
-    hasServerThread,
-    draftThreadEnvMode: draftThread?.envMode,
-    serverThreadEnvMode: serverThread?.envMode,
-  });
-  const environmentPresentation = resolveThreadEnvironmentPresentation({
-    envMode: effectiveEnvMode,
-    worktreePath: activeWorktreePath,
-  });
-
-  const setThreadWorkspace = useCallback(
-    (patch: ThreadWorkspacePatch) => {
-      if (!activeThreadId) return;
-      const branch = patch.branch !== undefined ? patch.branch : activeThreadBranch;
-      const worktreePath =
-        patch.worktreePath !== undefined ? patch.worktreePath : activeWorktreePath;
-      const nextEnvMode =
-        patch.envMode !== undefined ? patch.envMode : worktreePath ? "worktree" : effectiveEnvMode;
-      const nextAssociatedWorktree = resolveAssociatedWorktreeMetadataAfterWorkspacePatch({
-        branch,
-        worktreePath,
-        existingAssociatedWorktreePath: serverThread?.associatedWorktreePath ?? null,
-        existingAssociatedWorktreeBranch: serverThread?.associatedWorktreeBranch ?? null,
-        existingAssociatedWorktreeRef: serverThread?.associatedWorktreeRef ?? null,
-        ...(patch.associatedWorktreePath !== undefined
-          ? { patchAssociatedWorktreePath: patch.associatedWorktreePath }
-          : {}),
-        ...(patch.associatedWorktreeBranch !== undefined
-          ? { patchAssociatedWorktreeBranch: patch.associatedWorktreeBranch }
-          : {}),
-        ...(patch.associatedWorktreeRef !== undefined
-          ? { patchAssociatedWorktreeRef: patch.associatedWorktreeRef }
-          : {}),
-      });
-      const api = readNativeApi();
-      // If the effective cwd is about to change, stop the running session so the
-      // next message creates a new one with the correct cwd.
-      if (serverThread?.session && worktreePath !== activeWorktreePath && api) {
-        void api.orchestration
-          .dispatchCommand({
-            type: "thread.session.stop",
-            commandId: newCommandId(),
-            threadId: activeThreadId,
-            createdAt: new Date().toISOString(),
-          })
-          .catch(() => undefined);
-      }
-      if (api && hasServerThread) {
-        void api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId: activeThreadId,
-          envMode: nextEnvMode,
-          branch,
-          worktreePath,
-          associatedWorktreePath: nextAssociatedWorktree.associatedWorktreePath,
-          associatedWorktreeBranch: nextAssociatedWorktree.associatedWorktreeBranch,
-          associatedWorktreeRef: nextAssociatedWorktree.associatedWorktreeRef,
-        });
-      }
-      if (hasServerThread) {
-        setThreadWorkspaceAction(activeThreadId, {
-          envMode: nextEnvMode,
-          branch,
-          worktreePath,
-          ...nextAssociatedWorktree,
-        });
-        return;
-      }
-      const nextDraftEnvMode = resolveDraftEnvModeAfterBranchChange({
-        nextWorktreePath: worktreePath,
-        currentWorktreePath: activeWorktreePath,
-        effectiveEnvMode,
-      });
-      setDraftThreadContext(threadId, {
-        branch,
-        worktreePath,
-        envMode: nextDraftEnvMode,
-      });
-    },
-    [
-      activeThreadId,
-      activeThreadBranch,
-      serverThread?.session,
+  const effectiveEnvMode =
+    effectiveEnvModeOverride ??
+    resolveEffectiveEnvMode({
       activeWorktreePath,
-      hasServerThread,
-      setThreadWorkspaceAction,
-      serverThread?.associatedWorktreePath,
-      serverThread?.associatedWorktreeBranch,
-      serverThread?.associatedWorktreeRef,
-      setDraftThreadContext,
-      threadId,
-      effectiveEnvMode,
-    ],
+      hasServerThread: serverThread !== null,
+      draftThreadEnvMode: draftThread?.envMode,
+    });
+  const envModeLocked = envLocked || (serverThread !== null && activeWorktreePath !== null);
+
+  const showEnvironmentPicker = Boolean(
+    availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
   );
+  const isMobile = useIsMobile();
 
-  const canHandoffToWorktree = Boolean(
-    hasServerThread && envLocked && !activeWorktreePath && effectiveEnvMode === "local",
-  );
-  const canHandoffToLocal = Boolean(hasServerThread && activeWorktreePath);
-  const canSwitchToWorktree = Boolean(
-    !envLocked && !activeWorktreePath && effectiveEnvMode === "local",
-  );
-  const canSwitchToLocal = Boolean(!envLocked && effectiveEnvMode === "worktree");
-  const showEnvPicker = effectiveEnvMode === "local" || canSwitchToLocal;
-
-  const usageSummary = useProviderUsageSummary({
-    provider: activeProvider,
-    threads,
-    codexHomePath: settings.codexHomePath || null,
-    fetchProviderData: false,
-  });
-  const [rateLimitsOpen, setRateLimitsOpen] = useState(true);
-  const [envPickerOpen, setEnvPickerOpen] = useState(false);
-
-  if (!activeThreadId || !activeProject) return null;
-
-  const envGlyph = (className: string) =>
-    environmentPresentation.mode === "local" ? (
-      <CentralIcon name="macbook-air" className={className} />
-    ) : (
-      <WorktreeGlyph className={className} />
-    );
+  if (!hasActiveThread || !activeProject) return null;
 
   return (
-    <div
-      className={cn(
-        isPanel
-          ? "flex w-full flex-col gap-0.5"
-          : "mx-auto flex w-full items-center justify-between px-3 pb-1.5 pt-1",
-        className,
-      )}
-    >
-      <div className={isPanel ? "flex flex-col gap-0.5" : "flex items-center gap-2"}>
-        {showEnvPicker ? (
-          <Menu open={envPickerOpen} onOpenChange={setEnvPickerOpen}>
-            <MenuTrigger
-              render={
-                <button
-                  type="button"
-                  className={
-                    isPanel
-                      ? ENVIRONMENT_ROW_CLASS_NAME
-                      : COMPOSER_TOOLBAR_PICKER_TRIGGER_CLASS_NAME
-                  }
-                />
-              }
-            >
-              {isPanel ? (
-                <EnvironmentRowBody
-                  icon={envGlyph(ENVIRONMENT_ROW_ICON_CLASS_NAME)}
-                  label={environmentPresentation.shortLabel}
-                  trailing={<EnvironmentRowChevron />}
-                />
-              ) : (
-                <>
-                  {envGlyph("size-3.5")}
-                  {environmentPresentation.shortLabel}
-                  <ChevronDownIcon className="size-3 opacity-60" />
-                </>
-              )}
-            </MenuTrigger>
-            <ComposerPickerMenuPopup
-              align="start"
-              side={isPanel ? "bottom" : "top"}
-              sideOffset={6}
-              className="w-60 min-w-60"
-            >
-              <MenuGroup>
-                <MenuGroupLabel>Continue in</MenuGroupLabel>
-                {environmentPresentation.mode === "local" ? (
-                  <ContinueInMenuItem
-                    icon={<CentralIcon name="macbook-air" className={ENV_MENU_ICON_CLASS_NAME} />}
-                    label={environmentPresentation.localOptionLabel}
-                    selected
-                  />
-                ) : (
-                  <ContinueInMenuItem
-                    icon={<CentralIcon name="macbook-air" className={ENV_MENU_ICON_CLASS_NAME} />}
-                    label={environmentPresentation.localOptionLabel}
-                    onSelect={() => onEnvModeChange("local")}
-                  />
-                )}
-                {canSwitchToWorktree ? (
-                  <ContinueInMenuItem
-                    icon={<WorktreeGlyph className={ENV_MENU_ICON_CLASS_NAME} />}
-                    label="New worktree"
-                    onSelect={() => onEnvModeChange("worktree")}
-                  />
-                ) : null}
-                {effectiveEnvMode === "worktree" && !canHandoffToLocal ? (
-                  <ContinueInMenuItem
-                    icon={<WorktreeGlyph className={ENV_MENU_ICON_CLASS_NAME} />}
-                    label={environmentPresentation.worktreeOptionLabel}
-                    selected
-                  />
-                ) : null}
-                {canHandoffToWorktree && onHandoffToWorktree ? (
-                  <ContinueInMenuItem
-                    icon={<WorktreeGlyph className={ENV_MENU_ICON_CLASS_NAME} />}
-                    label="Hand off to new worktree"
-                    disabled={handoffBusy}
-                    onSelect={() => onHandoffToWorktree()}
-                  />
-                ) : null}
-                {canHandoffToLocal && onHandoffToLocal ? (
-                  <ContinueInMenuItem
-                    icon={<HandoffIcon className={ENV_MENU_ICON_CLASS_NAME} />}
-                    label="Hand off to local"
-                    disabled={handoffBusy}
-                    onSelect={() => onHandoffToLocal()}
-                  />
-                ) : null}
-              </MenuGroup>
-
-              <MenuSeparator />
-
-              <Collapsible open={rateLimitsOpen} onOpenChange={setRateLimitsOpen}>
-                <MenuItem closeOnClick={false} onClick={() => setRateLimitsOpen((open) => !open)}>
-                  <CentralIcon name="clock" className="size-3.5 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">Rate limits remaining</span>
-                  <ChevronRightIcon
-                    className={cn(
-                      "size-3.5 shrink-0 text-[var(--color-text-foreground-secondary)] transition-transform duration-150",
-                      rateLimitsOpen && "rotate-90",
-                    )}
-                  />
-                </MenuItem>
-                <CollapsiblePanel>
-                  <ProviderUsagePanelContent
-                    provider={activeProvider}
-                    rateLimits={usageSummary.rateLimits}
-                    usageLines={usageSummary.usageLines}
-                    notice={usageSummary.usageNotice}
-                    isLoading={usageSummary.isLoading}
-                    learnMoreHref={usageSummary.learnMoreHref}
-                    showTitle={false}
-                    showLearnMore={true}
-                    className="px-2 pb-1 pt-1"
-                  />
-                </CollapsiblePanel>
-              </Collapsible>
-            </ComposerPickerMenuPopup>
-          </Menu>
-        ) : isPanel ? (
-          <div className={cn(ENVIRONMENT_ROW_CLASS_NAME, "cursor-default hover:bg-transparent")}>
-            <EnvironmentRowBody
-              icon={<WorktreeGlyph className={ENVIRONMENT_ROW_ICON_CLASS_NAME} />}
-              label={environmentPresentation.shortLabel}
-            />
-          </div>
-        ) : (
-          <span className="inline-flex items-center gap-2 px-1.5 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)]">
-            <WorktreeGlyph className="size-3.5" />
-            {environmentPresentation.shortLabel}
-          </span>
-        )}
-
-        {showBranchSelector ? (
-          <BranchToolbarBranchSelector
-            activeProjectCwd={activeProject.cwd}
-            activeThreadBranch={activeThreadBranch}
-            activeWorktreePath={activeWorktreePath}
-            branchCwd={branchCwd}
+    <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-2.5 pb-3 pt-1 sm:px-3">
+      {isMobile ? (
+        <MobileRunContextSelector
+          envLocked={envLocked}
+          envModeLocked={envModeLocked}
+          environmentId={environmentId}
+          availableEnvironments={availableEnvironments}
+          showEnvironmentPicker={showEnvironmentPicker}
+          onEnvironmentChange={onEnvironmentChange}
+          effectiveEnvMode={effectiveEnvMode}
+          activeWorktreePath={activeWorktreePath}
+          onEnvModeChange={onEnvModeChange}
+        />
+      ) : (
+        <div className="flex min-w-0 shrink-0 items-center gap-1">
+          {showEnvironmentPicker && availableEnvironments && onEnvironmentChange && (
+            <>
+              <BranchToolbarEnvironmentSelector
+                envLocked={envLocked}
+                environmentId={environmentId}
+                availableEnvironments={availableEnvironments}
+                onEnvironmentChange={onEnvironmentChange}
+              />
+              <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
+            </>
+          )}
+          <BranchToolbarEnvModeSelector
+            envLocked={envModeLocked}
             effectiveEnvMode={effectiveEnvMode}
-            envLocked={envLocked}
-            hasServerThread={hasServerThread}
-            onSetThreadWorkspace={setThreadWorkspace}
-            variant={variant}
-            {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
-            {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+            activeWorktreePath={activeWorktreePath}
+            onEnvModeChange={onEnvModeChange}
           />
-        ) : null}
-      </div>
+        </div>
+      )}
+
+      <BranchToolbarBranchSelector
+        className="min-w-0 flex-1 justify-end md:ml-auto md:flex-none"
+        environmentId={environmentId}
+        threadId={threadId}
+        {...(draftId ? { draftId } : {})}
+        envLocked={envLocked}
+        {...(effectiveEnvModeOverride ? { effectiveEnvModeOverride } : {})}
+        {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
+        {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+        startFromOrigin={startFromOrigin}
+        onStartFromOriginChange={onStartFromOriginChange}
+        {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+        {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+      />
     </div>
   );
-}
+});

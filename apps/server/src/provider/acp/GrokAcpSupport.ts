@@ -1,146 +1,107 @@
-/**
- * Grok ACP support - builds the Grok Build stdio command and resolves auth.
- *
- * @module GrokAcpSupport
- */
-import { type GrokModelOptions } from "@synara/contracts";
-import { Effect, Layer, Scope, ServiceMap } from "effect";
-import type * as EffectAcpErrors from "effect-acp/errors";
-import * as EffectAcpErrorsRuntime from "effect-acp/errors";
+import { type GrokSettings, ProviderDriverKind } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Scope from "effect/Scope";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { normalizeModelSlug } from "@t3tools/shared/model";
 
-import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
-import {
-  AcpSessionRuntime,
-  type AcpSessionRuntimeOptions,
-  type AcpSessionRuntimeShape,
-  type AcpSpawnInput,
-} from "./AcpSessionRuntime.ts";
+import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
+import { makeXAiPromptCompletionRuntime } from "./XAiAcpExtension.ts";
 
-export interface GrokAcpRuntimeSettings {
-  readonly binaryPath?: string;
-  readonly model?: string;
-  readonly reasoningEffort?: GrokModelOptions["reasoningEffort"];
-  readonly alwaysApprove?: boolean;
-}
+const GROK_API_KEY_ENV = "XAI_API_KEY";
+const GROK_OAUTH2_REFERRER_ENV = "GROK_OAUTH2_REFERRER";
+const T3_CODE_OAUTH_REFERRER = "t3code";
+const GROK_AUTH_METHOD_API_KEY = "xai.api_key";
+const GROK_AUTH_METHOD_CACHED_TOKEN = "cached_token";
+const GROK_DRIVER_KIND = ProviderDriverKind.make("grok");
 
-export interface GrokAcpRuntimeInput extends Omit<
-  AcpSessionRuntimeOptions,
-  "authMethodId" | "resolveAuthMethodId" | "spawn"
+type GrokAcpRuntimeGrokSettings = Pick<GrokSettings, "binaryPath">;
+
+interface GrokAcpRuntimeInput extends Omit<
+  AcpSessionRuntime.AcpSessionRuntimeOptions,
+  "authMethodId" | "clientCapabilities" | "spawn"
 > {
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
-  readonly grokSettings: GrokAcpRuntimeSettings | null | undefined;
-}
-
-export interface GrokAcpModelSelectionErrorContext {
-  readonly cause: EffectAcpErrors.AcpError;
-  readonly method: "session/set_config_option";
-}
-
-const GROK_API_KEY_AUTH_METHOD_ID = "xai.api_key";
-const GROK_CACHED_TOKEN_AUTH_METHOD_ID = "cached_token";
-const GROK_API_KEY_ENV_KEYS = ["XAI_API_KEY", "GROK_CODE_XAI_API_KEY"] as const;
-
-export function getGrokApiKeyEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  for (const key of GROK_API_KEY_ENV_KEYS) {
-    const value = env[key]?.trim();
-    if (value) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-export function hasGrokApiKeyEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  return getGrokApiKeyEnv(env) !== undefined;
+  readonly grokSettings: GrokAcpRuntimeGrokSettings | null | undefined;
+  readonly environment?: NodeJS.ProcessEnv;
 }
 
 export function buildGrokAcpSpawnInput(
-  grokSettings: GrokAcpRuntimeSettings | null | undefined,
+  grokSettings: GrokAcpRuntimeGrokSettings | null | undefined,
   cwd: string,
-): AcpSpawnInput {
-  const args = ["agent", "--no-leader"];
-  if (grokSettings?.alwaysApprove === true) {
-    // Grok's approval flag belongs to `grok agent`, before the `stdio` subcommand.
-    args.push("--always-approve");
-  }
-  const model = grokSettings?.model?.trim();
-  if (model) {
-    args.push("-m", model);
-  }
-  const reasoningEffort = grokSettings?.reasoningEffort?.trim();
-  if (reasoningEffort) {
-    args.push("--reasoning-effort", reasoningEffort);
-  }
-  args.push("stdio");
-
+  environment?: NodeJS.ProcessEnv,
+): AcpSessionRuntime.AcpSpawnInput {
   return {
     command: grokSettings?.binaryPath || "grok",
-    args,
+    args: ["agent", "stdio"],
     cwd,
-    env: buildProviderChildEnvironment({ provider: "grok" }),
+    env: {
+      ...environment,
+      [GROK_OAUTH2_REFERRER_ENV]: T3_CODE_OAUTH_REFERRER,
+    },
   };
 }
 
-function availableAuthMethodIds(
-  initializeResult: EffectAcpSchema.InitializeResponse,
-): ReadonlySet<string> {
-  return new Set((initializeResult.authMethods ?? []).map((method) => method.id.trim()));
+function resolveGrokAuthMethodId(environment: NodeJS.ProcessEnv | undefined): string {
+  return environment?.[GROK_API_KEY_ENV]?.trim()
+    ? GROK_AUTH_METHOD_API_KEY
+    : GROK_AUTH_METHOD_CACHED_TOKEN;
 }
-
-export const resolveGrokAcpAuthMethodId = (
-  initializeResult: EffectAcpSchema.InitializeResponse,
-): Effect.Effect<string, EffectAcpErrors.AcpError> =>
-  Effect.gen(function* () {
-    const authMethodIds = availableAuthMethodIds(initializeResult);
-    if (hasGrokApiKeyEnv() && authMethodIds.has(GROK_API_KEY_AUTH_METHOD_ID)) {
-      return GROK_API_KEY_AUTH_METHOD_ID;
-    }
-    if (authMethodIds.has(GROK_CACHED_TOKEN_AUTH_METHOD_ID)) {
-      return GROK_CACHED_TOKEN_AUTH_METHOD_ID;
-    }
-    return yield* new EffectAcpErrorsRuntime.AcpRequestError({
-      code: -32602,
-      errorMessage: "Grok ACP authentication is unavailable.",
-      data: {
-        authMethods: [...authMethodIds],
-        detail: "Run `grok` to authenticate locally, or set XAI_API_KEY.",
-      },
-    });
-  });
 
 export const makeGrokAcpRuntime = (
   input: GrokAcpRuntimeInput,
-): Effect.Effect<AcpSessionRuntimeShape, EffectAcpErrors.AcpError, Scope.Scope> =>
+): Effect.Effect<
+  AcpSessionRuntime.AcpSessionRuntime["Service"],
+  EffectAcpErrors.AcpError,
+  Scope.Scope
+> =>
   Effect.gen(function* () {
     const acpContext = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...input,
-        spawn: buildGrokAcpSpawnInput(input.grokSettings, input.cwd),
-        resolveAuthMethodId: resolveGrokAcpAuthMethodId,
-        authenticateMeta: { headless: true },
+        spawn: buildGrokAcpSpawnInput(input.grokSettings, input.cwd, input.environment),
+        authMethodId: resolveGrokAuthMethodId(input.environment),
       }).pipe(
         Layer.provide(
           Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, input.childProcessSpawner),
         ),
       ),
     );
-    return ServiceMap.getUnsafe(acpContext, AcpSessionRuntime);
+    const runtime = yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(
+      Effect.provide(acpContext),
+    );
+    return yield* makeXAiPromptCompletionRuntime(runtime);
   });
 
+export function resolveGrokAcpBaseModelId(model: string | null | undefined): string {
+  const trimmed = model?.trim();
+  const base = trimmed && trimmed.length > 0 ? trimmed : "grok-build";
+  return normalizeModelSlug(base, GROK_DRIVER_KIND) ?? "grok-build";
+}
+
+export function currentGrokModelIdFromSessionSetup(
+  sessionSetupResult:
+    | EffectAcpSchema.LoadSessionResponse
+    | EffectAcpSchema.NewSessionResponse
+    | EffectAcpSchema.ResumeSessionResponse,
+): string | undefined {
+  return sessionSetupResult.models?.currentModelId?.trim() || undefined;
+}
+
 export function applyGrokAcpModelSelection<E>(input: {
-  readonly runtime: Pick<
-    AcpSessionRuntimeShape,
-    "getConfigOptions" | "setConfigOption" | "setModel"
-  >;
-  readonly model: string;
-  readonly options?: GrokModelOptions | null | undefined;
-  readonly mapError: (context: GrokAcpModelSelectionErrorContext) => E;
-}): Effect.Effect<void, E> {
-  void input;
-  // Grok ACP 0.1.210 advertises models in initialize/session responses but does
-  // not implement `session/set_config_option`. Model and effort are therefore
-  // process-start settings supplied by `buildGrokAcpSpawnInput`.
-  return Effect.void;
+  readonly runtime: Pick<AcpSessionRuntime.AcpSessionRuntime["Service"], "setSessionModel">;
+  readonly currentModelId: string | undefined;
+  readonly requestedModelId: string | undefined;
+  readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
+}): Effect.Effect<string | undefined, E> {
+  const shouldSwitchModel =
+    input.requestedModelId !== undefined && input.requestedModelId !== input.currentModelId;
+  if (!shouldSwitchModel) {
+    return Effect.succeed(input.currentModelId);
+  }
+  return input.runtime
+    .setSessionModel(input.requestedModelId)
+    .pipe(Effect.mapError(input.mapError), Effect.as(input.requestedModelId));
 }

@@ -1,12 +1,16 @@
-import { CommandId, EventId, ProjectId, ThreadId } from "@synara/contracts";
+import { CommandId, EventId, ProjectId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Schema, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { PersistenceDecodeError } from "../Errors.ts";
 import { OrchestrationEventStore } from "../Services/OrchestrationEventStore.ts";
 import { OrchestrationEventStoreLive } from "./OrchestrationEventStore.ts";
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
+const isPersistenceDecodeError = Schema.is(PersistenceDecodeError);
 
 const layer = it.layer(
   OrchestrationEventStoreLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
@@ -17,23 +21,22 @@ layer("OrchestrationEventStore", (it) => {
     Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
-      const now = new Date().toISOString();
-      const startSequence = yield* eventStore.getHighWaterSequence();
+      const now = "2026-01-01T00:00:00.000Z";
 
       const appended = yield* eventStore.append({
         type: "project.created",
-        eventId: EventId.makeUnsafe("evt-store-roundtrip"),
+        eventId: EventId.make("evt-store-roundtrip"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-roundtrip"),
+        aggregateId: ProjectId.make("project-roundtrip"),
         occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-store-roundtrip"),
+        commandId: CommandId.make("cmd-store-roundtrip"),
         causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-store-roundtrip"),
+        correlationId: CommandId.make("cmd-store-roundtrip"),
         metadata: {
           adapterKey: "codex",
         },
         payload: {
-          projectId: ProjectId.makeUnsafe("project-roundtrip"),
+          projectId: ProjectId.make("project-roundtrip"),
           title: "Roundtrip Project",
           workspaceRoot: "/tmp/project-roundtrip",
           defaultModelSelection: null,
@@ -56,165 +59,13 @@ layer("OrchestrationEventStore", (it) => {
       assert.equal(storedRows.length, 1);
       assert.equal(typeof storedRows[0]?.payloadJson, "string");
       assert.equal(typeof storedRows[0]?.metadataJson, "string");
-      assert.equal(JSON.parse(storedRows[0]!.metadataJson).persistedEventSchemaVersion, 1);
-
-      const replayed = yield* Stream.runCollect(
-        eventStore.readFromSequence(startSequence, 10),
-      ).pipe(Effect.map((chunk) => Array.from(chunk)));
-      assert.equal(replayed.length, 1);
-      assert.equal(replayed[0]?.type, "project.created");
-      assert.equal(replayed[0]?.metadata.adapterKey, "codex");
-    }),
-  );
-
-  it.effect("normalizes imported Synara model-selection shapes during replay", () =>
-    Effect.gen(function* () {
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const now = "2026-05-05T14:39:18.000Z";
-
-      yield* sql`
-        INSERT INTO orchestration_events (
-          event_id,
-          aggregate_kind,
-          stream_id,
-          stream_version,
-          event_type,
-          occurred_at,
-          command_id,
-          causation_event_id,
-          correlation_id,
-          actor_kind,
-          payload_json,
-          metadata_json
-        )
-        VALUES
-        (
-          ${EventId.makeUnsafe("evt-import-project-created")},
-          ${"project"},
-          ${ProjectId.makeUnsafe("project-imported")},
-          ${0},
-          ${"project.created"},
-          ${now},
-          ${CommandId.makeUnsafe("cmd-import-project-created")},
-          ${null},
-          ${null},
-          ${"server"},
-          ${JSON.stringify({
-            projectId: "project-imported",
-            title: "Imported Project",
-            workspaceRoot: "/tmp/imported",
-            defaultModelSelection: {
-              instanceId: "codex",
-              model: "imported-project-model",
-            },
-            scripts: [],
-            createdAt: now,
-            updatedAt: now,
-          })},
-          ${"{}"}
-        ),
-        (
-          ${EventId.makeUnsafe("evt-import-thread-created")},
-          ${"thread"},
-          ${ThreadId.makeUnsafe("thread-imported")},
-          ${0},
-          ${"thread.created"},
-          ${now},
-          ${CommandId.makeUnsafe("cmd-import-thread-created")},
-          ${null},
-          ${null},
-          ${"server"},
-          ${JSON.stringify({
-            threadId: "thread-imported",
-            projectId: "project-imported",
-            title: "Imported Thread",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5.5",
-              options: [{ id: "reasoningEffort", value: "medium" }],
-            },
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            branch: null,
-            worktreePath: null,
-            createdAt: now,
-            updatedAt: now,
-          })},
-          ${"{}"}
-        ),
-        (
-          ${EventId.makeUnsafe("evt-import-turn-start")},
-          ${"thread"},
-          ${ThreadId.makeUnsafe("thread-imported")},
-          ${1},
-          ${"thread.turn-start-requested"},
-          ${now},
-          ${CommandId.makeUnsafe("cmd-import-turn-start")},
-          ${null},
-          ${null},
-          ${"server"},
-          ${JSON.stringify({
-            threadId: "thread-imported",
-            messageId: "message-imported",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5.5",
-              options: [{ id: "reasoningEffort", value: "medium" }],
-            },
-            dispatchMode: "queue",
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            createdAt: now,
-          })},
-          ${"{}"}
-        )
-      `;
 
       const replayed = yield* Stream.runCollect(eventStore.readFromSequence(0, 10)).pipe(
         Effect.map((chunk) => Array.from(chunk)),
       );
-      const projectCreated = replayed.find(
-        (event) => event.eventId === EventId.makeUnsafe("evt-import-project-created"),
-      );
-      const threadCreated = replayed.find(
-        (event) => event.eventId === EventId.makeUnsafe("evt-import-thread-created"),
-      );
-      const turnStartRequested = replayed.find(
-        (event) => event.eventId === EventId.makeUnsafe("evt-import-turn-start"),
-      );
-
-      assert.deepStrictEqual(
-        projectCreated?.type === "project.created"
-          ? projectCreated.payload.defaultModelSelection
-          : null,
-        {
-          provider: "codex",
-          model: "imported-project-model",
-        },
-      );
-      assert.deepStrictEqual(
-        threadCreated?.type === "thread.created" ? threadCreated.payload.modelSelection : null,
-        {
-          provider: "codex",
-          model: "gpt-5.5",
-          options: {
-            reasoningEffort: "medium",
-          },
-        },
-      );
-      assert.deepStrictEqual(
-        turnStartRequested?.type === "thread.turn-start-requested"
-          ? turnStartRequested.payload.modelSelection
-          : null,
-        {
-          provider: "codex",
-          model: "gpt-5.5",
-          options: {
-            reasoningEffort: "medium",
-          },
-        },
-      );
+      assert.equal(replayed.length, 1);
+      assert.equal(replayed[0]?.type, "project.created");
+      assert.equal(replayed[0]?.metadata.adapterKey, "codex");
     }),
   );
 
@@ -222,8 +73,7 @@ layer("OrchestrationEventStore", (it) => {
     Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
-      const now = new Date().toISOString();
-      const startSequence = yield* eventStore.getHighWaterSequence();
+      const now = "2026-01-01T00:00:00.000Z";
 
       yield* sql`
         INSERT INTO orchestration_events (
@@ -241,13 +91,13 @@ layer("OrchestrationEventStore", (it) => {
           metadata_json
         )
         VALUES (
-          ${EventId.makeUnsafe("evt-store-invalid-json")},
+          ${EventId.make("evt-store-invalid-json")},
           ${"project"},
-          ${ProjectId.makeUnsafe("project-invalid-json")},
+          ${ProjectId.make("project-invalid-json")},
           ${0},
           ${"project.created"},
           ${now},
-          ${CommandId.makeUnsafe("cmd-store-invalid-json")},
+          ${CommandId.make("cmd-store-invalid-json")},
           ${null},
           ${null},
           ${"server"},
@@ -257,75 +107,15 @@ layer("OrchestrationEventStore", (it) => {
       `;
 
       const replayResult = yield* Effect.result(
-        Stream.runCollect(eventStore.readFromSequence(startSequence, 10)),
+        Stream.runCollect(eventStore.readFromSequence(0, 10)),
       );
       assert.equal(replayResult._tag, "Failure");
       if (replayResult._tag === "Failure") {
-        assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
-        assert.match(
-          replayResult.failure.operation,
-          /OrchestrationEventStore\.readFromSequence:rowToEvent\(sequence=\d+, type=project\.created\)/,
-        );
-      }
-    }),
-  );
-
-  it.effect("rejects future event schema versions with exact row diagnostics", () =>
-    Effect.gen(function* () {
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const now = new Date().toISOString();
-      const startSequence = yield* eventStore.getHighWaterSequence();
-
-      yield* sql`
-        INSERT INTO orchestration_events (
-          event_id,
-          aggregate_kind,
-          stream_id,
-          stream_version,
-          event_type,
-          occurred_at,
-          command_id,
-          causation_event_id,
-          correlation_id,
-          actor_kind,
-          payload_json,
-          metadata_json
-        )
-        VALUES (
-          ${EventId.makeUnsafe("evt-store-future-schema")},
-          ${"project"},
-          ${ProjectId.makeUnsafe("project-future-schema")},
-          ${0},
-          ${"project.created"},
-          ${now},
-          ${CommandId.makeUnsafe("cmd-store-future-schema")},
-          ${null},
-          ${null},
-          ${"server"},
-          ${JSON.stringify({
-            projectId: "project-future-schema",
-            title: "Future schema",
-            workspaceRoot: "/tmp/project-future-schema",
-            defaultModelSelection: null,
-            scripts: [],
-            createdAt: now,
-            updatedAt: now,
-          })},
-          ${JSON.stringify({ persistedEventSchemaVersion: 2 })}
-        )
-      `;
-
-      const replayResult = yield* Effect.result(
-        Stream.runCollect(eventStore.readFromSequence(startSequence, 10)),
-      );
-      assert.equal(replayResult._tag, "Failure");
-      if (replayResult._tag === "Failure") {
-        assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
-        assert.match(replayResult.failure.operation, /sequence=\d+, type=project\.created/);
+        assert.ok(isPersistenceDecodeError(replayResult.failure));
         assert.ok(
-          replayResult.failure.issue.includes("Unsupported persisted event schema version 2"),
-          replayResult.failure.issue,
+          replayResult.failure.operation.includes(
+            "OrchestrationEventStore.readFromSequence:decodeRows",
+          ),
         );
       }
     }),

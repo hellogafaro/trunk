@@ -9,22 +9,31 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PairRouteImport } from './routes/pair'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
-import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
-import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
-import { Route as ChatPluginsRouteImport } from './routes/_chat.plugins'
+import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
+import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
+import { Route as SettingsKeybindingsRouteImport } from './routes/settings.keybindings'
+import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
+import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
+import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
+import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as ChatAutomationsRouteImport } from './routes/_chat.automations'
-import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
-import { Route as ChatWorkspaceIndexRouteImport } from './routes/_chat.workspace.index'
-import { Route as ChatStudioIndexRouteImport } from './routes/_chat.studio.index'
-import { Route as ChatPullRequestsIndexRouteImport } from './routes/_chat.pull-requests.index'
-import { Route as ChatKanbanIndexRouteImport } from './routes/_chat.kanban.index'
-import { Route as ChatAutomationsIndexRouteImport } from './routes/_chat.automations.index'
-import { Route as ChatWorkspaceWorkspaceIdRouteImport } from './routes/_chat.workspace.$workspaceId'
-import { Route as ChatKanbanProjectIdRouteImport } from './routes/_chat.kanban.$projectId'
-import { Route as ChatAutomationsAutomationIdRouteImport } from './routes/_chat.automations.$automationId'
+import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
+import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PairRoute = PairRouteImport.update({
+  id: '/pair',
+  path: '/pair',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
   getParentRoute: () => rootRouteImport,
@@ -34,178 +43,176 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ChatRoute,
 } as any)
-const ChatSettingsRoute = ChatSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => ChatRoute,
+const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
+  id: '/source-control',
+  path: '/source-control',
+  getParentRoute: () => SettingsRoute,
 } as any)
-const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
-  id: '/pull-requests',
-  path: '/pull-requests',
-  getParentRoute: () => ChatRoute,
+const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
+  id: '/providers',
+  path: '/providers',
+  getParentRoute: () => SettingsRoute,
 } as any)
-const ChatPluginsRoute = ChatPluginsRouteImport.update({
-  id: '/plugins',
-  path: '/plugins',
-  getParentRoute: () => ChatRoute,
+const SettingsKeybindingsRoute = SettingsKeybindingsRouteImport.update({
+  id: '/keybindings',
+  path: '/keybindings',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
+  id: '/general',
+  path: '/general',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsDiagnosticsRoute = SettingsDiagnosticsRouteImport.update({
+  id: '/diagnostics',
+  path: '/diagnostics',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
+  id: '/connections',
+  path: '/connections',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsArchivedRoute = SettingsArchivedRouteImport.update({
+  id: '/archived',
+  path: '/archived',
+  getParentRoute: () => SettingsRoute,
 } as any)
 const ChatAutomationsRoute = ChatAutomationsRouteImport.update({
   id: '/automations',
   path: '/automations',
   getParentRoute: () => ChatRoute,
 } as any)
-const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
-  id: '/$threadId',
-  path: '/$threadId',
+const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
+  id: '/draft/$draftId',
+  path: '/draft/$draftId',
   getParentRoute: () => ChatRoute,
 } as any)
-const ChatWorkspaceIndexRoute = ChatWorkspaceIndexRouteImport.update({
-  id: '/workspace/',
-  path: '/workspace/',
-  getParentRoute: () => ChatRoute,
-} as any)
-const ChatStudioIndexRoute = ChatStudioIndexRouteImport.update({
-  id: '/studio/',
-  path: '/studio/',
-  getParentRoute: () => ChatRoute,
-} as any)
-const ChatPullRequestsIndexRoute = ChatPullRequestsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ChatPullRequestsRoute,
-} as any)
-const ChatKanbanIndexRoute = ChatKanbanIndexRouteImport.update({
-  id: '/kanban/',
-  path: '/kanban/',
-  getParentRoute: () => ChatRoute,
-} as any)
-const ChatAutomationsIndexRoute = ChatAutomationsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ChatAutomationsRoute,
-} as any)
-const ChatWorkspaceWorkspaceIdRoute =
-  ChatWorkspaceWorkspaceIdRouteImport.update({
-    id: '/workspace/$workspaceId',
-    path: '/workspace/$workspaceId',
+const ChatEnvironmentIdThreadIdRoute =
+  ChatEnvironmentIdThreadIdRouteImport.update({
+    id: '/$environmentId/$threadId',
+    path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
-  } as any)
-const ChatKanbanProjectIdRoute = ChatKanbanProjectIdRouteImport.update({
-  id: '/kanban/$projectId',
-  path: '/kanban/$projectId',
-  getParentRoute: () => ChatRoute,
-} as any)
-const ChatAutomationsAutomationIdRoute =
-  ChatAutomationsAutomationIdRouteImport.update({
-    id: '/$automationId',
-    path: '/$automationId',
-    getParentRoute: () => ChatAutomationsRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
-  '/$threadId': typeof ChatThreadIdRoute
-  '/automations': typeof ChatAutomationsRouteWithChildren
-  '/plugins': typeof ChatPluginsRoute
-  '/pull-requests': typeof ChatPullRequestsRouteWithChildren
-  '/settings': typeof ChatSettingsRoute
-  '/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
-  '/kanban/$projectId': typeof ChatKanbanProjectIdRoute
-  '/workspace/$workspaceId': typeof ChatWorkspaceWorkspaceIdRoute
-  '/automations/': typeof ChatAutomationsIndexRoute
-  '/kanban/': typeof ChatKanbanIndexRoute
-  '/pull-requests/': typeof ChatPullRequestsIndexRoute
-  '/studio/': typeof ChatStudioIndexRoute
-  '/workspace/': typeof ChatWorkspaceIndexRoute
+  '/pair': typeof PairRoute
+  '/settings': typeof SettingsRouteWithChildren
+  '/automations': typeof ChatAutomationsRoute
+  '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keybindings': typeof SettingsKeybindingsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/source-control': typeof SettingsSourceControlRoute
+  '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/draft/$draftId': typeof ChatDraftDraftIdRoute
 }
 export interface FileRoutesByTo {
-  '/$threadId': typeof ChatThreadIdRoute
-  '/plugins': typeof ChatPluginsRoute
-  '/settings': typeof ChatSettingsRoute
+  '/pair': typeof PairRoute
+  '/settings': typeof SettingsRouteWithChildren
+  '/automations': typeof ChatAutomationsRoute
+  '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keybindings': typeof SettingsKeybindingsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/source-control': typeof SettingsSourceControlRoute
   '/': typeof ChatIndexRoute
-  '/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
-  '/kanban/$projectId': typeof ChatKanbanProjectIdRoute
-  '/workspace/$workspaceId': typeof ChatWorkspaceWorkspaceIdRoute
-  '/automations': typeof ChatAutomationsIndexRoute
-  '/kanban': typeof ChatKanbanIndexRoute
-  '/pull-requests': typeof ChatPullRequestsIndexRoute
-  '/studio': typeof ChatStudioIndexRoute
-  '/workspace': typeof ChatWorkspaceIndexRoute
+  '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/draft/$draftId': typeof ChatDraftDraftIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
-  '/_chat/$threadId': typeof ChatThreadIdRoute
-  '/_chat/automations': typeof ChatAutomationsRouteWithChildren
-  '/_chat/plugins': typeof ChatPluginsRoute
-  '/_chat/pull-requests': typeof ChatPullRequestsRouteWithChildren
-  '/_chat/settings': typeof ChatSettingsRoute
+  '/pair': typeof PairRoute
+  '/settings': typeof SettingsRouteWithChildren
+  '/_chat/automations': typeof ChatAutomationsRoute
+  '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keybindings': typeof SettingsKeybindingsRoute
+  '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/source-control': typeof SettingsSourceControlRoute
   '/_chat/': typeof ChatIndexRoute
-  '/_chat/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
-  '/_chat/kanban/$projectId': typeof ChatKanbanProjectIdRoute
-  '/_chat/workspace/$workspaceId': typeof ChatWorkspaceWorkspaceIdRoute
-  '/_chat/automations/': typeof ChatAutomationsIndexRoute
-  '/_chat/kanban/': typeof ChatKanbanIndexRoute
-  '/_chat/pull-requests/': typeof ChatPullRequestsIndexRoute
-  '/_chat/studio/': typeof ChatStudioIndexRoute
-  '/_chat/workspace/': typeof ChatWorkspaceIndexRoute
+  '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/$threadId'
-    | '/automations'
-    | '/plugins'
-    | '/pull-requests'
+    | '/pair'
     | '/settings'
-    | '/automations/$automationId'
-    | '/kanban/$projectId'
-    | '/workspace/$workspaceId'
-    | '/automations/'
-    | '/kanban/'
-    | '/pull-requests/'
-    | '/studio/'
-    | '/workspace/'
+    | '/automations'
+    | '/settings/archived'
+    | '/settings/connections'
+    | '/settings/diagnostics'
+    | '/settings/general'
+    | '/settings/keybindings'
+    | '/settings/providers'
+    | '/settings/source-control'
+    | '/$environmentId/$threadId'
+    | '/draft/$draftId'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/$threadId'
-    | '/plugins'
+    | '/pair'
     | '/settings'
-    | '/'
-    | '/automations/$automationId'
-    | '/kanban/$projectId'
-    | '/workspace/$workspaceId'
     | '/automations'
-    | '/kanban'
-    | '/pull-requests'
-    | '/studio'
-    | '/workspace'
+    | '/settings/archived'
+    | '/settings/connections'
+    | '/settings/diagnostics'
+    | '/settings/general'
+    | '/settings/keybindings'
+    | '/settings/providers'
+    | '/settings/source-control'
+    | '/'
+    | '/$environmentId/$threadId'
+    | '/draft/$draftId'
   id:
     | '__root__'
     | '/_chat'
-    | '/_chat/$threadId'
+    | '/pair'
+    | '/settings'
     | '/_chat/automations'
-    | '/_chat/plugins'
-    | '/_chat/pull-requests'
-    | '/_chat/settings'
+    | '/settings/archived'
+    | '/settings/connections'
+    | '/settings/diagnostics'
+    | '/settings/general'
+    | '/settings/keybindings'
+    | '/settings/providers'
+    | '/settings/source-control'
     | '/_chat/'
-    | '/_chat/automations/$automationId'
-    | '/_chat/kanban/$projectId'
-    | '/_chat/workspace/$workspaceId'
-    | '/_chat/automations/'
-    | '/_chat/kanban/'
-    | '/_chat/pull-requests/'
-    | '/_chat/studio/'
-    | '/_chat/workspace/'
+    | '/_chat/$environmentId/$threadId'
+    | '/_chat/draft/$draftId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
+  PairRoute: typeof PairRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pair': {
+      id: '/pair'
+      path: '/pair'
+      fullPath: '/pair'
+      preLoaderRoute: typeof PairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat': {
       id: '/_chat'
       path: ''
@@ -220,26 +227,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
     }
-    '/_chat/settings': {
-      id: '/_chat/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof ChatSettingsRouteImport
-      parentRoute: typeof ChatRoute
+    '/settings/source-control': {
+      id: '/settings/source-control'
+      path: '/source-control'
+      fullPath: '/settings/source-control'
+      preLoaderRoute: typeof SettingsSourceControlRouteImport
+      parentRoute: typeof SettingsRoute
     }
-    '/_chat/pull-requests': {
-      id: '/_chat/pull-requests'
-      path: '/pull-requests'
-      fullPath: '/pull-requests'
-      preLoaderRoute: typeof ChatPullRequestsRouteImport
-      parentRoute: typeof ChatRoute
+    '/settings/providers': {
+      id: '/settings/providers'
+      path: '/providers'
+      fullPath: '/settings/providers'
+      preLoaderRoute: typeof SettingsProvidersRouteImport
+      parentRoute: typeof SettingsRoute
     }
-    '/_chat/plugins': {
-      id: '/_chat/plugins'
-      path: '/plugins'
-      fullPath: '/plugins'
-      preLoaderRoute: typeof ChatPluginsRouteImport
-      parentRoute: typeof ChatRoute
+    '/settings/keybindings': {
+      id: '/settings/keybindings'
+      path: '/keybindings'
+      fullPath: '/settings/keybindings'
+      preLoaderRoute: typeof SettingsKeybindingsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/general': {
+      id: '/settings/general'
+      path: '/general'
+      fullPath: '/settings/general'
+      preLoaderRoute: typeof SettingsGeneralRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/diagnostics': {
+      id: '/settings/diagnostics'
+      path: '/diagnostics'
+      fullPath: '/settings/diagnostics'
+      preLoaderRoute: typeof SettingsDiagnosticsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/connections': {
+      id: '/settings/connections'
+      path: '/connections'
+      fullPath: '/settings/connections'
+      preLoaderRoute: typeof SettingsConnectionsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/archived': {
+      id: '/settings/archived'
+      path: '/archived'
+      fullPath: '/settings/archived'
+      preLoaderRoute: typeof SettingsArchivedRouteImport
+      parentRoute: typeof SettingsRoute
     }
     '/_chat/automations': {
       id: '/_chat/automations'
@@ -248,129 +283,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatAutomationsRouteImport
       parentRoute: typeof ChatRoute
     }
-    '/_chat/$threadId': {
-      id: '/_chat/$threadId'
-      path: '/$threadId'
-      fullPath: '/$threadId'
-      preLoaderRoute: typeof ChatThreadIdRouteImport
+    '/_chat/draft/$draftId': {
+      id: '/_chat/draft/$draftId'
+      path: '/draft/$draftId'
+      fullPath: '/draft/$draftId'
+      preLoaderRoute: typeof ChatDraftDraftIdRouteImport
       parentRoute: typeof ChatRoute
     }
-    '/_chat/workspace/': {
-      id: '/_chat/workspace/'
-      path: '/workspace'
-      fullPath: '/workspace/'
-      preLoaderRoute: typeof ChatWorkspaceIndexRouteImport
+    '/_chat/$environmentId/$threadId': {
+      id: '/_chat/$environmentId/$threadId'
+      path: '/$environmentId/$threadId'
+      fullPath: '/$environmentId/$threadId'
+      preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
-    }
-    '/_chat/studio/': {
-      id: '/_chat/studio/'
-      path: '/studio'
-      fullPath: '/studio/'
-      preLoaderRoute: typeof ChatStudioIndexRouteImport
-      parentRoute: typeof ChatRoute
-    }
-    '/_chat/pull-requests/': {
-      id: '/_chat/pull-requests/'
-      path: '/'
-      fullPath: '/pull-requests/'
-      preLoaderRoute: typeof ChatPullRequestsIndexRouteImport
-      parentRoute: typeof ChatPullRequestsRoute
-    }
-    '/_chat/kanban/': {
-      id: '/_chat/kanban/'
-      path: '/kanban'
-      fullPath: '/kanban/'
-      preLoaderRoute: typeof ChatKanbanIndexRouteImport
-      parentRoute: typeof ChatRoute
-    }
-    '/_chat/automations/': {
-      id: '/_chat/automations/'
-      path: '/'
-      fullPath: '/automations/'
-      preLoaderRoute: typeof ChatAutomationsIndexRouteImport
-      parentRoute: typeof ChatAutomationsRoute
-    }
-    '/_chat/workspace/$workspaceId': {
-      id: '/_chat/workspace/$workspaceId'
-      path: '/workspace/$workspaceId'
-      fullPath: '/workspace/$workspaceId'
-      preLoaderRoute: typeof ChatWorkspaceWorkspaceIdRouteImport
-      parentRoute: typeof ChatRoute
-    }
-    '/_chat/kanban/$projectId': {
-      id: '/_chat/kanban/$projectId'
-      path: '/kanban/$projectId'
-      fullPath: '/kanban/$projectId'
-      preLoaderRoute: typeof ChatKanbanProjectIdRouteImport
-      parentRoute: typeof ChatRoute
-    }
-    '/_chat/automations/$automationId': {
-      id: '/_chat/automations/$automationId'
-      path: '/$automationId'
-      fullPath: '/automations/$automationId'
-      preLoaderRoute: typeof ChatAutomationsAutomationIdRouteImport
-      parentRoute: typeof ChatAutomationsRoute
     }
   }
 }
 
-interface ChatAutomationsRouteChildren {
-  ChatAutomationsAutomationIdRoute: typeof ChatAutomationsAutomationIdRoute
-  ChatAutomationsIndexRoute: typeof ChatAutomationsIndexRoute
-}
-
-const ChatAutomationsRouteChildren: ChatAutomationsRouteChildren = {
-  ChatAutomationsAutomationIdRoute: ChatAutomationsAutomationIdRoute,
-  ChatAutomationsIndexRoute: ChatAutomationsIndexRoute,
-}
-
-const ChatAutomationsRouteWithChildren = ChatAutomationsRoute._addFileChildren(
-  ChatAutomationsRouteChildren,
-)
-
-interface ChatPullRequestsRouteChildren {
-  ChatPullRequestsIndexRoute: typeof ChatPullRequestsIndexRoute
-}
-
-const ChatPullRequestsRouteChildren: ChatPullRequestsRouteChildren = {
-  ChatPullRequestsIndexRoute: ChatPullRequestsIndexRoute,
-}
-
-const ChatPullRequestsRouteWithChildren =
-  ChatPullRequestsRoute._addFileChildren(ChatPullRequestsRouteChildren)
-
 interface ChatRouteChildren {
-  ChatThreadIdRoute: typeof ChatThreadIdRoute
-  ChatAutomationsRoute: typeof ChatAutomationsRouteWithChildren
-  ChatPluginsRoute: typeof ChatPluginsRoute
-  ChatPullRequestsRoute: typeof ChatPullRequestsRouteWithChildren
-  ChatSettingsRoute: typeof ChatSettingsRoute
+  ChatAutomationsRoute: typeof ChatAutomationsRoute
   ChatIndexRoute: typeof ChatIndexRoute
-  ChatKanbanProjectIdRoute: typeof ChatKanbanProjectIdRoute
-  ChatWorkspaceWorkspaceIdRoute: typeof ChatWorkspaceWorkspaceIdRoute
-  ChatKanbanIndexRoute: typeof ChatKanbanIndexRoute
-  ChatStudioIndexRoute: typeof ChatStudioIndexRoute
-  ChatWorkspaceIndexRoute: typeof ChatWorkspaceIndexRoute
+  ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
+  ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
-  ChatThreadIdRoute: ChatThreadIdRoute,
-  ChatAutomationsRoute: ChatAutomationsRouteWithChildren,
-  ChatPluginsRoute: ChatPluginsRoute,
-  ChatPullRequestsRoute: ChatPullRequestsRouteWithChildren,
-  ChatSettingsRoute: ChatSettingsRoute,
+  ChatAutomationsRoute: ChatAutomationsRoute,
   ChatIndexRoute: ChatIndexRoute,
-  ChatKanbanProjectIdRoute: ChatKanbanProjectIdRoute,
-  ChatWorkspaceWorkspaceIdRoute: ChatWorkspaceWorkspaceIdRoute,
-  ChatKanbanIndexRoute: ChatKanbanIndexRoute,
-  ChatStudioIndexRoute: ChatStudioIndexRoute,
-  ChatWorkspaceIndexRoute: ChatWorkspaceIndexRoute,
+  ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
+  ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
+interface SettingsRouteChildren {
+  SettingsArchivedRoute: typeof SettingsArchivedRoute
+  SettingsConnectionsRoute: typeof SettingsConnectionsRoute
+  SettingsDiagnosticsRoute: typeof SettingsDiagnosticsRoute
+  SettingsGeneralRoute: typeof SettingsGeneralRoute
+  SettingsKeybindingsRoute: typeof SettingsKeybindingsRoute
+  SettingsProvidersRoute: typeof SettingsProvidersRoute
+  SettingsSourceControlRoute: typeof SettingsSourceControlRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsArchivedRoute: SettingsArchivedRoute,
+  SettingsConnectionsRoute: SettingsConnectionsRoute,
+  SettingsDiagnosticsRoute: SettingsDiagnosticsRoute,
+  SettingsGeneralRoute: SettingsGeneralRoute,
+  SettingsKeybindingsRoute: SettingsKeybindingsRoute,
+  SettingsProvidersRoute: SettingsProvidersRoute,
+  SettingsSourceControlRoute: SettingsSourceControlRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
+  PairRoute: PairRoute,
+  SettingsRoute: SettingsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
+  CursorListAvailableModelsResponse,
   extractAskQuestions,
   extractPlanMarkdown,
   extractTodosAsPlan,
-  formatCursorPlanUpdateMarkdown,
 } from "./CursorAcpExtension.ts";
 
 describe("CursorAcpExtension", () => {
@@ -107,25 +107,29 @@ describe("CursorAcpExtension", () => {
     });
   });
 
-  it("formats Cursor ACP plan updates as proposed plan markdown", () => {
-    expect(
-      formatCursorPlanUpdateMarkdown({
-        explanation: "Assume a static hub page first.",
-        plan: [
-          { step: "Add /blogs route metadata", status: "pending" },
-          { step: "Link /blogs from footer", status: "pending" },
-        ],
-      }),
-    ).toBe(
-      "Assume a static hub page first.\n\n1. Add /blogs route metadata\n2. Link /blogs from footer",
-    );
-  });
+  it("decodes Cursor list_available_models responses with per-model config options", () => {
+    const decoded = CursorListAvailableModelsResponse.make({
+      models: [
+        {
+          value: "gpt-5.4",
+          name: "GPT-5.4",
+          configOptions: [
+            {
+              id: "reasoning",
+              name: "Reasoning",
+              category: "thought_level",
+              type: "select",
+              currentValue: "medium",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
 
-  it("does not format empty Cursor plan updates", () => {
-    expect(
-      formatCursorPlanUpdateMarkdown({
-        plan: [{ step: "   ", status: "pending" }],
-      }),
-    ).toBeUndefined();
+    expect(decoded.models[0]?.configOptions?.[0]?.id).toBe("reasoning");
   });
 });

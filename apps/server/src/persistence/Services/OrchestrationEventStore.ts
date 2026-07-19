@@ -4,14 +4,15 @@
  * Owns durable append/replay access to the orchestration event stream. It does
  * not reduce events into read models or apply command validation rules.
  *
- * Uses Effect `ServiceMap.Service` for dependency injection and exposes typed
+ * Uses Effect `Context.Service` for dependency injection and exposes typed
  * persistence/decode errors for event append and replay operations.
  *
  * @module OrchestrationEventStore
  */
-import { OrchestrationEvent } from "@synara/contracts";
-import { ServiceMap } from "effect";
-import type { Effect, Stream } from "effect";
+import { OrchestrationEvent } from "@t3tools/contracts";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import type * as Stream from "effect/Stream";
 
 import type { OrchestrationEventStoreError } from "../Errors.ts";
 
@@ -31,15 +32,11 @@ export interface OrchestrationEventStoreShape {
     event: Omit<OrchestrationEvent, "sequence">,
   ) => Effect.Effect<OrchestrationEvent, OrchestrationEventStoreError>;
 
-  /** Capture the latest durable sequence for a finite replay fence. */
-  readonly getHighWaterSequence: () => Effect.Effect<number, OrchestrationEventStoreError>;
-
   /**
    * Replay events after the provided sequence.
    *
    * @param sequenceExclusive - Sequence cursor (exclusive).
    * @param limit - Maximum number of events to emit.
-   * @param throughSequenceInclusive - Optional captured high-water fence.
    * @returns Stream containing ordered events.
    *
    * Reads in fixed-size pages and normalizes non-integer/negative limits.
@@ -47,7 +44,6 @@ export interface OrchestrationEventStoreShape {
   readonly readFromSequence: (
     sequenceExclusive: number,
     limit?: number,
-    throughSequenceInclusive?: number,
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
 
   /**
@@ -69,7 +65,7 @@ export interface OrchestrationEventStoreShape {
  * })
  * ```
  */
-export class OrchestrationEventStore extends ServiceMap.Service<
+export class OrchestrationEventStore extends Context.Service<
   OrchestrationEventStore,
   OrchestrationEventStoreShape
->()("synara/persistence/Services/OrchestrationEventStore") {}
+>()("t3/persistence/Services/OrchestrationEventStore") {}

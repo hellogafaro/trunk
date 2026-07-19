@@ -1,5 +1,5 @@
-import { RuntimeRequestId, TurnId } from "@synara/contracts";
-import { describe, expect, it } from "vitest";
+import { ProviderDriverKind, RuntimeRequestId, TurnId } from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   makeAcpAssistantItemEvent,
@@ -8,31 +8,12 @@ import {
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
   makeAcpToolCallEvent,
-  stampAcpRuntimeEventLifecycleGeneration,
 } from "./AcpCoreRuntimeEvents.ts";
 
 describe("AcpCoreRuntimeEvents", () => {
-  it("stamps one captured lifecycle generation without mutating legacy events", () => {
-    const event = makeAcpContentDeltaEvent({
-      stamp: { eventId: "event-generation" as never, createdAt: "2026-07-14T00:00:00.000Z" },
-      provider: "cursor",
-      threadId: "thread-generation" as never,
-      turnId: TurnId.makeUnsafe("turn-generation"),
-      text: "hello",
-      rawPayload: { sessionId: "session-generation" },
-    });
-
-    expect(stampAcpRuntimeEventLifecycleGeneration(event, undefined)).toBe(event);
-    expect(stampAcpRuntimeEventLifecycleGeneration(event, "generation-7")).toEqual({
-      ...event,
-      lifecycleGeneration: "generation-7",
-    });
-    expect(event).not.toHaveProperty("lifecycleGeneration");
-  });
-
   it("maps ACP permission requests to canonical runtime events", () => {
     const stamp = { eventId: "event-1" as never, createdAt: "2026-03-27T00:00:00.000Z" };
-    const turnId = TurnId.makeUnsafe("turn-1");
+    const turnId = TurnId.make("turn-1");
     const permissionRequest = {
       kind: "execute" as const,
       detail: "cat package.json",
@@ -49,10 +30,10 @@ describe("AcpCoreRuntimeEvents", () => {
     expect(
       makeAcpRequestOpenedEvent({
         stamp,
-        provider: "cursor",
+        provider: ProviderDriverKind.make("cursor"),
         threadId: "thread-1" as never,
         turnId,
-        requestId: RuntimeRequestId.makeUnsafe("request-1"),
+        requestId: RuntimeRequestId.make("request-1"),
         permissionRequest,
         detail: "cat package.json",
         args: { command: ["cat", "package.json"] },
@@ -71,10 +52,10 @@ describe("AcpCoreRuntimeEvents", () => {
     expect(
       makeAcpRequestResolvedEvent({
         stamp,
-        provider: "cursor",
+        provider: ProviderDriverKind.make("cursor"),
         threadId: "thread-1" as never,
         turnId,
-        requestId: RuntimeRequestId.makeUnsafe("request-1"),
+        requestId: RuntimeRequestId.make("request-1"),
         permissionRequest,
         decision: "accept",
       }),
@@ -89,12 +70,12 @@ describe("AcpCoreRuntimeEvents", () => {
 
   it("maps ACP core plan, tool-call, and content updates", () => {
     const stamp = { eventId: "event-1" as never, createdAt: "2026-03-27T00:00:00.000Z" };
-    const turnId = TurnId.makeUnsafe("turn-1");
+    const turnId = TurnId.make("turn-1");
 
     expect(
       makeAcpPlanUpdatedEvent({
         stamp,
-        provider: "cursor",
+        provider: ProviderDriverKind.make("cursor"),
         threadId: "thread-1" as never,
         turnId,
         payload: {
@@ -105,10 +86,7 @@ describe("AcpCoreRuntimeEvents", () => {
         rawPayload: { todos: [] },
       }),
     ).toMatchObject({
-      type: "turn.tasks.updated",
-      payload: {
-        tasks: [{ task: "Inspect state", status: "inProgress" }],
-      },
+      type: "turn.plan.updated",
       raw: {
         method: "cursor/update_todos",
       },
@@ -117,7 +95,7 @@ describe("AcpCoreRuntimeEvents", () => {
     expect(
       makeAcpToolCallEvent({
         stamp,
-        provider: "cursor",
+        provider: ProviderDriverKind.make("cursor"),
         threadId: "thread-1" as never,
         turnId,
         toolCall: {
@@ -139,56 +117,9 @@ describe("AcpCoreRuntimeEvents", () => {
     });
 
     expect(
-      makeAcpToolCallEvent({
-        stamp,
-        provider: "cursor",
-        threadId: "thread-1" as never,
-        turnId,
-        toolCall: {
-          toolCallId: "tool-2",
-          kind: "execute",
-          status: "pending",
-          title: "Terminal",
-          detail: "bun run test",
-          data: { command: "bun run test" },
-        },
-        rawPayload: { sessionId: "session-1" },
-      }),
-    ).toMatchObject({
-      type: "item.started",
-      payload: {
-        itemType: "command_execution",
-        status: "inProgress",
-      },
-    });
-
-    expect(
-      makeAcpToolCallEvent({
-        stamp,
-        provider: "cursor",
-        threadId: "thread-1" as never,
-        turnId,
-        toolCall: {
-          toolCallId: "tool-search",
-          kind: "search",
-          status: "pending",
-          title: "Searching",
-          data: { kind: "search" },
-        },
-        rawPayload: { sessionId: "session-1" },
-      }),
-    ).toMatchObject({
-      type: "item.started",
-      payload: {
-        itemType: "dynamic_tool_call",
-        status: "inProgress",
-      },
-    });
-
-    expect(
       makeAcpContentDeltaEvent({
         stamp,
-        provider: "cursor",
+        provider: ProviderDriverKind.make("cursor"),
         threadId: "thread-1" as never,
         turnId,
         itemId: "assistant:session-1:segment:0",
@@ -199,33 +130,14 @@ describe("AcpCoreRuntimeEvents", () => {
       type: "content.delta",
       itemId: "assistant:session-1:segment:0",
       payload: {
-        streamKind: "assistant_text",
         delta: "hello",
-      },
-    });
-
-    expect(
-      makeAcpContentDeltaEvent({
-        stamp,
-        provider: "cursor",
-        threadId: "thread-1" as never,
-        turnId,
-        text: "thinking",
-        streamKind: "reasoning_text",
-        rawPayload: { sessionId: "session-1" },
-      }),
-    ).toMatchObject({
-      type: "content.delta",
-      payload: {
-        streamKind: "reasoning_text",
-        delta: "thinking",
       },
     });
 
     expect(
       makeAcpAssistantItemEvent({
         stamp,
-        provider: "cursor",
+        provider: ProviderDriverKind.make("cursor"),
         threadId: "thread-1" as never,
         turnId,
         itemId: "assistant:session-1:segment:0",

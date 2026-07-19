@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   MessageId,
   CommandId,
@@ -7,32 +7,30 @@ import {
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationReadModel,
-} from "@synara/contracts";
-import { Effect } from "effect";
+  ProviderInstanceId,
+} from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 
 import {
   findThreadById,
   listThreadsByProjectId,
   requireNonNegativeInteger,
-  requireProjectHasNoThreads,
   requireThread,
   requireThreadAbsent,
-  requireThreadArchived,
-  requireThreadNotArchived,
 } from "./commandInvariants.ts";
 
-const now = new Date().toISOString();
+const now = "2026-01-01T00:00:00.000Z";
 
 const readModel: OrchestrationReadModel = {
   snapshotSequence: 2,
   updatedAt: now,
   projects: [
     {
-      id: ProjectId.makeUnsafe("project-a"),
+      id: ProjectId.make("project-a"),
       title: "Project A",
       workspaceRoot: "/tmp/project-a",
       defaultModelSelection: {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5-codex",
       },
       scripts: [],
@@ -41,11 +39,11 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
     {
-      id: ProjectId.makeUnsafe("project-b"),
+      id: ProjectId.make("project-b"),
       title: "Project B",
       workspaceRoot: "/tmp/project-b",
       defaultModelSelection: {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5-codex",
       },
       scripts: [],
@@ -56,11 +54,11 @@ const readModel: OrchestrationReadModel = {
   ],
   threads: [
     {
-      id: ThreadId.makeUnsafe("thread-1"),
-      projectId: ProjectId.makeUnsafe("project-a"),
+      id: ThreadId.make("thread-1"),
+      projectId: ProjectId.make("project-a"),
       title: "Thread A",
       modelSelection: {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5-codex",
       },
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -69,8 +67,8 @@ const readModel: OrchestrationReadModel = {
       worktreePath: null,
       createdAt: now,
       updatedAt: now,
+      archivedAt: null,
       latestTurn: null,
-      handoff: null,
       messages: [],
       session: null,
       activities: [],
@@ -79,11 +77,11 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
     {
-      id: ThreadId.makeUnsafe("thread-2"),
-      projectId: ProjectId.makeUnsafe("project-b"),
+      id: ThreadId.make("thread-2"),
+      projectId: ProjectId.make("project-b"),
       title: "Thread B",
       modelSelection: {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5-codex",
       },
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -92,71 +90,24 @@ const readModel: OrchestrationReadModel = {
       worktreePath: null,
       createdAt: now,
       updatedAt: now,
+      archivedAt: null,
       latestTurn: null,
-      handoff: null,
       messages: [],
       session: null,
       activities: [],
       proposedPlans: [],
       checkpoints: [],
       deletedAt: null,
-    },
-    {
-      id: ThreadId.makeUnsafe("thread-archived"),
-      projectId: ProjectId.makeUnsafe("project-a"),
-      title: "Archived Thread",
-      modelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
-      },
-      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-      runtimeMode: "full-access",
-      branch: null,
-      worktreePath: null,
-      createdAt: now,
-      updatedAt: now,
-      archivedAt: now,
-      latestTurn: null,
-      handoff: null,
-      messages: [],
-      session: null,
-      activities: [],
-      proposedPlans: [],
-      checkpoints: [],
-      deletedAt: null,
-    },
-    {
-      id: ThreadId.makeUnsafe("thread-deleted"),
-      projectId: ProjectId.makeUnsafe("project-a"),
-      title: "Deleted Thread",
-      modelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
-      },
-      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-      runtimeMode: "full-access",
-      branch: null,
-      worktreePath: null,
-      createdAt: now,
-      updatedAt: now,
-      latestTurn: null,
-      handoff: null,
-      messages: [],
-      session: null,
-      activities: [],
-      proposedPlans: [],
-      checkpoints: [],
-      deletedAt: now,
     },
   ],
 };
 
 const messageSendCommand: OrchestrationCommand = {
   type: "thread.turn.start",
-  commandId: CommandId.makeUnsafe("cmd-1"),
-  threadId: ThreadId.makeUnsafe("thread-1"),
+  commandId: CommandId.make("cmd-1"),
+  threadId: ThreadId.make("thread-1"),
   message: {
-    messageId: MessageId.makeUnsafe("msg-1"),
+    messageId: MessageId.make("msg-1"),
     role: "user",
     text: "hello",
     attachments: [],
@@ -168,13 +119,11 @@ const messageSendCommand: OrchestrationCommand = {
 
 describe("commandInvariants", () => {
   it("finds threads by id and project", () => {
-    expect(findThreadById(readModel, ThreadId.makeUnsafe("thread-1"))?.projectId).toBe("project-a");
-    expect(findThreadById(readModel, ThreadId.makeUnsafe("missing"))).toBeUndefined();
+    expect(findThreadById(readModel, ThreadId.make("thread-1"))?.projectId).toBe("project-a");
+    expect(findThreadById(readModel, ThreadId.make("missing"))).toBeUndefined();
     expect(
-      listThreadsByProjectId(readModel, ProjectId.makeUnsafe("project-b")).map(
-        (thread) => thread.id,
-      ),
-    ).toEqual([ThreadId.makeUnsafe("thread-2")]);
+      listThreadsByProjectId(readModel, ProjectId.make("project-b")).map((thread) => thread.id),
+    ).toEqual([ThreadId.make("thread-2")]);
   });
 
   it("requires existing thread", async () => {
@@ -182,30 +131,20 @@ describe("commandInvariants", () => {
       requireThread({
         readModel,
         command: messageSendCommand,
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        threadId: ThreadId.make("thread-1"),
       }),
     );
-    expect(thread.id).toBe(ThreadId.makeUnsafe("thread-1"));
+    expect(thread.id).toBe(ThreadId.make("thread-1"));
 
     await expect(
       Effect.runPromise(
         requireThread({
           readModel,
           command: messageSendCommand,
-          threadId: ThreadId.makeUnsafe("missing"),
+          threadId: ThreadId.make("missing"),
         }),
       ),
     ).rejects.toThrow("does not exist");
-
-    await expect(
-      Effect.runPromise(
-        requireThread({
-          readModel,
-          command: messageSendCommand,
-          threadId: ThreadId.makeUnsafe("thread-deleted"),
-        }),
-      ),
-    ).rejects.toThrow("was deleted");
   });
 
   it("requires missing thread for create flows", async () => {
@@ -214,12 +153,12 @@ describe("commandInvariants", () => {
         readModel,
         command: {
           type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-2"),
-          threadId: ThreadId.makeUnsafe("thread-3"),
-          projectId: ProjectId.makeUnsafe("project-a"),
+          commandId: CommandId.make("cmd-2"),
+          threadId: ThreadId.make("thread-3"),
+          projectId: ProjectId.make("project-a"),
           title: "new",
           modelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -228,7 +167,7 @@ describe("commandInvariants", () => {
           worktreePath: null,
           createdAt: now,
         },
-        threadId: ThreadId.makeUnsafe("thread-3"),
+        threadId: ThreadId.make("thread-3"),
       }),
     );
 
@@ -238,12 +177,12 @@ describe("commandInvariants", () => {
           readModel,
           command: {
             type: "thread.create",
-            commandId: CommandId.makeUnsafe("cmd-3"),
-            threadId: ThreadId.makeUnsafe("thread-1"),
-            projectId: ProjectId.makeUnsafe("project-a"),
+            commandId: CommandId.make("cmd-3"),
+            threadId: ThreadId.make("thread-1"),
+            projectId: ProjectId.make("project-a"),
             title: "dup",
             modelSelection: {
-              provider: "codex",
+              instanceId: ProviderInstanceId.make("codex"),
               model: "gpt-5-codex",
             },
             interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -252,7 +191,7 @@ describe("commandInvariants", () => {
             worktreePath: null,
             createdAt: now,
           },
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
         }),
       ),
     ).rejects.toThrow("already exists");
@@ -276,91 +215,5 @@ describe("commandInvariants", () => {
         }),
       ),
     ).rejects.toThrow("greater than or equal to 0");
-  });
-
-  it("requires thread to be archived for unarchive command", async () => {
-    const archiveCommand: OrchestrationCommand = {
-      type: "thread.unarchive",
-      commandId: CommandId.makeUnsafe("cmd-unarchive"),
-      threadId: ThreadId.makeUnsafe("thread-archived"),
-    };
-
-    // Should succeed for archived thread
-    const thread = await Effect.runPromise(
-      requireThreadArchived({
-        readModel,
-        command: archiveCommand,
-        threadId: ThreadId.makeUnsafe("thread-archived"),
-      }),
-    );
-    expect(thread.id).toBe(ThreadId.makeUnsafe("thread-archived"));
-
-    // Should fail for non-archived thread
-    await expect(
-      Effect.runPromise(
-        requireThreadArchived({
-          readModel,
-          command: archiveCommand,
-          threadId: ThreadId.makeUnsafe("thread-1"),
-        }),
-      ),
-    ).rejects.toThrow("is not archived");
-  });
-
-  it("requires thread to not be archived for archive command", async () => {
-    const archiveCommand: OrchestrationCommand = {
-      type: "thread.archive",
-      commandId: CommandId.makeUnsafe("cmd-archive"),
-      threadId: ThreadId.makeUnsafe("thread-1"),
-    };
-
-    // Should succeed for non-archived thread
-    const thread = await Effect.runPromise(
-      requireThreadNotArchived({
-        readModel,
-        command: archiveCommand,
-        threadId: ThreadId.makeUnsafe("thread-1"),
-      }),
-    );
-    expect(thread.id).toBe(ThreadId.makeUnsafe("thread-1"));
-
-    // Should fail for already archived thread
-    await expect(
-      Effect.runPromise(
-        requireThreadNotArchived({
-          readModel,
-          command: archiveCommand,
-          threadId: ThreadId.makeUnsafe("thread-archived"),
-        }),
-      ),
-    ).rejects.toThrow("is already archived");
-  });
-
-  it("requires project to have no remaining threads before delete", async () => {
-    const deleteCommand: OrchestrationCommand = {
-      type: "project.delete",
-      commandId: CommandId.makeUnsafe("cmd-project-delete"),
-      projectId: ProjectId.makeUnsafe("project-a"),
-    };
-
-    await expect(
-      Effect.runPromise(
-        requireProjectHasNoThreads({
-          readModel,
-          command: deleteCommand,
-          projectId: ProjectId.makeUnsafe("project-a"),
-        }),
-      ),
-    ).rejects.toThrow("still has 2 threads");
-
-    await expect(
-      Effect.runPromise(
-        requireProjectHasNoThreads({
-          readModel,
-          command: deleteCommand,
-          projectId: ProjectId.makeUnsafe("project-missing"),
-        }),
-      ),
-    ).resolves.toBeUndefined();
   });
 });

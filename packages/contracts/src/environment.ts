@@ -1,6 +1,7 @@
-import { Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
-import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas";
+import { EnvironmentId, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const ExecutionEnvironmentPlatformOs = Schema.Literals([
   "darwin",
@@ -20,7 +21,7 @@ export const ExecutionEnvironmentPlatform = Schema.Struct({
 export type ExecutionEnvironmentPlatform = typeof ExecutionEnvironmentPlatform.Type;
 
 export const ExecutionEnvironmentCapabilities = Schema.Struct({
-  repositoryIdentity: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  repositoryIdentity: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
@@ -32,3 +33,47 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   capabilities: ExecutionEnvironmentCapabilities,
 });
 export type ExecutionEnvironmentDescriptor = typeof ExecutionEnvironmentDescriptor.Type;
+
+export const EnvironmentConnectionState = Schema.Literals([
+  "connecting",
+  "connected",
+  "disconnected",
+  "error",
+]);
+export type EnvironmentConnectionState = typeof EnvironmentConnectionState.Type;
+
+export const RepositoryIdentityLocator = Schema.Struct({
+  source: Schema.Literal("git-remote"),
+  remoteName: TrimmedNonEmptyString,
+  remoteUrl: TrimmedNonEmptyString,
+});
+export type RepositoryIdentityLocator = typeof RepositoryIdentityLocator.Type;
+
+export const RepositoryIdentity = Schema.Struct({
+  canonicalKey: TrimmedNonEmptyString,
+  locator: RepositoryIdentityLocator,
+  rootPath: Schema.optionalKey(TrimmedNonEmptyString),
+  displayName: Schema.optionalKey(TrimmedNonEmptyString),
+  provider: Schema.optionalKey(TrimmedNonEmptyString),
+  owner: Schema.optionalKey(TrimmedNonEmptyString),
+  name: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type RepositoryIdentity = typeof RepositoryIdentity.Type;
+
+export const ScopedProjectRef = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+});
+export type ScopedProjectRef = typeof ScopedProjectRef.Type;
+
+export const ScopedThreadRef = Schema.Struct({
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+});
+export type ScopedThreadRef = typeof ScopedThreadRef.Type;
+
+export const ScopedThreadSessionRef = Schema.Struct({
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+});
+export type ScopedThreadSessionRef = typeof ScopedThreadSessionRef.Type;

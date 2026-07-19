@@ -1,21 +1,18 @@
-import { Layer } from "effect";
+import * as Layer from "effect/Layer";
 
-import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts";
-import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore";
-import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments";
-import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine";
-import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline";
-import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery";
+import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
+import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
+import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine.ts";
+import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline.ts";
+import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery.ts";
 
 export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
   OrchestrationEventStoreLive,
   OrchestrationCommandReceiptRepositoryLive,
-  ManagedAttachmentRepositoryLive,
 );
 
 export const OrchestrationProjectionPipelineLayerLive = OrchestrationProjectionPipelineLive.pipe(
   Layer.provide(OrchestrationEventStoreLive),
-  Layer.provide(ManagedAttachmentRepositoryLive),
 );
 
 export const OrchestrationInfrastructureLayerLive = Layer.mergeAll(

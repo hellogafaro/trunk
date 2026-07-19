@@ -1,80 +1,105 @@
-import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  type ModelSelection,
-  type ProviderStartOptions,
-  type ServerSettings,
-  type ServerSettingsPatch,
-} from "@synara/contracts";
-import { deepMerge, type DeepPartial } from "./Struct";
+import { ServerSettings, type ServerSettingsPatch } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { deepMerge } from "./Struct.ts";
+import { fromLenientJson } from "./schemaJson.ts";
+import { createModelSelection } from "./model.ts";
+
+const ServerSettingsJson = fromLenientJson(ServerSettings);
+const decodeServerSettingsJson = Schema.decodeUnknownOption(ServerSettingsJson);
+
+export interface PersistedServerObservabilitySettings {
+  readonly otlpTracesUrl: string | undefined;
+  readonly otlpMetricsUrl: string | undefined;
+}
+
+export function normalizePersistedServerSettingString(
+  value: string | null | undefined,
+): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function extractPersistedServerObservabilitySettings(input: {
+  readonly observability?: {
+    readonly otlpTracesUrl?: string;
+    readonly otlpMetricsUrl?: string;
+  };
+}): PersistedServerObservabilitySettings {
+  return {
+    otlpTracesUrl: normalizePersistedServerSettingString(input.observability?.otlpTracesUrl),
+    otlpMetricsUrl: normalizePersistedServerSettingString(input.observability?.otlpMetricsUrl),
+  };
+}
+
+export function parsePersistedServerObservabilitySettings(
+  raw: string,
+): PersistedServerObservabilitySettings {
+  const decoded = decodeServerSettingsJson(raw);
+  if (Option.isSome(decoded)) {
+    return extractPersistedServerObservabilitySettings(decoded.value);
+  }
+  return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
+}
 
 function shouldReplaceTextGenerationModelSelection(
   patch: ServerSettingsPatch["textGenerationModelSelection"] | undefined,
 ): boolean {
-  return Boolean(patch && (patch.provider !== undefined || patch.model !== undefined));
+  return Boolean(patch && (patch.instanceId !== undefined || patch.model !== undefined));
 }
 
+function mergeModelSelectionOptionsById(input: {
+  current: ReadonlyArray<{ readonly id: string; readonly value: string | boolean }> | undefined;
+  patch: ReadonlyArray<{ readonly id: string; readonly value: string | boolean }> | undefined;
+}): Array<{ id: string; value: string | boolean }> | undefined {
+  if (input.patch === undefined) {
+    return input.current ? [...input.current] : undefined;
+  }
+  if (input.patch.length === 0) {
+    return undefined;
+  }
+
+  const merged = new Map((input.current ?? []).map((selection) => [selection.id, selection.value]));
+  for (const selection of input.patch) {
+    merged.set(selection.id, selection.value);
+  }
+  return [...merged.entries()].map(([id, value]) => ({ id, value }));
+}
+
+/**
+ * Applies a server settings patch while treating textGenerationModelSelection as
+ * replace-on-provider/model updates. This prevents stale nested options from
+ * surviving a reset patch that intentionally omits options.
+ */
 export function applyServerSettingsPatch(
   current: ServerSettings,
   patch: ServerSettingsPatch,
 ): ServerSettings {
   const selectionPatch = patch.textGenerationModelSelection;
-  const next = deepMerge(current, patch as DeepPartial<ServerSettings>);
+  const { automaticGitFetchInterval, ...patchForMerge } = patch;
+  const next = deepMerge(current, patchForMerge);
+  const nextWithReplacements = {
+    ...next,
+    ...(patch.providerInstances !== undefined
+      ? { providerInstances: patch.providerInstances }
+      : {}),
+    ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
+  };
   if (!selectionPatch) {
-    return next;
+    return nextWithReplacements;
   }
 
-  const provider = selectionPatch.provider ?? current.textGenerationModelSelection.provider;
-  const model =
-    selectionPatch.model ??
-    (selectionPatch.provider &&
-    selectionPatch.provider !== "pi" &&
-    selectionPatch.provider !== current.textGenerationModelSelection.provider
-      ? DEFAULT_MODEL_BY_PROVIDER[selectionPatch.provider]
-      : current.textGenerationModelSelection.model);
+  const instanceId = selectionPatch.instanceId ?? current.textGenerationModelSelection.instanceId;
+  const model = selectionPatch.model ?? current.textGenerationModelSelection.model;
   const options = shouldReplaceTextGenerationModelSelection(selectionPatch)
     ? selectionPatch.options
-    : (selectionPatch.options ?? current.textGenerationModelSelection.options);
+    : mergeModelSelectionOptionsById({
+        current: current.textGenerationModelSelection.options,
+        patch: selectionPatch.options,
+      });
 
   return {
-    ...next,
-    textGenerationModelSelection: {
-      provider,
-      model,
-      ...(options !== undefined ? { options } : {}),
-    } as ModelSelection,
-  };
-}
-
-/** Server-owned launch options derived from the persisted non-secret settings snapshot. */
-export function providerStartOptionsFromServerSettings(
-  settings: ServerSettings,
-): ProviderStartOptions {
-  const { providers } = settings;
-  return {
-    codex: {
-      binaryPath: providers.codex.binaryPath,
-      ...(providers.codex.homePath ? { homePath: providers.codex.homePath } : {}),
-    },
-    claudeAgent: { binaryPath: providers.claudeAgent.binaryPath },
-    cursor: {
-      binaryPath: providers.cursor.binaryPath,
-      ...(providers.cursor.apiEndpoint ? { apiEndpoint: providers.cursor.apiEndpoint } : {}),
-    },
-    antigravity: { binaryPath: providers.antigravity.binaryPath },
-    grok: { binaryPath: providers.grok.binaryPath },
-    droid: { binaryPath: providers.droid.binaryPath },
-    kilo: {
-      binaryPath: providers.kilo.binaryPath,
-      ...(providers.kilo.serverUrl ? { serverUrl: providers.kilo.serverUrl } : {}),
-    },
-    opencode: {
-      binaryPath: providers.opencode.binaryPath,
-      ...(providers.opencode.serverUrl ? { serverUrl: providers.opencode.serverUrl } : {}),
-      experimentalWebSockets: providers.opencode.experimentalWebSockets,
-    },
-    pi: {
-      binaryPath: providers.pi.binaryPath,
-      ...(providers.pi.agentDir ? { agentDir: providers.pi.agentDir } : {}),
-    },
+    ...nextWithReplacements,
+    textGenerationModelSelection: createModelSelection(instanceId, model, options),
   };
 }

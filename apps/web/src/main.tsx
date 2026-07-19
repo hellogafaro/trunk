@@ -1,25 +1,35 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { RouterProvider } from "@tanstack/react-router";
+import { ClerkProvider } from "@clerk/react";
+import { createBrowserHistory } from "@tanstack/react-router";
 
-import "@fontsource-variable/jetbrains-mono";
+import "@fontsource-variable/dm-sans/index.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
+import "@xterm/xterm/css/xterm.css";
 import "./index.css";
 
-import { appHistory } from "./appNavigation";
+import { ManagedRelayAuthProvider } from "./cloud/managedAuth";
+import { hasCloudPublicConfig } from "./cloud/publicConfig";
 import { getRouter } from "./router";
-import { APP_DISPLAY_NAME } from "./branding";
-import { isElectron } from "./env";
+import { AppRoot } from "./AppRoot";
 
-const router = getRouter(appHistory);
+const history = createBrowserHistory();
 
-document.title = APP_DISPLAY_NAME;
+const router = getRouter(history);
 
-if (isElectron) {
-  document.documentElement.dataset.runtime = "electron";
-}
+const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+
+const app = <AppRoot router={router} />;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    {clerkPublishableKey && hasCloudPublicConfig() ? (
+      <ClerkProvider publishableKey={clerkPublishableKey}>
+        <ManagedRelayAuthProvider>{app}</ManagedRelayAuthProvider>
+      </ClerkProvider>
+    ) : (
+      app
+    )}
   </React.StrictMode>,
 );

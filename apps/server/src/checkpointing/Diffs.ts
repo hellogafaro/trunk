@@ -1,10 +1,4 @@
-// FILE: Diffs.ts
-// Purpose: Parses unified diffs into turn/checkpoint file summaries.
-// Layer: Server checkpointing helper
-// Exports: turn diff file parsers used by checkpoint capture and provider live-diff ingestion
-
-import type { OrchestrationCheckpointFile } from "@synara/contracts";
-import { parsePatchFiles } from "@pierre/diffs";
+import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 
 export interface TurnDiffFileSummary {
   readonly path: string;
@@ -21,30 +15,13 @@ export function parseTurnDiffFilesFromUnifiedDiff(
   }
 
   const parsedPatches = parsePatchFiles(normalized);
-  const filesByPath = new Map<string, TurnDiffFileSummary>();
-  for (const patch of parsedPatches) {
-    for (const file of patch.files) {
-      const additions = file.hunks.reduce((total, hunk) => total + hunk.additionLines, 0);
-      const deletions = file.hunks.reduce((total, hunk) => total + hunk.deletionLines, 0);
-      const existing = filesByPath.get(file.name);
-      filesByPath.set(file.name, {
-        path: file.name,
-        additions: (existing?.additions ?? 0) + additions,
-        deletions: (existing?.deletions ?? 0) + deletions,
-      });
-    }
-  }
-
-  return Array.from(filesByPath.values()).toSorted((left, right) =>
-    left.path.localeCompare(right.path),
+  const files = parsedPatches.flatMap((patch) =>
+    patch.files.map((file) => ({
+      path: file.name,
+      additions: file.hunks.reduce((total, hunk) => total + hunk.additionLines, 0),
+      deletions: file.hunks.reduce((total, hunk) => total + hunk.deletionLines, 0),
+    })),
   );
-}
 
-export function parseCheckpointFilesFromUnifiedDiff(diff: string): OrchestrationCheckpointFile[] {
-  return parseTurnDiffFilesFromUnifiedDiff(diff).map((file) => ({
-    path: file.path,
-    kind: "modified",
-    additions: file.additions,
-    deletions: file.deletions,
-  }));
+  return files.toSorted((left, right) => left.path.localeCompare(right.path));
 }

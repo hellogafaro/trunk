@@ -1,19 +1,19 @@
-import { randomUUID } from "node:crypto";
-
 import {
   ApprovalRequestId,
   EventId,
   ProviderApprovalDecision,
   ProviderRuntimeEvent,
-  RuntimeRequestId,
   RuntimeSessionId,
   ProviderSession,
   ProviderTurnStartResult,
   ThreadId,
   TurnId,
-  ProviderKind,
-} from "@synara/contracts";
-import { Effect, PubSub, Stream } from "effect";
+  ProviderDriverKind,
+} from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
 
 import {
   ProviderAdapterSessionNotFoundError,
@@ -28,7 +28,6 @@ import type {
 
 export interface TestTurnResponse {
   readonly events: ReadonlyArray<FixtureProviderRuntimeEvent>;
-  readonly deferCompletion?: boolean;
   readonly mutateWorkspace?: (input: {
     readonly cwd: string;
     readonly turnCount: number;
@@ -38,7 +37,7 @@ export interface TestTurnResponse {
 export type FixtureProviderRuntimeEvent = {
   readonly type: string;
   readonly eventId: EventId;
-  readonly provider: ProviderKind;
+  readonly provider: ProviderDriverKind;
   readonly createdAt: string;
   readonly threadId: string;
   readonly turnId?: string | undefined;
@@ -53,12 +52,10 @@ export type LegacyProviderRuntimeEvent = FixtureProviderRuntimeEvent;
 
 interface SessionState {
   readonly session: ProviderSession;
-  readonly lifecycleGeneration: string | undefined;
   snapshot: ProviderThreadSnapshot;
   turnCount: number;
   readonly queuedResponses: Array<TestTurnResponse>;
   readonly rollbackCalls: Array<number>;
-  deferredCompletionEvents: Array<ProviderRuntimeEvent>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -182,7 +179,7 @@ function normalizeFixtureEvent(rawEvent: Record<string, unknown>): ProviderRunti
 
 export interface TestProviderAdapterHarness {
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
-  readonly provider: ProviderKind;
+  readonly provider: ProviderDriverKind;
   readonly queueTurnResponse: (
     threadId: ThreadId,
     response: TestTurnResponse,
@@ -202,15 +199,15 @@ export interface TestProviderAdapterHarness {
 }
 
 interface MakeTestProviderAdapterHarnessOptions {
-  readonly provider?: ProviderKind;
+  readonly provider?: ProviderDriverKind;
 }
 
 function nowIso(): string {
-  return new Date().toISOString();
+  return "2026-01-01T00:00:00.000Z";
 }
 
 function sessionNotFound(
-  provider: ProviderKind,
+  provider: ProviderDriverKind,
   threadId: ThreadId,
 ): ProviderAdapterSessionNotFoundError {
   return new ProviderAdapterSessionNotFoundError({
@@ -220,7 +217,7 @@ function sessionNotFound(
 }
 
 function missingSessionEffect(
-  provider: ProviderKind,
+  provider: ProviderDriverKind,
   threadId: ThreadId,
 ): Effect.Effect<never, ProviderAdapterError> {
   return Effect.fail(sessionNotFound(provider, threadId));
@@ -228,8 +225,9 @@ function missingSessionEffect(
 
 export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapterHarnessOptions) =>
   Effect.gen(function* () {
-    const provider = options?.provider ?? "codex";
-    const runtimeEvents = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+    const provider = options?.provider ?? ProviderDriverKind.make("codex");
+    const crypto = yield* Crypto.Crypto;
+    const runtimeEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
     let sessionCount = 0;
     const sessions = new Map<ThreadId, SessionState>();
     const queuedResponsesForNextSession: TestTurnResponse[] = [];
@@ -243,7 +241,19 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       }>
     >();
 
-    const emit = (event: ProviderRuntimeEvent) => PubSub.publish(runtimeEvents, event);
+    const emit = (event: ProviderRuntimeEvent) => Queue.offer(runtimeEvents, event);
+    const randomUUIDv4 = (threadId: ThreadId) =>
+      crypto.randomUUIDv4.pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAdapterValidationError({
+              provider,
+              operation: "crypto/randomUUIDv4",
+              issue: `Failed to generate test runtime identifier for thread '${threadId}'.`,
+              cause,
+            }),
+        ),
+      );
 
     const startSession: ProviderAdapterShape<ProviderAdapterError>["startSession"] = (input) =>
       Effect.gen(function* () {
@@ -261,6 +271,9 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
 
         const session: ProviderSession = {
           provider,
+          ...(input.providerInstanceId !== undefined
+            ? { providerInstanceId: input.providerInstanceId }
+            : {}),
           status: "ready",
           runtimeMode: input.runtimeMode,
           threadId,
@@ -272,7 +285,6 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
 
         sessions.set(threadId, {
           session,
-          lifecycleGeneration: input.lifecycleGeneration,
           snapshot: {
             threadId,
             turns: [],
@@ -280,7 +292,6 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
           turnCount: 0,
           queuedResponses: queuedResponsesForNextSession.splice(0),
           rollbackCalls: [],
-          deferredCompletionEvents: [],
         });
 
         return session;
@@ -295,7 +306,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
 
         state.turnCount += 1;
         const turnCount = state.turnCount;
-        const turnId = TurnId.makeUnsafe(`turn-${turnCount}`);
+        const turnId = TurnId.make(`turn-${turnCount}`);
 
         const response = state.queuedResponses.shift();
         if (!response) {
@@ -311,13 +322,9 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
         for (const fixtureEvent of response.events) {
           const rawEvent: Record<string, unknown> = {
             ...(fixtureEvent as Record<string, unknown>),
-            eventId: randomUUID(),
+            eventId: yield* randomUUIDv4(input.threadId),
             provider,
-            sessionId: RuntimeSessionId.makeUnsafe(String(input.threadId)),
-            createdAt: nowIso(),
-            ...(state.lifecycleGeneration !== undefined
-              ? { lifecycleGeneration: state.lifecycleGeneration }
-              : {}),
+            sessionId: RuntimeSessionId.make(String(input.threadId)),
           };
           rawEvent.threadId = state.snapshot.threadId;
           if (Object.hasOwn(rawEvent, "turnId")) {
@@ -369,12 +376,10 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
           turns: [...state.snapshot.turns, nextTurn],
         };
 
-        if (response.deferCompletion) {
-          state.deferredCompletionEvents = deferredTurnCompletedEvents;
-        } else if (deferredTurnCompletedEvents.length === 0) {
+        if (deferredTurnCompletedEvents.length === 0) {
           yield* emit({
             type: "turn.completed",
-            eventId: EventId.makeUnsafe(randomUUID()),
+            eventId: EventId.make(yield* randomUUIDv4(input.threadId)),
             provider,
             createdAt: nowIso(),
             threadId: state.snapshot.threadId,
@@ -411,41 +416,18 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       threadId,
       requestId,
       decision,
-    ) => {
-      const state = sessions.get(threadId);
-      if (!state) {
-        return missingSessionEffect(provider, threadId);
-      }
-      return Effect.gen(function* () {
-        yield* Effect.sync(() => {
-          const existing = approvalResponsesBySession.get(threadId) ?? [];
-          existing.push({
-            threadId,
-            requestId,
-            decision,
-          });
-          approvalResponsesBySession.set(threadId, existing);
-        });
-        yield* emit({
-          type: "request.resolved",
-          eventId: EventId.makeUnsafe(randomUUID()),
-          provider,
-          createdAt: nowIso(),
-          threadId,
-          requestId: RuntimeRequestId.makeUnsafe(requestId),
-          ...(state.lifecycleGeneration !== undefined
-            ? { lifecycleGeneration: state.lifecycleGeneration }
-            : {}),
-          payload: {
-            requestType: "unknown",
-            decision,
-          },
-        });
-        const deferredCompletionEvents = state.deferredCompletionEvents;
-        state.deferredCompletionEvents = [];
-        yield* Effect.forEach(deferredCompletionEvents, emit, { discard: true });
-      });
-    };
+    ) =>
+      sessions.has(threadId)
+        ? Effect.sync(() => {
+            const existing = approvalResponsesBySession.get(threadId) ?? [];
+            existing.push({
+              threadId,
+              requestId,
+              decision,
+            });
+            approvalResponsesBySession.set(threadId, existing);
+          })
+        : missingSessionEffect(provider, threadId);
 
     const respondToUserInput: ProviderAdapterShape<ProviderAdapterError>["respondToUserInput"] = (
       threadId,
@@ -522,7 +504,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       readThread,
       rollbackThread,
       stopAll,
-      streamEvents: Stream.fromPubSub(runtimeEvents),
+      streamEvents: Stream.fromQueue(runtimeEvents),
     };
 
     const queueTurnResponse = (

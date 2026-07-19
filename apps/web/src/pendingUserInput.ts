@@ -1,9 +1,4 @@
-// FILE: pendingUserInput.ts
-// Purpose: Normalize draft answers and progress for pending user input prompts.
-// Layer: Web chat state utility
-// Exports: Draft answer helpers and progress derivation used by ChatView/composer panels.
-
-import type { ProviderUserInputAnswers, UserInputQuestion } from "@synara/contracts";
+import type { UserInputQuestion } from "@t3tools/contracts";
 
 export interface PendingUserInputDraftAnswer {
   selectedOptionLabels?: string[];
@@ -33,16 +28,19 @@ function normalizeDraftAnswer(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-// Normalize option selections so UI and submit logic can share one canonical list.
 function normalizeSelectedOptionLabels(value: string[] | undefined): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
-  const normalized = value
-    .filter((entry): entry is string => typeof entry === "string")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (trimmed.length > 0) {
+      normalized.push(trimmed);
+    }
+  }
 
   return Array.from(new Set(normalized));
 }
@@ -79,7 +77,6 @@ export function setPendingUserInputCustomAnswer(
   };
 }
 
-// Toggle selections in-place so multi-select prompts can keep the same draft state shape.
 export function togglePendingUserInputOptionSelection(
   question: UserInputQuestion,
   draft: PendingUserInputDraftAnswer | undefined,
@@ -120,33 +117,6 @@ export function buildPendingUserInputAnswers(
   }
 
   return answers;
-}
-
-export function hasCompletePendingUserInputAnswers(answers: ProviderUserInputAnswers): boolean {
-  const entries = Object.entries(answers);
-  if (entries.length === 0) {
-    return false;
-  }
-
-  return entries.every(([, answer]) => {
-    if (typeof answer === "string") {
-      return answer.trim().length > 0;
-    }
-
-    if (Array.isArray(answer)) {
-      return answer.some((entry) => typeof entry === "string" && entry.trim().length > 0);
-    }
-
-    return false;
-  });
-}
-
-export function omitNullPendingUserInputAnswers(
-  answers: ProviderUserInputAnswers,
-): ProviderUserInputAnswers {
-  return Object.fromEntries(
-    Object.entries(answers).filter(([, answer]) => answer !== null && answer !== undefined),
-  );
 }
 
 export function countAnsweredPendingUserInputQuestions(

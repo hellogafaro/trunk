@@ -1,22 +1,48 @@
+import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import type * as EffectAcpSchema from "effect-acp/schema";
-import type {
-  RuntimeContentStreamKind,
-  ThreadTokenUsageSnapshot,
-  ToolLifecycleItemType,
-} from "@synara/contracts";
-import { summarizeToolRawOutput } from "@synara/shared/toolOutputSummary";
-
-import { computeUsagePercent, nonNegativeInteger, positiveInteger } from "../tokenUsage.ts";
-
-type AcpTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
+import { deriveToolActivityPresentation } from "@t3tools/shared/toolActivity";
+import type { ToolLifecycleItemType } from "@t3tools/contracts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function trimNonEmpty(value: string | null | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
+function isSessionModelState(value: unknown): value is EffectAcpSchema.SessionModelState {
+  if (!isRecord(value) || typeof value.currentModelId !== "string") {
+    return false;
+  }
+  if (!Array.isArray(value.availableModels)) {
+    return false;
+  }
+  return value.availableModels.every(
+    (model) =>
+      isRecord(model) &&
+      typeof model.modelId === "string" &&
+      typeof model.name === "string" &&
+      (model.description === undefined ||
+        model.description === null ||
+        typeof model.description === "string"),
+  );
+}
+
+function isSessionModeState(value: unknown): value is EffectAcpSchema.SessionModeState {
+  if (!isRecord(value) || typeof value.currentModeId !== "string") {
+    return false;
+  }
+  if (!Array.isArray(value.availableModes)) {
+    return false;
+  }
+  return value.availableModes.every(
+    (mode) =>
+      isRecord(mode) &&
+      typeof mode.id === "string" &&
+      typeof mode.name === "string" &&
+      (mode.description === undefined || typeof mode.description === "string"),
+  );
 }
 
 export interface AcpSessionMode {
@@ -81,13 +107,6 @@ export type AcpParsedSessionEvent =
       readonly _tag: "ContentDelta";
       readonly itemId?: string;
       readonly text: string;
-      readonly streamKind?: AcpTextStreamKind;
-      readonly rawPayload: unknown;
-    }
-  | {
-      readonly _tag: "UsageUpdated";
-      readonly usage: ThreadTokenUsageSnapshot;
-      readonly cost?: EffectAcpSchema.Cost | null | undefined;
       readonly rawPayload: unknown;
     };
 
@@ -146,19 +165,20 @@ export function parseSessionModeState(
   if (!currentModeId) {
     return undefined;
   }
-  const availableModes = modes.availableModes
-    .map((mode) => {
-      const id = mode.id.trim();
-      const name = mode.name.trim();
-      if (!id || !name) {
-        return undefined;
-      }
-      const description = mode.description?.trim() || undefined;
-      return description !== undefined
+  const availableModes: Array<AcpSessionMode> = [];
+  for (const mode of modes.availableModes) {
+    const id = mode.id.trim();
+    const name = mode.name.trim();
+    if (!id || !name) {
+      continue;
+    }
+    const description = mode.description?.trim() || undefined;
+    availableModes.push(
+      description !== undefined
         ? ({ id, name, description } satisfies AcpSessionMode)
-        : ({ id, name } satisfies AcpSessionMode);
-    })
-    .filter((mode): mode is AcpSessionMode => mode !== undefined);
+        : ({ id, name } satisfies AcpSessionMode),
+    );
+  }
   if (availableModes.length === 0) {
     return undefined;
   }
@@ -199,25 +219,6 @@ function normalizeToolCallStatus(
   }
 }
 
-// Converts ACP's unstable usage updates into Synara's context-window snapshot shape.
-function tokenUsageSnapshotFromAcpUsageUpdate(input: {
-  readonly size: unknown;
-  readonly used: unknown;
-}): ThreadTokenUsageSnapshot | undefined {
-  const usedTokens = nonNegativeInteger(input.used);
-  if (usedTokens === undefined) {
-    return undefined;
-  }
-  const maxTokens = positiveInteger(input.size);
-  const usedPercent = computeUsagePercent(usedTokens, maxTokens);
-  return {
-    usedTokens,
-    ...(usedPercent !== undefined ? { usedPercent } : {}),
-    ...(maxTokens !== undefined ? { maxTokens } : {}),
-    compactsAutomatically: true,
-  };
-}
-
 function normalizeCommandValue(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim().length > 0) {
     return value.trim();
@@ -225,9 +226,15 @@ function normalizeCommandValue(value: unknown): string | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
-  const parts = value
-    .map((entry) => (typeof entry === "string" && entry.trim().length > 0 ? entry.trim() : null))
-    .filter((entry): entry is string => entry !== null);
+  const parts: Array<string> = [];
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      const part = entry.trim();
+      if (part.length > 0) {
+        parts.push(part);
+      }
+    }
+  }
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
@@ -261,94 +268,25 @@ function extractTextContentFromToolCallContent(
   content: ReadonlyArray<EffectAcpSchema.ToolCallContent> | null | undefined,
 ): string | undefined {
   if (!content) return undefined;
-  const chunks = content
-    .map((entry) => {
-      if (entry.type !== "content") {
-        return undefined;
-      }
-      const nestedContent = entry.content;
-      if (nestedContent.type !== "text") {
-        return undefined;
-      }
-      return nestedContent.text.trim().length > 0 ? nestedContent.text.trim() : undefined;
-    })
-    .filter((entry): entry is string => entry !== undefined);
-  return chunks.length > 0 ? chunks.join("\n") : undefined;
-}
-
-function summarizeToolCallLocations(
-  locations: ReadonlyArray<EffectAcpSchema.ToolCallLocation> | null | undefined,
-): string | undefined {
-  const paths = (locations ?? [])
-    .map((location) =>
-      location.line === undefined || location.line === null
-        ? location.path.trim()
-        : `${location.path.trim()}:${location.line}`,
-    )
-    .filter((entry) => entry.length > 0);
-  if (paths.length === 0) {
-    return undefined;
-  }
-  return paths.length === 1 ? paths[0] : `${paths[0]} +${paths.length - 1} more`;
-}
-
-function summarizeToolCallContent(
-  content: ReadonlyArray<EffectAcpSchema.ToolCallContent> | null | undefined,
-): string | undefined {
-  for (const entry of content ?? []) {
-    if (entry.type === "diff") {
-      return entry.path.trim() || undefined;
-    }
+  const chunks: Array<string> = [];
+  for (const entry of content) {
     if (entry.type !== "content") {
       continue;
     }
-    const nested = entry.content;
-    if (nested.type === "resource_link") {
-      return (nested.title ?? nested.name ?? nested.uri).trim() || undefined;
+    const nestedContent = entry.content;
+    if (nestedContent.type !== "text") {
+      continue;
     }
-    if (nested.type === "resource") {
-      const resource = nested.resource;
-      const uri = "uri" in resource && typeof resource.uri === "string" ? resource.uri.trim() : "";
-      return uri || undefined;
+    const text = nestedContent.text.trim();
+    if (text.length > 0) {
+      chunks.push(text);
     }
   }
-  return extractTextContentFromToolCallContent(content);
-}
-
-function isProviderGenericToolTitle(title: string | undefined, kind: string | undefined): boolean {
-  const normalized = title?.toLowerCase().replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return false;
-  }
-  if (normalized === "tool" || normalized === "terminal" || normalized === "tool call") {
-    return true;
-  }
-  if (kind === "search" && normalized === "find") {
-    return true;
-  }
-  if (kind === "read" && (normalized === "read" || normalized === "read file")) {
-    return true;
-  }
-  return false;
+  return chunks.length > 0 ? chunks.join("\n") : undefined;
 }
 
 function normalizeToolKind(kind: unknown): string | undefined {
   return typeof kind === "string" && kind.trim().length > 0 ? kind.trim() : undefined;
-}
-
-function inferToolKindFromProviderTitle(title: string | undefined): string | undefined {
-  const normalized = title?.toLowerCase().replace(/\s+/g, " ").trim();
-  switch (normalized) {
-    case "find":
-      return "search";
-    case "read":
-    case "read file":
-      return "read";
-    case "terminal":
-      return "execute";
-    default:
-      return undefined;
-  }
 }
 
 function canonicalItemTypeFromAcpToolKind(kind: string | undefined): ToolLifecycleItemType {
@@ -359,49 +297,12 @@ function canonicalItemTypeFromAcpToolKind(kind: string | undefined): ToolLifecyc
     case "delete":
     case "move":
       return "file_change";
+    case "search":
     case "fetch":
       return "web_search";
-    case "search":
     default:
       return "dynamic_tool_call";
   }
-}
-
-function deriveGenericToolActionTitle(
-  kind: string | undefined,
-  status: "pending" | "inProgress" | "completed" | "failed" | undefined,
-): string | undefined {
-  const running = status === "pending" || status === "inProgress" || status === undefined;
-  switch (kind) {
-    case "execute":
-      return "Ran command";
-    case "edit":
-      return running ? "Editing" : "Edited";
-    case "delete":
-      return running ? "Deleting" : "Deleted";
-    case "move":
-      return running ? "Moving" : "Moved";
-    case "search":
-      return running ? "Searching" : "Searched";
-    case "fetch":
-      return running ? "Fetching" : "Fetched";
-    case "read":
-      return running ? "Reading" : "Read";
-    default:
-      return undefined;
-  }
-}
-
-function deriveToolActivityPresentation(input: {
-  readonly itemType: ToolLifecycleItemType;
-  readonly title?: string;
-  readonly detail?: string;
-  readonly data: Record<string, unknown>;
-  readonly fallbackSummary: string;
-}): { readonly summary: string; readonly detail?: string } {
-  const summary = input.title?.trim() || input.fallbackSummary;
-  const detail = input.detail?.trim();
-  return detail ? { summary, detail } : { summary };
 }
 
 function makeToolCallState(
@@ -426,16 +327,12 @@ function makeToolCallState(
   const title = input.title?.trim() || undefined;
   const command = extractToolCallCommand(input.rawInput, title);
   const textContent = extractTextContentFromToolCallContent(input.content);
-  const structuredContent = summarizeToolCallContent(input.content);
-  const locationDetail = summarizeToolCallLocations(input.locations);
-  const outputDetail = summarizeToolRawOutput(input.rawOutput);
-  const status = normalizeToolCallStatus(input.status, options?.fallbackStatus);
-  const kind = normalizeToolKind(input.kind) ?? inferToolKindFromProviderTitle(title);
   const normalizedTitle =
     title && title.toLowerCase() !== "terminal" && title.toLowerCase() !== "tool call"
       ? title
       : undefined;
   const data: Record<string, unknown> = { toolCallId };
+  const kind = normalizeToolKind(input.kind);
   if (kind) {
     data.kind = kind;
   }
@@ -454,38 +351,23 @@ function makeToolCallState(
   if (input.locations !== undefined) {
     data.locations = input.locations;
   }
-  const kindSpecificTitleIsGeneric = isProviderGenericToolTitle(title, kind);
-  const fallbackDetail =
-    command ??
-    locationDetail ??
-    structuredContent ??
-    outputDetail ??
-    (kindSpecificTitleIsGeneric ? undefined : normalizedTitle) ??
-    textContent;
-  const actionTitle = deriveGenericToolActionTitle(kind, status);
+  const fallbackDetail = command ?? normalizedTitle ?? textContent;
   const hasPresentationSeed =
     title !== undefined ||
     kind !== undefined ||
     command !== undefined ||
-    locationDetail !== undefined ||
-    structuredContent !== undefined ||
-    outputDetail !== undefined ||
     normalizedTitle !== undefined ||
     textContent !== undefined;
-  const itemType = canonicalItemTypeFromAcpToolKind(kind);
   const presentation = hasPresentationSeed
     ? deriveToolActivityPresentation({
-        itemType,
+        itemType: canonicalItemTypeFromAcpToolKind(kind),
+        title,
+        detail: fallbackDetail,
         data,
-        fallbackSummary: actionTitle ?? (itemType === "command_execution" ? "Ran command" : "Tool"),
-        ...(normalizedTitle !== undefined && !kindSpecificTitleIsGeneric
-          ? { title: normalizedTitle }
-          : actionTitle !== undefined
-            ? { title: actionTitle }
-            : {}),
-        ...(fallbackDetail !== undefined ? { detail: fallbackDetail } : {}),
+        fallbackSummary: title ?? "Tool",
       })
     : undefined;
+  const status = normalizeToolCallStatus(input.status, options?.fallbackStatus);
   return {
     toolCallId,
     ...(kind ? { kind } : {}),
@@ -524,12 +406,8 @@ export function mergeToolCallState(
 ): AcpToolCallState {
   const nextKind = typeof next.data.kind === "string" ? next.data.kind : undefined;
   const kind = nextKind ?? previous?.kind;
+  const title = next.title ?? previous?.title;
   const status = next.status ?? previous?.status;
-  const nextTitleIsGeneric = isProviderGenericToolTitle(next.title, kind);
-  const actionTitle = nextTitleIsGeneric ? deriveGenericToolActionTitle(kind, status) : undefined;
-  const title = nextTitleIsGeneric
-    ? (actionTitle ?? previous?.title ?? next.title)
-    : (next.title ?? previous?.title);
   const command = next.command ?? previous?.command;
   const detail = next.detail ?? previous?.detail;
   return {
@@ -572,6 +450,58 @@ export function parsePermissionRequest(
     kind,
     ...(detail ? { detail } : {}),
     ...(toolCall ? { toolCall } : {}),
+  };
+}
+
+export function sessionUpdateIsReplay(params: EffectAcpSchema.SessionNotification): boolean {
+  const meta = params._meta;
+  return isRecord(meta) && meta.isReplay === true;
+}
+
+export interface SessionLoadGate {
+  readonly active: boolean;
+  readonly lastActivityAtMillis: number | undefined;
+  readonly idleGap: Duration.Duration;
+  readonly initializeResult: EffectAcpSchema.InitializeResponse;
+}
+
+export const waitForSessionLoadReplayIdle = (input: {
+  readonly gateRef: Ref.Ref<Option.Option<SessionLoadGate>>;
+}): Effect.Effect<EffectAcpSchema.LoadSessionResponse, never> =>
+  Effect.gen(function* () {
+    const pollInterval = Duration.millis(25);
+    while (true) {
+      const gate = yield* Ref.get(input.gateRef);
+      if (
+        Option.isSome(gate) &&
+        gate.value.active &&
+        gate.value.lastActivityAtMillis !== undefined
+      ) {
+        const idleGapMillis = Duration.toMillis(gate.value.idleGap);
+        const nowMillis = yield* Clock.currentTimeMillis;
+        if (nowMillis - gate.value.lastActivityAtMillis >= idleGapMillis) {
+          return syntheticLoadSessionResponseFromInitialize(gate.value.initializeResult);
+        }
+      }
+      yield* Effect.sleep(pollInterval);
+    }
+  });
+
+export function syntheticLoadSessionResponseFromInitialize(
+  initializeResult: EffectAcpSchema.InitializeResponse,
+): EffectAcpSchema.LoadSessionResponse {
+  const meta = initializeResult._meta;
+  const modelState = isRecord(meta) ? meta.modelState : undefined;
+  const modeState = isRecord(meta) ? meta.modeState : undefined;
+  const models = isSessionModelState(modelState) ? modelState : undefined;
+  const modes = isSessionModeState(modeState) ? modeState : undefined;
+
+  return {
+    ...(models ? { models } : {}),
+    ...(modes ? { modes } : {}),
+    _meta: {
+      t3SessionLoadReady: "replay_idle",
+    },
   };
 }
 
@@ -636,40 +566,9 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
     }
     case "agent_message_chunk": {
       if (upd.content.type === "text" && upd.content.text.length > 0) {
-        const itemId = trimNonEmpty(upd.messageId);
         events.push({
           _tag: "ContentDelta",
-          ...(itemId ? { itemId } : {}),
           text: upd.content.text,
-          streamKind: "assistant_text",
-          rawPayload: params,
-        });
-      }
-      break;
-    }
-    case "agent_thought_chunk": {
-      if (upd.content.type === "text" && upd.content.text.length > 0) {
-        const itemId = trimNonEmpty(upd.messageId);
-        events.push({
-          _tag: "ContentDelta",
-          ...(itemId ? { itemId } : {}),
-          text: upd.content.text,
-          streamKind: "reasoning_text",
-          rawPayload: params,
-        });
-      }
-      break;
-    }
-    case "usage_update": {
-      const usage = tokenUsageSnapshotFromAcpUsageUpdate({
-        size: upd.size,
-        used: upd.used,
-      });
-      if (usage) {
-        events.push({
-          _tag: "UsageUpdated",
-          usage,
-          ...(upd.cost !== undefined ? { cost: upd.cost } : {}),
           rawPayload: params,
         });
       }

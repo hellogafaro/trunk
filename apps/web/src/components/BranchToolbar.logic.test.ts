@@ -1,27 +1,34 @@
-import type { GitBranch } from "@synara/contracts";
-import { describe, expect, it } from "vitest";
+import { EnvironmentId, type VcsRef } from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
 import {
   dedupeRemoteBranchesWithLocalMatches,
   deriveLocalBranchNameFromRemoteRef,
+  resolveEnvironmentOptionLabel,
   resolveBranchSelectionTarget,
-  resolveAssociatedWorktreeMetadataAfterWorkspacePatch,
+  resolveCurrentWorkspaceLabel,
   resolveDraftEnvModeAfterBranchChange,
+  resolveEffectiveEnvMode,
+  resolveEnvModeLabel,
   resolveBranchToolbarValue,
-  shouldSyncLocalThreadBranch,
+  resolveLockedWorkspaceLabel,
+  shouldIncludeBranchPickerItem,
 } from "./BranchToolbar.logic";
+
+const localEnvironmentId = EnvironmentId.make("environment-local");
+const remoteEnvironmentId = EnvironmentId.make("environment-remote");
 
 describe("resolveDraftEnvModeAfterBranchChange", () => {
   it("switches to local mode when returning from an existing worktree to the main worktree", () => {
     expect(
       resolveDraftEnvModeAfterBranchChange({
         nextWorktreePath: null,
-        currentWorktreePath: "/repo/.synara/worktrees/feature-a",
+        currentWorktreePath: "/repo/.t3/worktrees/feature-a",
         effectiveEnvMode: "worktree",
       }),
     ).toBe("local");
   });
 
-  it("keeps new-worktree mode when selecting a base branch before worktree creation", () => {
+  it("keeps new-worktree mode when selecting a base ref before worktree creation", () => {
     expect(
       resolveDraftEnvModeAfterBranchChange({
         nextWorktreePath: null,
@@ -31,20 +38,10 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
     ).toBe("worktree");
   });
 
-  it("uses worktree mode when selecting a branch already attached to a worktree", () => {
+  it("uses worktree mode when selecting a ref already attached to a worktree", () => {
     expect(
       resolveDraftEnvModeAfterBranchChange({
-        nextWorktreePath: "/repo/.synara/worktrees/feature-a",
-        currentWorktreePath: null,
-        effectiveEnvMode: "local",
-      }),
-    ).toBe("worktree");
-  });
-
-  it("keeps legacy .synara worktree paths working for migrated threads", () => {
-    expect(
-      resolveDraftEnvModeAfterBranchChange({
-        nextWorktreePath: "/repo/.synara/worktrees/feature-a",
+        nextWorktreePath: "/repo/.t3/worktrees/feature-a",
         currentWorktreePath: null,
         effectiveEnvMode: "local",
       }),
@@ -53,7 +50,7 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
 });
 
 describe("resolveBranchToolbarValue", () => {
-  it("defaults new-worktree mode to current git branch when no explicit base branch is set", () => {
+  it("defaults new-worktree mode to current git ref when no explicit base ref is set", () => {
     expect(
       resolveBranchToolbarValue({
         envMode: "worktree",
@@ -64,7 +61,7 @@ describe("resolveBranchToolbarValue", () => {
     ).toBe("main");
   });
 
-  it("keeps an explicitly selected worktree base branch", () => {
+  it("keeps an explicitly selected worktree base ref", () => {
     expect(
       resolveBranchToolbarValue({
         envMode: "worktree",
@@ -75,7 +72,7 @@ describe("resolveBranchToolbarValue", () => {
     ).toBe("feature/base");
   });
 
-  it("shows the actual checked-out branch when not selecting a new worktree base", () => {
+  it("shows the actual checked-out ref when not selecting a new worktree base", () => {
     expect(
       resolveBranchToolbarValue({
         envMode: "local",
@@ -87,121 +84,87 @@ describe("resolveBranchToolbarValue", () => {
   });
 });
 
-describe("shouldSyncLocalThreadBranch", () => {
-  it("syncs stale local thread metadata to the concrete git checkout", () => {
+describe("resolveEnvironmentOptionLabel", () => {
+  it("prefers the primary environment's machine label", () => {
     expect(
-      shouldSyncLocalThreadBranch({
-        envMode: "local",
-        activeWorktreePath: null,
-        activeThreadBranch: "synara/pi",
-        currentGitBranch: "main",
-        hasServerThread: true,
-        isBranchActionPending: false,
+      resolveEnvironmentOptionLabel({
+        isPrimary: true,
+        environmentId: localEnvironmentId,
+        runtimeLabel: "Julius's Mac mini",
+        savedLabel: "Local environment",
       }),
-    ).toBe(true);
+    ).toBe("Julius's Mac mini");
   });
 
-  it("does not sync while a branch action is pending", () => {
+  it("falls back to 'This device' for generic primary labels", () => {
     expect(
-      shouldSyncLocalThreadBranch({
-        envMode: "local",
-        activeWorktreePath: null,
-        activeThreadBranch: "synara/pi",
-        currentGitBranch: "main",
-        hasServerThread: true,
-        isBranchActionPending: true,
+      resolveEnvironmentOptionLabel({
+        isPrimary: true,
+        environmentId: localEnvironmentId,
+        runtimeLabel: "Local environment",
+        savedLabel: "Local",
       }),
-    ).toBe(false);
+    ).toBe("This device");
   });
 
-  it("does not materialize the git checkout branch into an intentionally branchless local draft", () => {
+  it("keeps configured labels for non-primary environments", () => {
     expect(
-      shouldSyncLocalThreadBranch({
-        envMode: "local",
-        activeWorktreePath: null,
-        activeThreadBranch: null,
-        currentGitBranch: "main",
-        hasServerThread: false,
-        isBranchActionPending: false,
+      resolveEnvironmentOptionLabel({
+        isPrimary: false,
+        environmentId: remoteEnvironmentId,
+        runtimeLabel: null,
+        savedLabel: "Build box",
       }),
-    ).toBe(false);
-  });
-
-  it("syncs missing branch metadata for local server threads", () => {
-    expect(
-      shouldSyncLocalThreadBranch({
-        envMode: "local",
-        activeWorktreePath: null,
-        activeThreadBranch: null,
-        currentGitBranch: "main",
-        hasServerThread: true,
-        isBranchActionPending: false,
-      }),
-    ).toBe(true);
-  });
-
-  it("keeps explicit base branch selection in new-worktree mode", () => {
-    expect(
-      shouldSyncLocalThreadBranch({
-        envMode: "worktree",
-        activeWorktreePath: null,
-        activeThreadBranch: "feature/base",
-        currentGitBranch: "main",
-        hasServerThread: true,
-        isBranchActionPending: false,
-      }),
-    ).toBe(false);
+    ).toBe("Build box");
   });
 });
 
-describe("resolveAssociatedWorktreeMetadataAfterWorkspacePatch", () => {
-  it("preserves associated worktree metadata during local branch-only syncs", () => {
+describe("resolveEffectiveEnvMode", () => {
+  it("treats draft threads already attached to a worktree as current-checkout mode", () => {
     expect(
-      resolveAssociatedWorktreeMetadataAfterWorkspacePatch({
-        branch: "main",
-        worktreePath: null,
-        existingAssociatedWorktreePath: "/repo/.worktrees/synara-pi",
-        existingAssociatedWorktreeBranch: "synara/pi",
-        existingAssociatedWorktreeRef: "synara/pi",
+      resolveEffectiveEnvMode({
+        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        hasServerThread: false,
+        draftThreadEnvMode: "worktree",
       }),
-    ).toEqual({
-      associatedWorktreePath: "/repo/.worktrees/synara-pi",
-      associatedWorktreeBranch: "synara/pi",
-      associatedWorktreeRef: "synara/pi",
-    });
+    ).toBe("local");
   });
 
-  it("derives associated metadata from an active worktree checkout", () => {
+  it("keeps explicit new-worktree mode for draft threads without a worktree path", () => {
     expect(
-      resolveAssociatedWorktreeMetadataAfterWorkspacePatch({
-        branch: "feature/worktree",
-        worktreePath: "/repo/.worktrees/feature-worktree",
-        existingAssociatedWorktreePath: "/repo/.worktrees/old",
-        existingAssociatedWorktreeBranch: "old",
-        existingAssociatedWorktreeRef: "old",
+      resolveEffectiveEnvMode({
+        activeWorktreePath: null,
+        hasServerThread: false,
+        draftThreadEnvMode: "worktree",
       }),
-    ).toEqual({
-      associatedWorktreePath: "/repo/.worktrees/feature-worktree",
-      associatedWorktreeBranch: "feature/worktree",
-      associatedWorktreeRef: "feature/worktree",
-    });
+    ).toBe("worktree");
+  });
+});
+
+describe("resolveEnvModeLabel", () => {
+  it("uses explicit workspace labels", () => {
+    expect(resolveEnvModeLabel("local")).toBe("Current checkout");
+    expect(resolveEnvModeLabel("worktree")).toBe("New worktree");
+  });
+});
+
+describe("resolveCurrentWorkspaceLabel", () => {
+  it("describes the main repo checkout when no worktree path is active", () => {
+    expect(resolveCurrentWorkspaceLabel(null)).toBe("Current checkout");
   });
 
-  it("lets explicit associated branch patches update the associated ref", () => {
-    expect(
-      resolveAssociatedWorktreeMetadataAfterWorkspacePatch({
-        branch: "main",
-        worktreePath: null,
-        existingAssociatedWorktreePath: "/repo/.worktrees/synara-pi",
-        existingAssociatedWorktreeBranch: "synara/pi",
-        existingAssociatedWorktreeRef: "synara/pi",
-        patchAssociatedWorktreeBranch: "feature/new-pair",
-      }),
-    ).toEqual({
-      associatedWorktreePath: "/repo/.worktrees/synara-pi",
-      associatedWorktreeBranch: "feature/new-pair",
-      associatedWorktreeRef: "feature/new-pair",
-    });
+  it("describes the active checkout as a worktree when one is attached", () => {
+    expect(resolveCurrentWorkspaceLabel("/repo/.t3/worktrees/feature-a")).toBe("Current worktree");
+  });
+});
+
+describe("resolveLockedWorkspaceLabel", () => {
+  it("uses a shorter label for the main repo checkout", () => {
+    expect(resolveLockedWorkspaceLabel(null)).toBe("Local checkout");
+  });
+
+  it("uses a shorter label for an attached worktree", () => {
+    expect(resolveLockedWorkspaceLabel("/repo/.t3/worktrees/feature-a")).toBe("Worktree");
   });
 });
 
@@ -223,8 +186,8 @@ describe("deriveLocalBranchNameFromRemoteRef", () => {
 });
 
 describe("dedupeRemoteBranchesWithLocalMatches", () => {
-  it("hides remote refs when the matching local branch exists", () => {
-    const input: GitBranch[] = [
+  it("hides remote refs when the matching local ref exists", () => {
+    const input: VcsRef[] = [
       {
         name: "feature/demo",
         current: false,
@@ -249,14 +212,14 @@ describe("dedupeRemoteBranchesWithLocalMatches", () => {
       },
     ];
 
-    expect(dedupeRemoteBranchesWithLocalMatches(input).map((branch) => branch.name)).toEqual([
+    expect(dedupeRemoteBranchesWithLocalMatches(input).map((ref) => ref.name)).toEqual([
       "feature/demo",
       "origin/feature/remote-only",
     ]);
   });
 
   it("keeps all entries when no local match exists for a remote ref", () => {
-    const input: GitBranch[] = [
+    const input: VcsRef[] = [
       {
         name: "feature/local",
         current: false,
@@ -273,14 +236,14 @@ describe("dedupeRemoteBranchesWithLocalMatches", () => {
       },
     ];
 
-    expect(dedupeRemoteBranchesWithLocalMatches(input).map((branch) => branch.name)).toEqual([
+    expect(dedupeRemoteBranchesWithLocalMatches(input).map((ref) => ref.name)).toEqual([
       "feature/local",
       "origin/feature/remote-only",
     ]);
   });
 
-  it("keeps non-origin remote refs visible even when a matching local branch exists", () => {
-    const input: GitBranch[] = [
+  it("keeps non-origin remote refs visible even when a matching local ref exists", () => {
+    const input: VcsRef[] = [
       {
         name: "feature/demo",
         current: false,
@@ -297,14 +260,14 @@ describe("dedupeRemoteBranchesWithLocalMatches", () => {
       },
     ];
 
-    expect(dedupeRemoteBranchesWithLocalMatches(input).map((branch) => branch.name)).toEqual([
+    expect(dedupeRemoteBranchesWithLocalMatches(input).map((ref) => ref.name)).toEqual([
       "feature/demo",
       "my-org/upstream/feature/demo",
     ]);
   });
 
   it("keeps non-origin remote refs visible when git tracks with first-slash local naming", () => {
-    const input: GitBranch[] = [
+    const input: VcsRef[] = [
       {
         name: "upstream/feature",
         current: false,
@@ -321,7 +284,7 @@ describe("dedupeRemoteBranchesWithLocalMatches", () => {
       },
     ];
 
-    expect(dedupeRemoteBranchesWithLocalMatches(input).map((branch) => branch.name)).toEqual([
+    expect(dedupeRemoteBranchesWithLocalMatches(input).map((ref) => ref.name)).toEqual([
       "upstream/feature",
       "my-org/upstream/feature",
     ]);
@@ -329,29 +292,29 @@ describe("dedupeRemoteBranchesWithLocalMatches", () => {
 });
 
 describe("resolveBranchSelectionTarget", () => {
-  it("reuses an existing secondary worktree for the selected branch", () => {
+  it("reuses an existing secondary worktree for the selected ref", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
-        activeWorktreePath: "/repo/.synara/worktrees/feature-a",
-        branch: {
+        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        refName: {
           isDefault: false,
-          worktreePath: "/repo/.synara/worktrees/feature-b",
+          worktreePath: "/repo/.t3/worktrees/feature-b",
         },
       }),
     ).toEqual({
-      checkoutCwd: "/repo/.synara/worktrees/feature-b",
-      nextWorktreePath: "/repo/.synara/worktrees/feature-b",
+      checkoutCwd: "/repo/.t3/worktrees/feature-b",
+      nextWorktreePath: "/repo/.t3/worktrees/feature-b",
       reuseExistingWorktree: true,
     });
   });
 
-  it("switches back to the main repo when the branch already lives there", () => {
+  it("switches back to the main repo when the ref already lives there", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
-        activeWorktreePath: "/repo/.synara/worktrees/feature-a",
-        branch: {
+        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        refName: {
           isDefault: true,
           worktreePath: "/repo",
         },
@@ -363,12 +326,12 @@ describe("resolveBranchSelectionTarget", () => {
     });
   });
 
-  it("checks out the default branch in the main repo when leaving a secondary worktree", () => {
+  it("checks out the default ref in the main repo when leaving a secondary worktree", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
-        activeWorktreePath: "/repo/.synara/worktrees/feature-a",
-        branch: {
+        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        refName: {
           isDefault: true,
           worktreePath: null,
         },
@@ -380,20 +343,55 @@ describe("resolveBranchSelectionTarget", () => {
     });
   });
 
-  it("keeps checkout in the current worktree for non-default branches", () => {
+  it("keeps checkout in the current worktree for non-default refs", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
-        activeWorktreePath: "/repo/.synara/worktrees/feature-a",
-        branch: {
+        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        refName: {
           isDefault: false,
           worktreePath: null,
         },
       }),
     ).toEqual({
-      checkoutCwd: "/repo/.synara/worktrees/feature-a",
-      nextWorktreePath: "/repo/.synara/worktrees/feature-a",
+      checkoutCwd: "/repo/.t3/worktrees/feature-a",
+      nextWorktreePath: "/repo/.t3/worktrees/feature-a",
       reuseExistingWorktree: false,
     });
+  });
+});
+
+describe("shouldIncludeBranchPickerItem", () => {
+  it("keeps the synthetic checkout PR item visible for gh pr checkout input", () => {
+    expect(
+      shouldIncludeBranchPickerItem({
+        itemValue: "__checkout_pull_request__:1359",
+        normalizedQuery: "gh pr checkout 1359",
+        createBranchItemValue: "__create_new_branch__:gh pr checkout 1359",
+        checkoutPullRequestItemValue: "__checkout_pull_request__:1359",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the synthetic create-ref item visible for arbitrary ref input", () => {
+    expect(
+      shouldIncludeBranchPickerItem({
+        itemValue: "__create_new_branch__:feature/demo",
+        normalizedQuery: "feature/demo",
+        createBranchItemValue: "__create_new_branch__:feature/demo",
+        checkoutPullRequestItemValue: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("still filters ordinary ref items by query text", () => {
+    expect(
+      shouldIncludeBranchPickerItem({
+        itemValue: "main",
+        normalizedQuery: "gh pr checkout 1359",
+        createBranchItemValue: "__create_new_branch__:gh pr checkout 1359",
+        checkoutPullRequestItemValue: "__checkout_pull_request__:1359",
+      }),
+    ).toBe(false);
   });
 });

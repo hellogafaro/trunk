@@ -1,106 +1,142 @@
-import { describe, expect, it } from "vitest";
+import type { VcsStatusRemoteResult, VcsStatusResult } from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
-  WORKTREE_BRANCH_PREFIX,
-  buildSynaraBranchName,
+  applyGitStatusStreamEvent,
   buildTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
-  resolveUniqueSynaraBranchName,
-  resolveThreadBranchRegressionGuard,
-} from "./git";
+  normalizeGitRemoteUrl,
+  parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
+  WORKTREE_BRANCH_PREFIX,
+} from "./git.ts";
 
-const PRE_CUTOVER_NAMESPACE_FIXTURES = [
-  String.fromCharCode(100, 112, 99, 111, 100, 101),
-  String.fromCharCode(116, 51, 99, 111, 100, 101),
-] as const;
-
-describe("isTemporaryWorktreeBranch", () => {
-  it("matches generated temporary worktree branches", () => {
-    expect(isTemporaryWorktreeBranch(buildTemporaryWorktreeBranchName())).toBe(true);
-  });
-
-  it("matches generated temporary worktree branches", () => {
-    expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef`)).toBe(true);
-    expect(isTemporaryWorktreeBranch(` ${WORKTREE_BRANCH_PREFIX}/DEADBEEF `)).toBe(true);
-  });
-
-  it("keeps recognizing only exact pre-cutover temporary namespaces", () => {
-    for (const namespace of PRE_CUTOVER_NAMESPACE_FIXTURES) {
-      expect(isTemporaryWorktreeBranch(`${namespace}/deadbeef`)).toBe(true);
-      expect(isTemporaryWorktreeBranch(`${namespace}/semantic-branch`)).toBe(false);
-    }
-  });
-
-  it("rejects semantic branch names", () => {
-    expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/feature/demo`)).toBe(false);
-    expect(isTemporaryWorktreeBranch("feature/demo")).toBe(false);
-    expect(isTemporaryWorktreeBranch("feature/deadbeef")).toBe(false);
-    expect(isTemporaryWorktreeBranch("hotfix/deadbeef")).toBe(false);
-    expect(isTemporaryWorktreeBranch("bridge/deadbeef")).toBe(false);
-    expect(isTemporaryWorktreeBranch("bridge/semantic-branch")).toBe(false);
-  });
-});
-
-describe("resolveThreadBranchRegressionGuard", () => {
-  it("keeps a semantic branch when the next branch is only a temporary worktree placeholder", () => {
-    expect(
-      resolveThreadBranchRegressionGuard({
-        currentBranch: "feature/semantic-branch",
-        nextBranch: `${WORKTREE_BRANCH_PREFIX}/deadbeef`,
-      }),
-    ).toBe("feature/semantic-branch");
-  });
-
-  it("accepts real branch changes", () => {
-    expect(
-      resolveThreadBranchRegressionGuard({
-        currentBranch: "feature/old",
-        nextBranch: "feature/new",
-      }),
-    ).toBe("feature/new");
-  });
-
-  it("allows clearing the branch", () => {
-    expect(
-      resolveThreadBranchRegressionGuard({
-        currentBranch: "feature/old",
-        nextBranch: null,
-      }),
-    ).toBeNull();
-  });
-});
-
-describe("buildSynaraBranchName", () => {
-  it("uses synara as the branch namespace", () => {
-    expect(buildSynaraBranchName("fix toast copy")).toBe("synara/fix-toast-copy");
-  });
-
-  it("keeps non-Synara namespaces inside the Synara branch", () => {
-    expect(buildSynaraBranchName("feature/refine-toolbar-actions")).toBe(
-      "synara/feature/refine-toolbar-actions",
+describe("normalizeGitRemoteUrl", () => {
+  it("canonicalizes equivalent GitHub remotes across protocol variants", () => {
+    expect(normalizeGitRemoteUrl("git@github.com:T3Tools/T3Code.git")).toBe(
+      "github.com/t3tools/t3code",
+    );
+    expect(normalizeGitRemoteUrl("https://github.com/T3Tools/T3Code.git")).toBe(
+      "github.com/t3tools/t3code",
+    );
+    expect(normalizeGitRemoteUrl("ssh://git@github.com/T3Tools/T3Code")).toBe(
+      "github.com/t3tools/t3code",
     );
   });
 
-  it("normalizes legacy prefixes before rebuilding the branch", () => {
-    for (const namespace of PRE_CUTOVER_NAMESPACE_FIXTURES) {
-      expect(buildSynaraBranchName(`${namespace}/refine toolbar actions`)).toBe(
-        "synara/refine-toolbar-actions",
-      );
-    }
+  it("preserves nested group paths for providers like GitLab", () => {
+    expect(normalizeGitRemoteUrl("git@gitlab.com:T3Tools/platform/T3Code.git")).toBe(
+      "gitlab.com/t3tools/platform/t3code",
+    );
+    expect(normalizeGitRemoteUrl("https://gitlab.com/T3Tools/platform/T3Code.git")).toBe(
+      "gitlab.com/t3tools/platform/t3code",
+    );
   });
 
-  it("falls back to synara/update when no preferred name is provided", () => {
-    expect(buildSynaraBranchName()).toBe("synara/update");
+  it("drops explicit ports from URL-shaped remotes", () => {
+    expect(normalizeGitRemoteUrl("https://gitlab.company.com:8443/team/project.git")).toBe(
+      "gitlab.company.com/team/project",
+    );
+    expect(normalizeGitRemoteUrl("ssh://git@gitlab.company.com:2222/team/project.git")).toBe(
+      "gitlab.company.com/team/project",
+    );
   });
 });
 
-describe("resolveUniqueSynaraBranchName", () => {
-  it("increments suffix when the Synara branch already exists", () => {
+describe("parseGitHubRepositoryNameWithOwnerFromRemoteUrl", () => {
+  it("extracts the owner and repository from common GitHub remote shapes", () => {
     expect(
-      resolveUniqueSynaraBranchName(
-        ["main", "synara/fix-toast-copy", "synara/fix-toast-copy-2"],
-        "fix toast copy",
+      parseGitHubRepositoryNameWithOwnerFromRemoteUrl("git@github.com:T3Tools/T3Code.git"),
+    ).toBe("T3Tools/T3Code");
+    expect(
+      parseGitHubRepositoryNameWithOwnerFromRemoteUrl("https://github.com/T3Tools/T3Code.git"),
+    ).toBe("T3Tools/T3Code");
+  });
+});
+
+describe("isTemporaryWorktreeBranch", () => {
+  it("matches the generated temporary worktree refName format", () => {
+    expect(
+      isTemporaryWorktreeBranch(
+        buildTemporaryWorktreeBranchName((byteLength) => {
+          expect(byteLength).toBe(4);
+          return "DEADBEEF";
+        }),
       ),
-    ).toBe("synara/fix-toast-copy-3");
+    ).toBe(true);
+  });
+
+  it("matches generated temporary worktree refs", () => {
+    expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef`)).toBe(true);
+    expect(isTemporaryWorktreeBranch(` ${WORKTREE_BRANCH_PREFIX}/deadbeef `)).toBe(true);
+    expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/DEADBEEF`)).toBe(true);
+  });
+
+  it("rejects non-temporary refName names", () => {
+    expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/feature/demo`)).toBe(false);
+    expect(isTemporaryWorktreeBranch("main")).toBe(false);
+    expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef-extra`)).toBe(false);
+  });
+});
+
+describe("applyGitStatusStreamEvent", () => {
+  it("treats a remote-only update as a repository when local state is missing", () => {
+    const remote: VcsStatusRemoteResult = {
+      hasUpstream: true,
+      aheadCount: 2,
+      behindCount: 1,
+      pr: null,
+    };
+
+    expect(applyGitStatusStreamEvent(null, { _tag: "remoteUpdated", remote })).toEqual({
+      isRepo: true,
+      hasPrimaryRemote: false,
+      isDefaultRef: false,
+      refName: null,
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: true,
+      aheadCount: 2,
+      behindCount: 1,
+      pr: null,
+    });
+  });
+
+  it("preserves local-only fields when applying a remote update", () => {
+    const current: VcsStatusResult = {
+      isRepo: true,
+      sourceControlProvider: {
+        kind: "github",
+        name: "GitHub",
+        baseUrl: "https://github.com",
+      },
+      hasPrimaryRemote: true,
+      isDefaultRef: false,
+      refName: "feature/demo",
+      hasWorkingTreeChanges: true,
+      workingTree: {
+        files: [{ path: "src/demo.ts", insertions: 1, deletions: 0 }],
+        insertions: 1,
+        deletions: 0,
+      },
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount: 0,
+      pr: null,
+    };
+
+    const remote: VcsStatusRemoteResult = {
+      hasUpstream: true,
+      aheadCount: 2,
+      behindCount: 1,
+      pr: null,
+    };
+
+    expect(applyGitStatusStreamEvent(current, { _tag: "remoteUpdated", remote })).toEqual({
+      ...current,
+      hasUpstream: true,
+      aheadCount: 2,
+      behindCount: 1,
+      pr: null,
+    });
   });
 });

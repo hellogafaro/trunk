@@ -1,102 +1,71 @@
 /**
- * CursorAdapterLive — Cursor CLI (`cursor-agent acp`) via ACP.
+ * CursorAdapterLive — Cursor CLI (`agent acp`) via ACP.
  *
  * @module CursorAdapterLive
  */
-import * as nodePath from "node:path";
 
 import {
   ApprovalRequestId,
-  type CursorModelOptions,
+  type CursorSettings,
+  type ProviderOptionSelection,
   EventId,
-  type ProviderComposerCapabilities,
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
-  type ProviderListModelsResult,
-  type ProviderListSkillsResult,
   type ProviderRuntimeEvent,
   type ProviderSession,
   type ProviderUserInputAnswers,
+  ProviderDriverKind,
+  ProviderInstanceId,
   RuntimeRequestId,
   type RuntimeMode,
   type ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
-import {
-  DateTime,
-  Deferred,
-  Effect,
-  Exit,
-  Fiber,
-  FileSystem,
-  Layer,
-  Option,
-  PubSub,
-  Random,
-  Scope,
-  Stream,
-} from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import * as Crypto from "effect/Crypto";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as PubSub from "effect/PubSub";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
+import * as SynchronizedRef from "effect/SynchronizedRef";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
-import { ServerConfig, type ServerConfigShape } from "../../config.ts";
-import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
-import { loadProviderPromptImageBlocks } from "../promptAttachments.ts";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import {
-  classifyAcpPromptTurnCompletion,
-  mapAcpToAdapterError,
-  readAcpFailedToolDetail,
-  selectAcpFullAccessPermissionOptionId,
-  selectAcpPermissionOptionId,
-} from "../acp/AcpAdapterSupport.ts";
-import {
-  acceptAcpPlanUpdate,
-  makeAcpThreadLock,
-  readAcpUsdCost,
-  settleAcpPendingApprovalsAsCancelled,
-  settleAcpPendingUserInputsAsEmptyAnswers,
-} from "../acp/AcpAdapterSessionSupport.ts";
-import { type AcpSessionRuntimeShape } from "../acp/AcpSessionRuntime.ts";
+import { acpPermissionOutcome, mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
   makeAcpPlanUpdatedEvent,
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
-  makeAcpTokenUsageEvent,
   makeAcpToolCallEvent,
-  stampAcpRuntimeEventLifecycleGeneration,
 } from "../acp/AcpCoreRuntimeEvents.ts";
 import {
   type AcpSessionMode,
   type AcpSessionModeState,
   parsePermissionRequest,
 } from "../acp/AcpRuntimeModel.ts";
-import { makeAcpNativeLoggers } from "../acp/AcpNativeLogging.ts";
-import {
-  forkAcpTurnIdleWatchdog,
-  resolveAcpTurnIdleTimeoutMs,
-} from "../acp/AcpTurnIdleWatchdog.ts";
-import {
-  applyCursorAcpModelSelection,
-  buildCursorCliModelListCommand,
-  fetchCursorAcpModelDescriptors,
-  makeCursorAcpRuntime,
-  parseCursorCliModelList,
-  resolveCursorAcpBaseModelId,
-  type CursorAcpRuntimeCursorSettings,
-} from "../acp/CursorAcpSupport.ts";
-import {
-  buildCursorAgentHeadlessEnv,
-  resolveCursorAgentBinaryPath,
-} from "../acp/CursorAcpCommand.ts";
+import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
+import { applyCursorAcpModelSelection, makeCursorAcpRuntime } from "../acp/CursorAcpSupport.ts";
 import {
   CursorAskQuestionRequest,
   CursorCreatePlanRequest,
@@ -104,43 +73,44 @@ import {
   extractAskQuestions,
   extractPlanMarkdown,
   extractTodosAsPlan,
-  formatCursorPlanUpdateMarkdown,
 } from "../acp/CursorAcpExtension.ts";
-import { CursorAdapter, type CursorAdapterShape } from "../Services/CursorAdapter.ts";
+import { type CursorAdapterShape } from "../Services/CursorAdapter.ts";
+import { resolveCursorAcpBaseModelId } from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-import { discoverCursorSkills } from "../cursorSkillsDiscovery.ts";
+const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
 
-const PROVIDER = "cursor" as const;
+const PROVIDER = ProviderDriverKind.make("cursor");
 const CURSOR_RESUME_VERSION = 1 as const;
-const CURSOR_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
-// Backstop for an alive-but-silent cursor-agent child: if a turn produces no
-// ACP activity for this long, force-fail it instead of showing "Working"
-// forever. Generous by design; override with SYNARA_CURSOR_TURN_IDLE_TIMEOUT_MS.
-const CURSOR_TURN_IDLE_TIMEOUT_MS = resolveAcpTurnIdleTimeoutMs({
-  envVar: "SYNARA_CURSOR_TURN_IDLE_TIMEOUT_MS",
-  defaultMs: 600_000,
-});
-const CURSOR_TURN_WATCHDOG_INTERVAL_MS = 15_000;
 const ACP_PLAN_MODE_ALIASES = ["plan", "architect"];
 const ACP_IMPLEMENT_MODE_ALIASES = ["code", "agent", "default", "chat", "implement"];
 const ACP_APPROVAL_MODE_ALIASES = ["ask"];
-const CURSOR_PLAN_MODE_PROMPT_PREFIX = [
-  "Synara Cursor plan mode is active.",
-  "Do not implement or mutate files in this turn.",
-  "Do not ask follow-up questions or wait for confirmation; if scope is ambiguous, choose a reasonable default and state the assumption in the plan.",
-  "When ready, create the final implementation plan.",
-].join("\n");
 
-const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
-  Stream.runFold(
-    stream,
-    () => "",
-    (acc, chunk) => acc + new TextDecoder().decode(chunk),
-  );
+function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
+  const result = encodeUnknownJsonStringExit(input);
+  return Exit.isSuccess(result) ? result.value : undefined;
+}
 
 export interface CursorAdapterLiveOptions {
+  readonly environment?: NodeJS.ProcessEnv;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  /**
+   * Selections are honored when `modelSelection.instanceId` matches this value.
+   * Defaults to the legacy built-in instance id (`cursor`).
+   */
+  readonly instanceId?: ProviderInstanceId;
+  /**
+   * Optional per-session settings resolver. When provided the adapter yields
+   * this effect at the start of every session and uses the result instead of
+   * the `cursorSettings` captured at construction.
+   *
+   * Production instances bind settings to the instance scope (the hydration
+   * layer rebuilds the adapter on config change) and leave this undefined.
+   * Test suites that mutate `ServerSettingsService` mid-flight — e.g. to
+   * swap `binaryPath` to a mock ACP wrapper — pass a resolver that reads
+   * the latest snapshot so the closure isn't stale.
+   */
+  readonly resolveSettings?: Effect.Effect<CursorSettings>;
 }
 
 interface PendingApproval {
@@ -154,101 +124,46 @@ interface PendingUserInput {
 
 interface CursorSessionContext {
   readonly threadId: ThreadId;
-  readonly lifecycleGeneration?: string;
   session: ProviderSession;
   readonly scope: Scope.Closeable;
-  readonly acp: AcpSessionRuntimeShape;
+  readonly acp: AcpSessionRuntime.AcpSessionRuntime["Service"];
   notificationFiber: Fiber.Fiber<void, never> | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
-  readonly assistantItemTurnIds: Map<string, TurnId>;
   lastPlanFingerprint: string | undefined;
-  completedPlanFingerprint: string | undefined;
-  activeInteractionMode: ProviderInteractionMode | undefined;
   activeTurnId: TurnId | undefined;
-  activeTurnFailedToolDetail: string | undefined;
-  activePromptFiber: Fiber.Fiber<void, never> | undefined;
-  // Epoch-ms of the last inbound ACP activity for the active turn; drives the
-  // idle-progress watchdog that force-fails a silently hung turn.
-  lastTurnActivityAt: number | undefined;
-  latestSessionCostUsd: number | undefined;
+  /** Number of sendTurn prompts currently in flight or being prepared.
+   * >0 means a turn is actively running, so a new sendTurn is a steer that
+   * continues it, and only the last remaining prompt settles the turn. */
+  promptsInFlight: number;
   stopped: boolean;
 }
 
-function clearCursorActiveTurn(ctx: CursorSessionContext, turnId: TurnId): boolean {
-  if (ctx.activeTurnId !== turnId) {
-    return false;
-  }
-
-  ctx.activeTurnId = undefined;
-  ctx.activeTurnFailedToolDetail = undefined;
-  ctx.activePromptFiber = undefined;
-  ctx.activeInteractionMode = undefined;
-  const { activeTurnId: _activeTurnId, ...session } = ctx.session;
-  ctx.session = session;
-  return true;
+function settlePendingApprovalsAsCancelled(
+  pendingApprovals: ReadonlyMap<ApprovalRequestId, PendingApproval>,
+): Effect.Effect<void> {
+  const pendingEntries = Array.from(pendingApprovals.values());
+  return Effect.forEach(
+    pendingEntries,
+    (pending) => Deferred.succeed(pending.decision, "cancel").pipe(Effect.ignore),
+    {
+      discard: true,
+    },
+  );
 }
 
-function resolveCursorAssistantItemTurnId(
-  ctx: CursorSessionContext,
-  itemId: string | undefined,
-): TurnId | undefined {
-  if (itemId === undefined) {
-    return ctx.activeTurnId;
-  }
-  const knownTurnId = ctx.assistantItemTurnIds.get(itemId);
-  if (knownTurnId !== undefined) {
-    return knownTurnId;
-  }
-  if (ctx.activeTurnId !== undefined) {
-    ctx.assistantItemTurnIds.set(itemId, ctx.activeTurnId);
-    return ctx.activeTurnId;
-  }
-  return ctx.assistantItemTurnIds.get(itemId);
-}
-
-function completeCursorAssistantItemTurnId(
-  ctx: CursorSessionContext,
-  itemId: string,
-): TurnId | undefined {
-  const turnId = resolveCursorAssistantItemTurnId(ctx, itemId);
-  ctx.assistantItemTurnIds.delete(itemId);
-  return turnId;
-}
-
-function recordCursorSessionCost(
-  ctx: CursorSessionContext,
-  cost: EffectAcpSchema.Cost | null | undefined,
-): void {
-  const sessionCostUsd = readAcpUsdCost(cost);
-  if (sessionCostUsd === undefined) {
-    return;
-  }
-  ctx.latestSessionCostUsd = sessionCostUsd;
-}
-
-// ACP reports session-cumulative cost, so keep it cumulative instead of inventing turn deltas.
-function finalizeCursorActiveTurnCost(ctx: CursorSessionContext): {
-  readonly cumulativeCostUsd?: number;
-} {
-  return ctx.latestSessionCostUsd !== undefined
-    ? { cumulativeCostUsd: ctx.latestSessionCostUsd }
-    : {};
-}
-
-function withCursorPlanModePrompt(input: {
-  readonly text: string;
-  readonly interactionMode?: ProviderInteractionMode;
-}): string {
-  if (input.interactionMode !== "plan") {
-    return input.text;
-  }
-
-  const text = input.text.trim();
-  return text.length > 0
-    ? `${CURSOR_PLAN_MODE_PROMPT_PREFIX}\n\nUser request:\n${text}`
-    : CURSOR_PLAN_MODE_PROMPT_PREFIX;
+function settlePendingUserInputsAsEmptyAnswers(
+  pendingUserInputs: ReadonlyMap<ApprovalRequestId, PendingUserInput>,
+): Effect.Effect<void> {
+  const pendingEntries = Array.from(pendingUserInputs.values());
+  return Effect.forEach(
+    pendingEntries,
+    (pending) => Deferred.succeed(pending.answers, {}).pipe(Effect.ignore),
+    {
+      discard: true,
+    },
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -331,13 +246,13 @@ function resolveRequestedModeId(input: {
 }
 
 function applyRequestedSessionConfiguration<E>(input: {
-  readonly runtime: AcpSessionRuntimeShape;
+  readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode | undefined;
   readonly modelSelection:
     | {
         readonly model: string;
-        readonly options?: CursorModelOptions | null | undefined;
+        readonly options?: ReadonlyArray<ProviderOptionSelection> | null | undefined;
       }
     | undefined;
   readonly mapError: (context: {
@@ -350,7 +265,7 @@ function applyRequestedSessionConfiguration<E>(input: {
       yield* applyCursorAcpModelSelection({
         runtime: input.runtime,
         model: input.modelSelection.model,
-        options: input.modelSelection.options,
+        selections: input.modelSelection.options,
         mapError: ({ cause }) =>
           input.mapError({
             cause,
@@ -379,27 +294,33 @@ function applyRequestedSessionConfiguration<E>(input: {
   });
 }
 
-function resolveCursorSessionCwd(
-  inputCwd: string | undefined,
-  serverConfig: ServerConfigShape,
+function selectAutoApprovedPermissionOption(
+  request: EffectAcpSchema.RequestPermissionRequest,
 ): string | undefined {
-  const requestedCwd = inputCwd?.trim();
-  if (requestedCwd) {
-    return nodePath.resolve(requestedCwd);
+  const allowAlwaysOption = request.options.find((option) => option.kind === "allow_always");
+  if (typeof allowAlwaysOption?.optionId === "string" && allowAlwaysOption.optionId.trim()) {
+    return allowAlwaysOption.optionId.trim();
   }
 
-  const fallbackCwd = serverConfig.cwd.trim() || serverConfig.homeDir.trim();
-  return fallbackCwd ? nodePath.resolve(fallbackCwd) : undefined;
+  const allowOnceOption = request.options.find((option) => option.kind === "allow_once");
+  if (typeof allowOnceOption?.optionId === "string" && allowOnceOption.optionId.trim()) {
+    return allowOnceOption.optionId.trim();
+  }
+
+  return undefined;
 }
 
 export function makeCursorAdapter(
-  cursorSettings: CursorAcpRuntimeCursorSettings,
+  cursorSettings: CursorSettings,
   options?: CursorAdapterLiveOptions,
 ) {
   return Effect.gen(function* () {
+    const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("cursor");
     const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const serverConfig = yield* Effect.service(ServerConfig);
+    const crypto = yield* Crypto.Crypto;
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -409,23 +330,60 @@ export function makeCursorAdapter(
         : undefined);
     const managedNativeEventLogger =
       options?.nativeEventLogger === undefined ? nativeEventLogger : undefined;
+    const makeAcpNativeLoggers = yield* makeAcpNativeLoggerFactory();
 
     const sessions = new Map<ThreadId, CursorSessionContext>();
-    const withThreadLock = yield* makeAcpThreadLock();
+    const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
 
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-    const nextEventId = Effect.map(Random.nextUUIDv4, (id) => EventId.makeUnsafe(id));
+    const randomUUIDv4 = crypto.randomUUIDv4.pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "crypto/randomUUIDv4",
+            detail: "Failed to generate Cursor runtime identifier.",
+            cause,
+          }),
+      ),
+    );
+    const nextEventId = Effect.map(randomUUIDv4, (id) => EventId.make(id));
     const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
+    const mapExtensionFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new EffectAcpErrors.AcpTransportError({
+              detail: "Failed to process Cursor ACP extension event.",
+              cause,
+            }),
+        ),
+      );
 
-    const offerRuntimeEvent = (
-      lifecycleGeneration: string | undefined,
-      event: ProviderRuntimeEvent,
-    ) =>
-      PubSub.publish(
-        runtimeEventPubSub,
-        stampAcpRuntimeEventLifecycleGeneration(event, lifecycleGeneration),
-      ).pipe(Effect.asVoid);
+    const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
+      PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
+
+    const getThreadSemaphore = (threadId: string) =>
+      SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
+        const existing: Option.Option<Semaphore.Semaphore> = Option.fromNullishOr(
+          current.get(threadId),
+        );
+        return Option.match(existing, {
+          onNone: () =>
+            Semaphore.make(1).pipe(
+              Effect.map((semaphore) => {
+                const next = new Map(current);
+                next.set(threadId, semaphore);
+                return [semaphore, next] as const;
+              }),
+            ),
+          onSome: (semaphore) => Effect.succeed([semaphore, current] as const),
+        });
+      });
+
+    const withThreadLock = <A, E, R>(threadId: string, effect: Effect.Effect<A, E, R>) =>
+      Effect.flatMap(getThreadSemaphore(threadId), (semaphore) => semaphore.withPermit(effect));
 
     const logNative = (
       threadId: ThreadId,
@@ -435,12 +393,12 @@ export function makeCursorAdapter(
     ) =>
       Effect.gen(function* () {
         if (!nativeEventLogger) return;
-        const observedAt = new Date().toISOString();
+        const observedAt = yield* nowIso;
         yield* nativeEventLogger.write(
           {
             observedAt,
             event: {
-              id: crypto.randomUUID(),
+              id: yield* randomUUIDv4,
               kind: "notification",
               provider: PROVIDER,
               createdAt: observedAt,
@@ -451,81 +409,6 @@ export function makeCursorAdapter(
           },
           threadId,
         );
-      });
-
-    const completeCursorPlanTurn = (
-      ctx: CursorSessionContext,
-      turnId: TurnId,
-      activePromptFiber: Fiber.Fiber<void, never> | undefined,
-    ) =>
-      Effect.gen(function* () {
-        if (!clearCursorActiveTurn(ctx, turnId)) {
-          return;
-        }
-        const completedCost = finalizeCursorActiveTurnCost(ctx);
-        const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
-        ctx.session = {
-          ...sessionWithoutLastError,
-          status: "ready",
-          updatedAt: yield* nowIso,
-        };
-        yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-          type: "turn.completed",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: ctx.threadId,
-          turnId,
-          payload: { state: "completed", stopReason: null, ...completedCost },
-        });
-        yield* Effect.ignore(ctx.acp.cancel);
-        if (activePromptFiber) {
-          yield* Fiber.interrupt(activePromptFiber);
-        }
-      });
-
-    // Idle-progress watchdog escape hatch: force-fail a turn whose cursor-agent
-    // child is alive but has gone completely silent. Stays idempotent via
-    // clearCursorActiveTurn, so it is a no-op if the turn settled normally first.
-    const failCursorTurnAsTimedOut = (ctx: CursorSessionContext, turnId: TurnId, idleMs: number) =>
-      Effect.gen(function* () {
-        const promptFiber = ctx.activePromptFiber;
-        if (!clearCursorActiveTurn(ctx, turnId)) {
-          return;
-        }
-        const completedCost = finalizeCursorActiveTurnCost(ctx);
-        const idleSeconds = Math.round(idleMs / 1000);
-        const detail = `Cursor stopped responding (no activity for ${idleSeconds}s); the turn was timed out.`;
-        ctx.turns.push({ id: turnId, items: [{ prompt: turnId, timedOut: true, idleMs }] });
-        ctx.session = {
-          ...ctx.session,
-          status: "error",
-          updatedAt: yield* nowIso,
-          lastError: detail,
-        };
-        yield* Effect.logWarning("cursor.acp.turn_idle_timeout", {
-          threadId: ctx.threadId,
-          turnId,
-          idleMs,
-        });
-        yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-          type: "turn.completed",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: ctx.threadId,
-          turnId,
-          payload: {
-            state: "failed",
-            stopReason: null,
-            errorMessage: detail,
-            ...completedCost,
-          },
-        });
-        // Best-effort: tell the child to abandon the turn, then unwind the
-        // pending prompt fiber (its onInterrupt no-ops, the turn is cleared).
-        yield* Effect.ignore(ctx.acp.cancel);
-        if (promptFiber) {
-          yield* Fiber.interrupt(promptFiber);
-        }
       });
 
     const emitPlanUpdate = (
@@ -542,9 +425,12 @@ export function makeCursorAdapter(
       method: string,
     ) =>
       Effect.gen(function* () {
-        if (!acceptAcpPlanUpdate(ctx, payload)) return;
+        const fingerprint = `${ctx.activeTurnId ?? "no-turn"}:${encodeJsonStringForDiagnostics(payload) ?? "[unserializable payload]"}`;
+        if (ctx.lastPlanFingerprint === fingerprint) {
+          return;
+        }
+        ctx.lastPlanFingerprint = fingerprint;
         yield* offerRuntimeEvent(
-          ctx.lifecycleGeneration,
           makeAcpPlanUpdatedEvent({
             stamp: yield* makeEventStamp(),
             provider: PROVIDER,
@@ -574,14 +460,14 @@ export function makeCursorAdapter(
       Effect.gen(function* () {
         if (ctx.stopped) return;
         ctx.stopped = true;
-        yield* settleAcpPendingApprovalsAsCancelled(ctx.pendingApprovals);
-        yield* settleAcpPendingUserInputsAsEmptyAnswers(ctx.pendingUserInputs);
+        yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
+        yield* settlePendingUserInputsAsEmptyAnswers(ctx.pendingUserInputs);
         if (ctx.notificationFiber) {
           yield* Fiber.interrupt(ctx.notificationFiber);
         }
         yield* Effect.ignore(Scope.close(ctx.scope, Exit.void));
         sessions.delete(ctx.threadId);
-        yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
+        yield* offerRuntimeEvent({
           type: "session.exited",
           ...(yield* makeEventStamp()),
           provider: PROVIDER,
@@ -601,17 +487,17 @@ export function makeCursorAdapter(
               issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
             });
           }
-          const cwd = resolveCursorSessionCwd(input.cwd, serverConfig);
-          if (cwd === undefined) {
+          if (!input.cwd?.trim()) {
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
               operation: "startSession",
-              issue: "cwd is required and no server cwd fallback is available.",
+              issue: "cwd is required and must be non-empty.",
             });
           }
 
+          const cwd = path.resolve(input.cwd.trim());
           const cursorModelSelection =
-            input.modelSelection?.provider === PROVIDER ? input.modelSelection : undefined;
+            input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
           const existing = sessions.get(input.threadId);
           if (existing && !existing.stopped) {
             yield* stopSessionInternal(existing);
@@ -632,28 +518,44 @@ export function makeCursorAdapter(
             provider: PROVIDER,
             threadId: input.threadId,
           });
-          const providerCursorOptions = input.providerOptions?.cursor;
-          const effectiveCursorSettings: CursorAcpRuntimeCursorSettings = {
-            ...(cursorSettings.binaryPath !== undefined
-              ? { binaryPath: cursorSettings.binaryPath }
-              : {}),
-            ...(cursorSettings.apiEndpoint !== undefined
-              ? { apiEndpoint: cursorSettings.apiEndpoint }
-              : {}),
-            ...(providerCursorOptions?.binaryPath !== undefined
-              ? { binaryPath: providerCursorOptions.binaryPath }
-              : {}),
-            ...(providerCursorOptions?.apiEndpoint !== undefined
-              ? { apiEndpoint: providerCursorOptions.apiEndpoint }
-              : {}),
-          };
 
+          // Resolve the CursorSettings used to spawn the ACP child. Production
+          // leaves `options.resolveSettings` undefined so we use the value
+          // captured at adapter construction — per-instance isolation is
+          // enforced by the hydration layer rebuilding this adapter whenever
+          // its config changes. Tests set `resolveSettings` to pull the latest
+          // snapshot from `ServerSettingsService` so that mid-suite
+          // `updateSettings({ providers: { cursor: { binaryPath } } })` calls
+          // actually take effect when the next session spawns.
+          const effectiveCursorSettings = options?.resolveSettings
+            ? yield* options.resolveSettings
+            : cursorSettings;
+
+          const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
           const acp = yield* makeCursorAcpRuntime({
             cursorSettings: effectiveCursorSettings,
+            ...(options?.environment ? { environment: options.environment } : {}),
             childProcessSpawner,
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),
-            clientInfo: { name: "Synara", version: "0.0.0" },
+            clientInfo: { name: "t3-code", version: "0.0.0" },
+            ...(mcpSession
+              ? {
+                  mcpServers: [
+                    {
+                      type: "http" as const,
+                      name: "t3-code",
+                      url: mcpSession.endpoint,
+                      headers: [
+                        {
+                          name: "Authorization",
+                          value: mcpSession.authorizationHeader,
+                        },
+                      ],
+                    },
+                  ],
+                }
+              : {}),
             ...acpNativeLoggers,
           }).pipe(
             Effect.provideService(Scope.Scope, sessionScope),
@@ -669,186 +571,167 @@ export function makeCursorAdapter(
           );
           const started = yield* Effect.gen(function* () {
             yield* acp.handleExtRequest("cursor/ask_question", CursorAskQuestionRequest, (params) =>
-              Effect.gen(function* () {
-                yield* logNative(
-                  input.threadId,
-                  "cursor/ask_question",
-                  params,
-                  "acp.cursor.extension",
-                );
-                const requestId = ApprovalRequestId.makeUnsafe(crypto.randomUUID());
-                const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
-                const answers = yield* Deferred.make<ProviderUserInputAnswers>();
-                pendingUserInputs.set(requestId, { answers });
-                yield* offerRuntimeEvent(input.lifecycleGeneration, {
-                  type: "user-input.requested",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId: ctx?.activeTurnId,
-                  requestId: runtimeRequestId,
-                  payload: { questions: extractAskQuestions(params) },
-                  raw: {
-                    source: "acp.cursor.extension",
-                    method: "cursor/ask_question",
-                    payload: params,
-                  },
-                });
-                const resolved = yield* Deferred.await(answers);
-                pendingUserInputs.delete(requestId);
-                yield* offerRuntimeEvent(input.lifecycleGeneration, {
-                  type: "user-input.resolved",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId: ctx?.activeTurnId,
-                  requestId: runtimeRequestId,
-                  payload: { answers: resolved },
-                });
-                return { answers: resolved };
-              }),
-            );
-            yield* acp.handleExtRequest("cursor/create_plan", CursorCreatePlanRequest, (params) =>
-              Effect.gen(function* () {
-                yield* logNative(
-                  input.threadId,
-                  "cursor/create_plan",
-                  params,
-                  "acp.cursor.extension",
-                );
-                const turnId = ctx?.activeTurnId;
-                const activePromptFiber = ctx?.activePromptFiber;
-                const planMarkdown = extractPlanMarkdown(params);
-                yield* offerRuntimeEvent(input.lifecycleGeneration, {
-                  type: "turn.proposed.completed",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId,
-                  payload: { planMarkdown },
-                  raw: {
-                    source: "acp.cursor.extension",
-                    method: "cursor/create_plan",
-                    payload: params,
-                  },
-                });
-                if (
-                  ctx &&
-                  turnId !== undefined &&
-                  ctx.activeInteractionMode === "plan" &&
-                  ctx.completedPlanFingerprint !== planMarkdown
-                ) {
-                  ctx.completedPlanFingerprint = planMarkdown;
-                  yield* completeCursorPlanTurn(ctx, turnId, activePromptFiber);
-                }
-                return { accepted: true } as const;
-              }),
-            );
-            const handleCursorUpdateTodos = (params: typeof CursorUpdateTodosRequest.Type) =>
-              Effect.gen(function* () {
-                yield* logNative(
-                  input.threadId,
-                  "cursor/update_todos",
-                  params,
-                  "acp.cursor.extension",
-                );
-                if (ctx) {
-                  yield* emitPlanUpdate(
-                    ctx,
-                    extractTodosAsPlan(params),
+              mapExtensionFailure(
+                Effect.gen(function* () {
+                  yield* logNative(
+                    input.threadId,
+                    "cursor/ask_question",
                     params,
                     "acp.cursor.extension",
-                    "cursor/update_todos",
                   );
-                }
-              });
-            // Cursor Agent CLI sends cursor/update_todos as a request with an id; keep the
-            // notification handler for older or alternate ACP clients.
-            yield* acp.handleExtRequest("cursor/update_todos", CursorUpdateTodosRequest, (params) =>
-              handleCursorUpdateTodos(params).pipe(Effect.as({ accepted: true } as const)),
+                  const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
+                  const runtimeRequestId = RuntimeRequestId.make(requestId);
+                  const answers = yield* Deferred.make<ProviderUserInputAnswers>();
+                  pendingUserInputs.set(requestId, { answers });
+                  yield* offerRuntimeEvent({
+                    type: "user-input.requested",
+                    ...(yield* makeEventStamp()),
+                    provider: PROVIDER,
+                    threadId: input.threadId,
+                    turnId: ctx?.activeTurnId,
+                    requestId: runtimeRequestId,
+                    payload: { questions: extractAskQuestions(params) },
+                    raw: {
+                      source: "acp.cursor.extension",
+                      method: "cursor/ask_question",
+                      payload: params,
+                    },
+                  });
+                  const resolved = yield* Deferred.await(answers);
+                  pendingUserInputs.delete(requestId);
+                  yield* offerRuntimeEvent({
+                    type: "user-input.resolved",
+                    ...(yield* makeEventStamp()),
+                    provider: PROVIDER,
+                    threadId: input.threadId,
+                    turnId: ctx?.activeTurnId,
+                    requestId: runtimeRequestId,
+                    payload: { answers: resolved },
+                  });
+                  return { answers: resolved };
+                }),
+              ),
+            );
+            yield* acp.handleExtRequest("cursor/create_plan", CursorCreatePlanRequest, (params) =>
+              mapExtensionFailure(
+                Effect.gen(function* () {
+                  yield* logNative(
+                    input.threadId,
+                    "cursor/create_plan",
+                    params,
+                    "acp.cursor.extension",
+                  );
+                  yield* offerRuntimeEvent({
+                    type: "turn.proposed.completed",
+                    ...(yield* makeEventStamp()),
+                    provider: PROVIDER,
+                    threadId: input.threadId,
+                    turnId: ctx?.activeTurnId,
+                    payload: { planMarkdown: extractPlanMarkdown(params) },
+                    raw: {
+                      source: "acp.cursor.extension",
+                      method: "cursor/create_plan",
+                      payload: params,
+                    },
+                  });
+                  return { accepted: true } as const;
+                }),
+              ),
             );
             yield* acp.handleExtNotification(
               "cursor/update_todos",
               CursorUpdateTodosRequest,
-              handleCursorUpdateTodos,
+              (params) =>
+                mapExtensionFailure(
+                  Effect.gen(function* () {
+                    yield* logNative(
+                      input.threadId,
+                      "cursor/update_todos",
+                      params,
+                      "acp.cursor.extension",
+                    );
+                    if (ctx) {
+                      yield* emitPlanUpdate(
+                        ctx,
+                        extractTodosAsPlan(params),
+                        params,
+                        "acp.cursor.extension",
+                        "cursor/update_todos",
+                      );
+                    }
+                  }),
+                ),
             );
             yield* acp.handleRequestPermission((params) =>
-              Effect.gen(function* () {
-                yield* logNative(
-                  input.threadId,
-                  "session/request_permission",
-                  params,
-                  "acp.jsonrpc",
-                );
-                if (input.runtimeMode === "full-access") {
-                  const autoApprovedOptionId = selectAcpFullAccessPermissionOptionId(
-                    params.options,
+              mapExtensionFailure(
+                Effect.gen(function* () {
+                  yield* logNative(
+                    input.threadId,
+                    "session/request_permission",
+                    params,
+                    "acp.jsonrpc",
                   );
-                  if (autoApprovedOptionId !== undefined) {
-                    return {
-                      outcome: {
-                        outcome: "selected" as const,
-                        optionId: autoApprovedOptionId,
-                      },
-                    };
+                  if (input.runtimeMode === "full-access") {
+                    const autoApprovedOptionId = selectAutoApprovedPermissionOption(params);
+                    if (autoApprovedOptionId !== undefined) {
+                      return {
+                        outcome: {
+                          outcome: "selected" as const,
+                          optionId: autoApprovedOptionId,
+                        },
+                      };
+                    }
                   }
-                }
-                const permissionRequest = parsePermissionRequest(params);
-                const requestId = ApprovalRequestId.makeUnsafe(crypto.randomUUID());
-                const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
-                const decision = yield* Deferred.make<ProviderApprovalDecision>();
-                pendingApprovals.set(requestId, {
-                  decision,
-                  kind: permissionRequest.kind,
-                });
-                yield* offerRuntimeEvent(
-                  input.lifecycleGeneration,
-                  makeAcpRequestOpenedEvent({
-                    stamp: yield* makeEventStamp(),
-                    provider: PROVIDER,
-                    threadId: input.threadId,
-                    turnId: ctx?.activeTurnId,
-                    requestId: runtimeRequestId,
-                    permissionRequest,
-                    detail: permissionRequest.detail ?? JSON.stringify(params).slice(0, 2000),
-                    args: params,
-                    source: "acp.jsonrpc",
-                    method: "session/request_permission",
-                    rawPayload: params,
-                  }),
-                );
-                const resolved = yield* Deferred.await(decision);
-                pendingApprovals.delete(requestId);
-                yield* offerRuntimeEvent(
-                  input.lifecycleGeneration,
-                  makeAcpRequestResolvedEvent({
-                    stamp: yield* makeEventStamp(),
-                    provider: PROVIDER,
-                    threadId: input.threadId,
-                    turnId: ctx?.activeTurnId,
-                    requestId: runtimeRequestId,
-                    permissionRequest,
-                    decision: resolved,
-                  }),
-                );
-                return {
-                  outcome:
-                    resolved === "cancel"
-                      ? ({ outcome: "cancelled" } as const)
-                      : (() => {
-                          const selectedOptionId = selectAcpPermissionOptionId(
-                            resolved,
-                            params.options,
-                          );
-                          return selectedOptionId === undefined
-                            ? ({ outcome: "cancelled" } as const)
-                            : ({
-                                outcome: "selected" as const,
-                                optionId: selectedOptionId,
-                              } as const);
-                        })(),
-                };
-              }),
+                  const permissionRequest = parsePermissionRequest(params);
+                  const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
+                  const runtimeRequestId = RuntimeRequestId.make(requestId);
+                  const decision = yield* Deferred.make<ProviderApprovalDecision>();
+                  pendingApprovals.set(requestId, {
+                    decision,
+                    kind: permissionRequest.kind,
+                  });
+                  yield* offerRuntimeEvent(
+                    makeAcpRequestOpenedEvent({
+                      stamp: yield* makeEventStamp(),
+                      provider: PROVIDER,
+                      threadId: input.threadId,
+                      turnId: ctx?.activeTurnId,
+                      requestId: runtimeRequestId,
+                      permissionRequest,
+                      detail:
+                        permissionRequest.detail ??
+                        encodeJsonStringForDiagnostics(params)?.slice(0, 2000) ??
+                        "[unserializable params]",
+                      args: params,
+                      source: "acp.jsonrpc",
+                      method: "session/request_permission",
+                      rawPayload: params,
+                    }),
+                  );
+                  const resolved = yield* Deferred.await(decision);
+                  pendingApprovals.delete(requestId);
+                  yield* offerRuntimeEvent(
+                    makeAcpRequestResolvedEvent({
+                      stamp: yield* makeEventStamp(),
+                      provider: PROVIDER,
+                      threadId: input.threadId,
+                      turnId: ctx?.activeTurnId,
+                      requestId: runtimeRequestId,
+                      permissionRequest,
+                      decision: resolved,
+                    }),
+                  );
+                  return {
+                    outcome:
+                      resolved === "cancel"
+                        ? ({ outcome: "cancelled" } as const)
+                        : {
+                            outcome: "selected" as const,
+                            optionId: acpPermissionOutcome(resolved),
+                          },
+                  };
+                }),
+              ),
             );
             return yield* acp.start();
           }).pipe(
@@ -869,6 +752,7 @@ export function makeCursorAdapter(
           const now = yield* nowIso;
           const session: ProviderSession = {
             provider: PROVIDER,
+            providerInstanceId: boundInstanceId,
             status: "ready",
             runtimeMode: input.runtimeMode,
             cwd,
@@ -884,9 +768,6 @@ export function makeCursorAdapter(
 
           ctx = {
             threadId: input.threadId,
-            ...(input.lifecycleGeneration !== undefined
-              ? { lifecycleGeneration: input.lifecycleGeneration }
-              : {}),
             session,
             scope: sessionScope,
             acp,
@@ -894,58 +775,44 @@ export function makeCursorAdapter(
             pendingApprovals,
             pendingUserInputs,
             turns: [],
-            assistantItemTurnIds: new Map(),
             lastPlanFingerprint: undefined,
-            completedPlanFingerprint: undefined,
-            activeInteractionMode: undefined,
             activeTurnId: undefined,
-            activeTurnFailedToolDetail: undefined,
-            activePromptFiber: undefined,
-            lastTurnActivityAt: undefined,
-            latestSessionCostUsd: undefined,
+            promptsInFlight: 0,
             stopped: false,
           };
 
           const nf = yield* Stream.runDrain(
             Stream.mapEffect(acp.getEvents(), (event) =>
               Effect.gen(function* () {
-                // Any inbound ACP event proves the child is alive and making
-                // progress; reset the idle-progress watchdog clock.
-                ctx.lastTurnActivityAt = Date.now();
                 switch (event._tag) {
+                  case "EventStreamBarrier":
+                    yield* Deferred.succeed(event.acknowledge, undefined);
+                    return;
                   case "ModeChanged":
                     return;
                   case "AssistantItemStarted":
-                    {
-                      const turnId = resolveCursorAssistantItemTurnId(ctx, event.itemId);
-                      yield* offerRuntimeEvent(
-                        input.lifecycleGeneration,
-                        makeAcpAssistantItemEvent({
-                          stamp: yield* makeEventStamp(),
-                          provider: PROVIDER,
-                          threadId: ctx.threadId,
-                          turnId,
-                          itemId: event.itemId,
-                          lifecycle: "item.started",
-                        }),
-                      );
-                    }
+                    yield* offerRuntimeEvent(
+                      makeAcpAssistantItemEvent({
+                        stamp: yield* makeEventStamp(),
+                        provider: PROVIDER,
+                        threadId: ctx.threadId,
+                        turnId: ctx.activeTurnId,
+                        itemId: event.itemId,
+                        lifecycle: "item.started",
+                      }),
+                    );
                     return;
                   case "AssistantItemCompleted":
-                    {
-                      const turnId = completeCursorAssistantItemTurnId(ctx, event.itemId);
-                      yield* offerRuntimeEvent(
-                        input.lifecycleGeneration,
-                        makeAcpAssistantItemEvent({
-                          stamp: yield* makeEventStamp(),
-                          provider: PROVIDER,
-                          threadId: ctx.threadId,
-                          turnId,
-                          itemId: event.itemId,
-                          lifecycle: "item.completed",
-                        }),
-                      );
-                    }
+                    yield* offerRuntimeEvent(
+                      makeAcpAssistantItemEvent({
+                        stamp: yield* makeEventStamp(),
+                        provider: PROVIDER,
+                        threadId: ctx.threadId,
+                        turnId: ctx.activeTurnId,
+                        itemId: event.itemId,
+                        lifecycle: "item.completed",
+                      }),
+                    );
                     return;
                   case "PlanUpdated":
                     yield* logNative(
@@ -969,12 +836,7 @@ export function makeCursorAdapter(
                       event.rawPayload,
                       "acp.jsonrpc",
                     );
-                    const failedToolDetail = readAcpFailedToolDetail(event.toolCall);
-                    if (failedToolDetail !== undefined && ctx.activeTurnId !== undefined) {
-                      ctx.activeTurnFailedToolDetail = failedToolDetail;
-                    }
                     yield* offerRuntimeEvent(
-                      input.lifecycleGeneration,
                       makeAcpToolCallEvent({
                         stamp: yield* makeEventStamp(),
                         provider: PROVIDER,
@@ -993,35 +855,13 @@ export function makeCursorAdapter(
                       "acp.jsonrpc",
                     );
                     yield* offerRuntimeEvent(
-                      input.lifecycleGeneration,
                       makeAcpContentDeltaEvent({
                         stamp: yield* makeEventStamp(),
                         provider: PROVIDER,
                         threadId: ctx.threadId,
-                        turnId: resolveCursorAssistantItemTurnId(ctx, event.itemId),
+                        turnId: ctx.activeTurnId,
                         ...(event.itemId ? { itemId: event.itemId } : {}),
                         text: event.text,
-                        ...(event.streamKind ? { streamKind: event.streamKind } : {}),
-                        rawPayload: event.rawPayload,
-                      }),
-                    );
-                    return;
-                  case "UsageUpdated":
-                    yield* logNative(
-                      ctx.threadId,
-                      "session/update",
-                      event.rawPayload,
-                      "acp.jsonrpc",
-                    );
-                    recordCursorSessionCost(ctx, event.cost);
-                    yield* offerRuntimeEvent(
-                      input.lifecycleGeneration,
-                      makeAcpTokenUsageEvent({
-                        stamp: yield* makeEventStamp(),
-                        provider: PROVIDER,
-                        threadId: ctx.threadId,
-                        turnId: ctx.activeTurnId,
-                        usage: event.usage,
                         rawPayload: event.rawPayload,
                       }),
                     );
@@ -1029,27 +869,32 @@ export function makeCursorAdapter(
                 }
               }),
             ),
-          ).pipe(Effect.forkChild);
+          ).pipe(
+            Effect.catch((cause) =>
+              Effect.logError("Failed to process Cursor runtime notification.", { cause }),
+            ),
+            Effect.forkChild,
+          );
 
           ctx.notificationFiber = nf;
           sessions.set(input.threadId, ctx);
           sessionScopeTransferred = true;
 
-          yield* offerRuntimeEvent(input.lifecycleGeneration, {
+          yield* offerRuntimeEvent({
             type: "session.started",
             ...(yield* makeEventStamp()),
             provider: PROVIDER,
             threadId: input.threadId,
             payload: { resume: started.initializeResult },
           });
-          yield* offerRuntimeEvent(input.lifecycleGeneration, {
+          yield* offerRuntimeEvent({
             type: "session.state.changed",
             ...(yield* makeEventStamp()),
             provider: PROVIDER,
             threadId: input.threadId,
             payload: { state: "ready", reason: "Cursor ACP session ready" },
           });
-          yield* offerRuntimeEvent(input.lifecycleGeneration, {
+          yield* offerRuntimeEvent({
             type: "thread.started",
             ...(yield* makeEventStamp()),
             provider: PROVIDER,
@@ -1064,219 +909,159 @@ export function makeCursorAdapter(
     const sendTurn: CursorAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(input.threadId);
-        const turnId = TurnId.makeUnsafe(crypto.randomUUID());
-        const turnModelSelection =
-          input.modelSelection?.provider === PROVIDER ? input.modelSelection : undefined;
-        const model = turnModelSelection?.model ?? ctx.session.model;
-        const resolvedModel = resolveCursorAcpBaseModelId(model);
-        yield* applyRequestedSessionConfiguration({
-          runtime: ctx.acp,
-          runtimeMode: ctx.session.runtimeMode,
-          interactionMode: input.interactionMode,
-          modelSelection:
-            model === undefined
-              ? undefined
-              : {
-                  model,
-                  options: turnModelSelection?.options,
-                },
-          mapError: ({ cause, method }) =>
-            mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
-        });
-        const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
-        const promptText = appendFileAttachmentsPromptBlock({
-          text: input.input?.trim()
-            ? withCursorPlanModePrompt({
-                text: input.input.trim(),
-                ...(input.interactionMode !== undefined
-                  ? { interactionMode: input.interactionMode }
-                  : {}),
-              })
-            : undefined,
-          attachments: input.attachments,
-          attachmentsDir: serverConfig.attachmentsDir,
-          include: "all-files",
-        });
-        if (promptText) {
-          promptParts.push({
-            type: "text",
-            text: promptText,
-          });
-        }
-        promptParts.push(
-          ...(yield* loadProviderPromptImageBlocks({
-            attachments: input.attachments,
-            attachmentsDir: serverConfig.attachmentsDir,
-            provider: PROVIDER,
-            method: "session/prompt",
-            readFile: fileSystem.readFile,
-          })),
-        );
+        // A sendTurn while a prompt is in flight is a steer: the agent folds
+        // the new prompt into the ongoing work, so the active turn id is
+        // reused instead of opening a new turn.
+        const steeringTurnId = ctx.promptsInFlight > 0 ? ctx.activeTurnId : undefined;
+        const turnId = steeringTurnId ?? TurnId.make(yield* randomUUIDv4);
+        // Count this prompt immediately so a superseded in-flight prompt
+        // resolving from here on does not settle the turn; the matching
+        // decrement is the `ensuring` below.
+        ctx.promptsInFlight += 1;
 
-        if (promptParts.length === 0) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: "Turn requires non-empty text or attachments.",
-          });
-        }
-
-        ctx.activeTurnId = turnId;
-        ctx.activeTurnFailedToolDetail = undefined;
-        ctx.activeInteractionMode = input.interactionMode;
-        ctx.lastPlanFingerprint = undefined;
-        ctx.completedPlanFingerprint = undefined;
-        ctx.lastTurnActivityAt = Date.now();
-        const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
-        ctx.session = {
-          ...sessionWithoutLastError,
-          status: "running",
-          activeTurnId: turnId,
-          updatedAt: yield* nowIso,
-        };
-
-        yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-          type: "turn.started",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: input.threadId,
-          turnId,
-          payload: { model: resolvedModel },
-        });
-
-        const runPrompt = ctx.acp.prompt({ prompt: promptParts }).pipe(
-          Effect.mapError((error) =>
-            mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),
-          ),
-          Effect.matchEffect({
-            onFailure: (error) =>
-              Effect.gen(function* () {
-                if (!clearCursorActiveTurn(ctx, turnId)) {
-                  return;
-                }
-                const completedCost = finalizeCursorActiveTurnCost(ctx);
-                ctx.turns.push({ id: turnId, items: [{ prompt: promptParts, error }] });
-                const detail = error.message;
-                ctx.session = {
-                  ...ctx.session,
-                  status: "error",
-                  updatedAt: yield* nowIso,
-                  model: resolvedModel,
-                  lastError: detail,
-                };
-                yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-                  type: "turn.completed",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId,
-                  payload: {
-                    state: "failed",
-                    stopReason: null,
-                    errorMessage: detail,
-                    ...completedCost,
+        return yield* Effect.gen(function* () {
+          const turnModelSelection =
+            input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
+          const model = turnModelSelection?.model ?? ctx.session.model;
+          const resolvedModel = resolveCursorAcpBaseModelId(model);
+          yield* applyRequestedSessionConfiguration({
+            runtime: ctx.acp,
+            runtimeMode: ctx.session.runtimeMode,
+            interactionMode: input.interactionMode,
+            modelSelection:
+              model === undefined
+                ? undefined
+                : {
+                    model,
+                    options: turnModelSelection?.options,
                   },
-                });
-              }),
-            onSuccess: (result) =>
-              Effect.gen(function* () {
-                const failedToolDetail = ctx.activeTurnFailedToolDetail;
-                if (!clearCursorActiveTurn(ctx, turnId)) {
-                  return;
-                }
-                const completedCost = finalizeCursorActiveTurnCost(ctx);
-                ctx.turns.push({ id: turnId, items: [{ prompt: promptParts, result }] });
-                const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
-                ctx.session = {
-                  ...sessionWithoutLastError,
-                  status: "ready",
-                  updatedAt: yield* nowIso,
-                  model: resolvedModel,
-                };
-                const completion = classifyAcpPromptTurnCompletion({
-                  stopReason: result.stopReason,
-                  ...(failedToolDetail !== undefined ? { failedToolDetail } : {}),
-                });
-                yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-                  type: "turn.completed",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId,
-                  payload: {
-                    state: completion.state,
-                    stopReason: result.stopReason ?? null,
-                    ...(completion.errorMessage !== undefined
-                      ? { errorMessage: completion.errorMessage }
-                      : {}),
-                    ...(result.usage ? { usage: result.usage } : {}),
-                    ...completedCost,
-                  },
-                });
-              }),
-          }),
-          Effect.onInterrupt(() =>
-            Effect.gen(function* () {
-              if (!clearCursorActiveTurn(ctx, turnId)) {
-                return;
-              }
-              const completedCost = finalizeCursorActiveTurnCost(ctx);
-              ctx.turns.push({ id: turnId, items: [{ prompt: promptParts, interrupted: true }] });
-              const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
-              ctx.session = {
-                ...sessionWithoutLastError,
-                status: "ready",
-                updatedAt: yield* nowIso,
-                model: resolvedModel,
-              };
-              yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-                type: "turn.completed",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: input.threadId,
-                turnId,
-                payload: {
-                  state: "cancelled",
-                  stopReason: "cancelled",
-                  ...completedCost,
-                },
+            mapError: ({ cause, method }) =>
+              mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
+          });
+          ctx.activeTurnId = turnId;
+          if (steeringTurnId === undefined) {
+            ctx.lastPlanFingerprint = undefined;
+          }
+          ctx.session = {
+            ...ctx.session,
+            activeTurnId: turnId,
+            updatedAt: yield* nowIso,
+          };
+
+          if (steeringTurnId === undefined) {
+            yield* offerRuntimeEvent({
+              type: "turn.started",
+              ...(yield* makeEventStamp()),
+              provider: PROVIDER,
+              threadId: input.threadId,
+              turnId,
+              payload: { model: resolvedModel },
+            });
+          }
+
+          const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
+          if (input.input?.trim()) {
+            promptParts.push({ type: "text", text: input.input.trim() });
+          }
+          if (input.attachments && input.attachments.length > 0) {
+            for (const attachment of input.attachments) {
+              const attachmentPath = resolveAttachmentPath({
+                attachmentsDir: serverConfig.attachmentsDir,
+                attachment,
               });
+              if (!attachmentPath) {
+                return yield* new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "session/prompt",
+                  detail: `Invalid attachment id '${attachment.id}'.`,
+                });
+              }
+              const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapterRequestError({
+                      provider: PROVIDER,
+                      method: "session/prompt",
+                      detail: cause.message,
+                      cause,
+                    }),
+                ),
+              );
+              promptParts.push({
+                type: "image",
+                data: Buffer.from(bytes).toString("base64"),
+                mimeType: attachment.mimeType,
+              });
+            }
+          }
+
+          if (promptParts.length === 0) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "sendTurn",
+              issue: "Turn requires non-empty text or attachments.",
+            });
+          }
+
+          const result = yield* ctx.acp
+            .prompt({
+              prompt: promptParts,
+            })
+            .pipe(
+              Effect.mapError((error) =>
+                mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),
+              ),
+            );
+
+          const turnRecord = ctx.turns.find((turn) => turn.id === turnId);
+          if (turnRecord) {
+            turnRecord.items.push({ prompt: promptParts, result });
+          } else {
+            ctx.turns.push({ id: turnId, items: [{ prompt: promptParts, result }] });
+          }
+          ctx.session = {
+            ...ctx.session,
+            activeTurnId: turnId,
+            updatedAt: yield* nowIso,
+            model: resolvedModel,
+          };
+
+          // Only the last remaining prompt settles the turn — a steer-
+          // superseded prompt resolving (usually cancelled) while another is
+          // in flight or pending must leave the merged turn running.
+          if (ctx.promptsInFlight === 1) {
+            yield* offerRuntimeEvent({
+              type: "turn.completed",
+              ...(yield* makeEventStamp()),
+              provider: PROVIDER,
+              threadId: input.threadId,
+              turnId,
+              payload: {
+                state: result.stopReason === "cancelled" ? "cancelled" : "completed",
+                stopReason: result.stopReason ?? null,
+              },
+            });
+          }
+
+          return {
+            threadId: input.threadId,
+            turnId,
+            resumeCursor: ctx.session.resumeCursor,
+          };
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              ctx.promptsInFlight = Math.max(0, ctx.promptsInFlight - 1);
             }),
           ),
-          Effect.ignoreCause({ log: true }),
-          Effect.forkIn(ctx.scope),
         );
-        ctx.activePromptFiber = yield* runPrompt;
-
-        // Backstop the forked prompt: if the child goes silent, fail the turn
-        // instead of leaving it "Working" forever. Self-terminates when the
-        // turn settles; pauses while a human approval is pending.
-        yield* forkAcpTurnIdleWatchdog({
-          idleTimeoutMs: CURSOR_TURN_IDLE_TIMEOUT_MS,
-          checkIntervalMs: CURSOR_TURN_WATCHDOG_INTERVAL_MS,
-          scope: ctx.scope,
-          isTurnActive: () => ctx.activeTurnId === turnId && !ctx.stopped,
-          isAwaitingHuman: () => ctx.pendingApprovals.size > 0 || ctx.pendingUserInputs.size > 0,
-          lastActivityAt: () => ctx.lastTurnActivityAt ?? Date.now(),
-          touchActivity: () => {
-            ctx.lastTurnActivityAt = Date.now();
-          },
-          onIdleTimeout: (idleMs) => failCursorTurnAsTimedOut(ctx, turnId, idleMs),
-        });
-
-        return {
-          threadId: input.threadId,
-          turnId,
-          resumeCursor: ctx.session.resumeCursor,
-        };
       });
 
     const interruptTurn: CursorAdapterShape["interruptTurn"] = (threadId) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(threadId);
-        yield* settleAcpPendingApprovalsAsCancelled(ctx.pendingApprovals);
-        yield* settleAcpPendingUserInputsAsEmptyAnswers(ctx.pendingUserInputs);
-        const activePromptFiber = ctx.activePromptFiber;
+        yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
+        yield* settlePendingUserInputsAsEmptyAnswers(ctx.pendingUserInputs);
         yield* Effect.ignore(
           ctx.acp.cancel.pipe(
             Effect.mapError((error) =>
@@ -1284,9 +1069,6 @@ export function makeCursorAdapter(
             ),
           ),
         );
-        if (activePromptFiber) {
-          yield* Fiber.interrupt(activePromptFiber);
-        }
       });
 
     const respondToRequest: CursorAdapterShape["respondToRequest"] = (
@@ -1364,190 +1146,14 @@ export function makeCursorAdapter(
         return c !== undefined && !c.stopped;
       });
 
-    const getComposerCapabilities: NonNullable<
-      CursorAdapterShape["getComposerCapabilities"]
-    > = () =>
-      Effect.succeed({
-        provider: PROVIDER,
-        supportsSkillMentions: true,
-        supportsSkillDiscovery: true,
-        supportsNativeSlashCommandDiscovery: false,
-        supportsPluginMentions: false,
-        supportsPluginDiscovery: false,
-        supportsRuntimeModelList: true,
-        supportsThreadCompaction: false,
-        supportsThreadImport: true,
-      } satisfies ProviderComposerCapabilities);
-
-    const listSkills: NonNullable<CursorAdapterShape["listSkills"]> = (input) =>
-      Effect.tryPromise({
-        try: async () =>
-          ({
-            skills: await discoverCursorSkills({
-              cwd: input.cwd,
-              homeDir: serverConfig.homeDir,
-            }),
-            source: "cursor.filesystem",
-            cached: false,
-          }) satisfies ProviderListSkillsResult,
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "skill/list",
-            detail: "Failed to discover Cursor skills.",
-            cause,
-          }),
-      });
-
-    const listModels: NonNullable<CursorAdapterShape["listModels"]> = (input) => {
-      const binaryPath = input.binaryPath?.trim();
-      const apiEndpoint = input.apiEndpoint?.trim();
-      const effectiveBinaryPath = resolveCursorAgentBinaryPath(
-        binaryPath || cursorSettings.binaryPath,
-      );
-      const effectiveApiEndpoint = apiEndpoint || cursorSettings.apiEndpoint;
-      const runCursorModelListCommand = Effect.gen(function* () {
-        const command = buildCursorCliModelListCommand({
-          binaryPath: effectiveBinaryPath,
-          ...(effectiveApiEndpoint ? { apiEndpoint: effectiveApiEndpoint } : {}),
-        });
-        const env = buildCursorAgentHeadlessEnv();
-        const prepared = prepareWindowsSafeProcess(command.command, command.args, {
-          env,
-        });
-        const child = yield* childProcessSpawner.spawn(
-          ChildProcess.make(prepared.command, prepared.args, {
-            shell: prepared.shell,
-            ...(prepared.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-            env,
-          }),
-        );
-        const [stdout, stderr, exitCode] = yield* Effect.all(
-          [
-            collectStreamAsString(child.stdout),
-            collectStreamAsString(child.stderr),
-            child.exitCode.pipe(Effect.map(Number)),
-          ],
-          { concurrency: "unbounded" },
-        );
-        if (exitCode !== 0) {
-          return yield* new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "model/list",
-            detail:
-              stderr.trim() ||
-              `Cursor model discovery failed because '${[command.command, ...command.args].join(" ")}' exited with code ${exitCode}.`,
-          });
-        }
-        const models = parseCursorCliModelList(stdout);
-        if (models.length === 0) {
-          return yield* new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "model/list",
-            detail: "Cursor model discovery returned no CLI models.",
-          });
-        }
-        return models;
-      }).pipe(
-        Effect.scoped,
-        Effect.timeoutOption(CURSOR_MODEL_DISCOVERY_TIMEOUT_MS),
-        Effect.flatMap(
-          Option.match({
-            onNone: () =>
-              Effect.fail(
-                new ProviderAdapterRequestError({
-                  provider: PROVIDER,
-                  method: "model/list",
-                  detail: "Timed out while discovering Cursor models via CLI.",
-                }),
-              ),
-            onSome: (models) => Effect.succeed(models),
-          }),
-        ),
-      );
-      // Preferred path: the ACP `cursor/list_available_models` extension exposes
-      // each model's full parameter matrix (context window, effort, thinking,
-      // fast) — data the flat `cursor-agent models` CLI list cannot provide.
-      const effectiveAcpSettings: CursorAcpRuntimeCursorSettings = {
-        binaryPath: effectiveBinaryPath,
-        ...(effectiveApiEndpoint ? { apiEndpoint: effectiveApiEndpoint } : {}),
-      };
-      const runCursorAcpModelDiscovery = Effect.gen(function* () {
-        const runtime = yield* makeCursorAcpRuntime({
-          cursorSettings: effectiveAcpSettings,
-          childProcessSpawner,
-          cwd: process.cwd(),
-          clientInfo: { name: "Synara", version: "0.0.0" },
-        });
-        const started = yield* runtime.start();
-        const models = yield* fetchCursorAcpModelDescriptors(runtime, started.sessionId);
-        if (models.length === 0) {
-          return yield* new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "model/list",
-            detail: "Cursor ACP model discovery returned no models.",
-          });
-        }
-        return models;
-      }).pipe(
-        Effect.scoped,
-        Effect.timeoutOption(CURSOR_MODEL_DISCOVERY_TIMEOUT_MS),
-        Effect.flatMap(
-          Option.match({
-            onNone: () =>
-              Effect.fail(
-                new ProviderAdapterRequestError({
-                  provider: PROVIDER,
-                  method: "model/list",
-                  detail: "Timed out while discovering Cursor models via ACP.",
-                }),
-              ),
-            onSome: (models) => Effect.succeed(models),
-          }),
-        ),
-      );
-
-      const discovery = runCursorAcpModelDiscovery.pipe(
-        Effect.map((models) => ({
-          models,
-          source: "cursor.acp",
-          cached: false,
-        })),
-        // The flat CLI list expands transport variants that ACP already represents
-        // as per-model controls. Use it only when the richer ACP catalog is unavailable.
-        Effect.catch(() =>
-          runCursorModelListCommand.pipe(
-            Effect.map(
-              (cliModels) =>
-                ({
-                  models: cliModels,
-                  source: "cursor.cli",
-                  cached: false,
-                }) satisfies ProviderListModelsResult,
-            ),
-          ),
-        ),
-      );
-
-      return discovery.pipe(
-        Effect.mapError((cause) =>
-          cause instanceof ProviderAdapterRequestError
-            ? cause
-            : new ProviderAdapterRequestError({
-                provider: PROVIDER,
-                method: "model/list",
-                detail: "Failed to discover Cursor models.",
-                cause,
-              }),
-        ),
-      );
-    };
-
     const stopAll: CursorAdapterShape["stopAll"] = () =>
       Effect.forEach(sessions.values(), stopSessionInternal, { discard: true });
 
     yield* Effect.addFinalizer(() =>
       Effect.forEach(sessions.values(), stopSessionInternal, { discard: true }).pipe(
+        Effect.catch((cause) =>
+          Effect.logError("Failed to emit Cursor session shutdown event.", { cause }),
+        ),
         Effect.tap(() => PubSub.shutdown(runtimeEventPubSub)),
         Effect.tap(() => managedNativeEventLogger?.close() ?? Effect.void),
       ),
@@ -1557,10 +1163,7 @@ export function makeCursorAdapter(
 
     return {
       provider: PROVIDER,
-      capabilities: {
-        sessionModelSwitch: "in-session",
-        supportsRuntimeModelList: true,
-      },
+      capabilities: { sessionModelSwitch: "in-session" },
       startSession,
       sendTurn,
       interruptTurn,
@@ -1570,21 +1173,9 @@ export function makeCursorAdapter(
       respondToUserInput,
       stopSession,
       listSessions,
-      getComposerCapabilities,
-      listSkills,
-      listModels,
       hasSession,
       stopAll,
       streamEvents,
     } satisfies CursorAdapterShape;
   });
-}
-
-export const CursorAdapterLive = Layer.effect(CursorAdapter, makeCursorAdapter({}));
-
-export function makeCursorAdapterLive(
-  cursorSettings: CursorAcpRuntimeCursorSettings = {},
-  options?: CursorAdapterLiveOptions,
-) {
-  return Layer.effect(CursorAdapter, makeCursorAdapter(cursorSettings, options));
 }

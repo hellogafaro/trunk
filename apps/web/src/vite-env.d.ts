@@ -1,10 +1,18 @@
-/// <reference types="vite/client" />
+/// <reference types="vite-plus/client" />
 
-import type { NativeApi, DesktopBridge } from "@synara/contracts";
+import type { DesktopBridge, LocalApi } from "@t3tools/contracts";
 
 interface ImportMetaEnv {
+  readonly VITE_HTTP_URL: string;
+  readonly VITE_WS_URL: string;
+  readonly VITE_HOSTED_APP_URL: string;
+  readonly VITE_HOSTED_APP_CHANNEL: string;
+  readonly VITE_CLERK_PUBLISHABLE_KEY: string;
+  readonly VITE_CLERK_JWT_TEMPLATE: string;
+  readonly VITE_RELAY_OTLP_TRACES_URL: string;
+  readonly VITE_RELAY_OTLP_TRACES_DATASET: string;
+  readonly VITE_RELAY_OTLP_TRACES_TOKEN: string;
   readonly APP_VERSION: string;
-  readonly VITE_FEEDBACK_ENDPOINT?: string;
 }
 
 interface ImportMeta {
@@ -13,8 +21,7 @@ interface ImportMeta {
 
 declare global {
   interface Window {
-    nativeApi?: NativeApi;
-    // TODO(trunk-web-parity): migrate useful native bridge capabilities through the server.
+    nativeApi?: LocalApi;
     desktopBridge?: DesktopBridge;
   }
 }

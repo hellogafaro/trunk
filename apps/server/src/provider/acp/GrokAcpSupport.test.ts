@@ -1,169 +1,109 @@
-import { Effect } from "effect";
+import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
 import * as EffectAcpErrors from "effect-acp/errors";
-import type * as EffectAcpSchema from "effect-acp/schema";
-import { afterEach, describe, expect, it } from "vitest";
 
 import {
   applyGrokAcpModelSelection,
   buildGrokAcpSpawnInput,
-  resolveGrokAcpAuthMethodId,
+  resolveGrokAcpBaseModelId,
 } from "./GrokAcpSupport.ts";
 
-function initializeWithAuthMethods(ids: ReadonlyArray<string>): EffectAcpSchema.InitializeResponse {
-  return {
-    protocolVersion: 1,
-    authMethods: ids.map((id) => ({ id, name: id })),
-  };
-}
-
-describe("buildGrokAcpSpawnInput", () => {
-  it("builds the default Grok ACP command", () => {
-    expect(buildGrokAcpSpawnInput(undefined, "/tmp/project")).toMatchObject({
-      command: "grok",
-      args: ["agent", "--no-leader", "stdio"],
-      cwd: "/tmp/project",
-    });
-  });
-
-  it("uses the configured Grok binary path", () => {
-    expect(
-      buildGrokAcpSpawnInput({ binaryPath: "/usr/local/bin/grok" }, "/tmp/project"),
-    ).toMatchObject({
-      command: "/usr/local/bin/grok",
-      args: ["agent", "--no-leader", "stdio"],
-      cwd: "/tmp/project",
-    });
-  });
-
-  it("passes model and reasoning effort as Grok agent startup options", () => {
-    expect(
-      buildGrokAcpSpawnInput(
-        {
-          binaryPath: "/usr/local/bin/grok",
-          model: "grok-build",
-          reasoningEffort: "high",
-          alwaysApprove: true,
-        },
-        "/tmp/project",
-      ),
-    ).toMatchObject({
-      command: "/usr/local/bin/grok",
-      args: [
-        "agent",
-        "--no-leader",
-        "--always-approve",
-        "-m",
-        "grok-build",
-        "--reasoning-effort",
-        "high",
-        "stdio",
-      ],
-      cwd: "/tmp/project",
-    });
+describe("resolveGrokAcpBaseModelId", () => {
+  it("normalizes empty and custom Grok model ids", () => {
+    expect(resolveGrokAcpBaseModelId(undefined)).toBe("grok-build");
+    expect(resolveGrokAcpBaseModelId("   ")).toBe("grok-build");
+    expect(resolveGrokAcpBaseModelId("  grok-test-custom-model  ")).toBe("grok-test-custom-model");
   });
 });
 
-describe("resolveGrokAcpAuthMethodId", () => {
-  const previousXaiApiKey = process.env.XAI_API_KEY;
-  const previousApiKey = process.env.GROK_CODE_XAI_API_KEY;
+describe("buildGrokAcpSpawnInput", () => {
+  it("passes the Trunk referrer through Grok OAuth env", () => {
+    const spawn = buildGrokAcpSpawnInput({ binaryPath: "/usr/local/bin/grok" }, "/tmp/project", {
+      XAI_API_KEY: "secret",
+      GROK_OAUTH2_REFERRER: "other-client",
+    });
 
-  afterEach(() => {
-    if (previousXaiApiKey === undefined) {
-      delete process.env.XAI_API_KEY;
-    } else {
-      process.env.XAI_API_KEY = previousXaiApiKey;
-    }
-    if (previousApiKey === undefined) {
-      delete process.env.GROK_CODE_XAI_API_KEY;
-    } else {
-      process.env.GROK_CODE_XAI_API_KEY = previousApiKey;
-    }
-  });
-
-  it("prefers the xAI API key auth method when XAI_API_KEY is present", async () => {
-    process.env.XAI_API_KEY = "xai-test-key";
-
-    await expect(
-      Effect.runPromise(
-        resolveGrokAcpAuthMethodId(initializeWithAuthMethods(["cached_token", "xai.api_key"])),
-      ),
-    ).resolves.toBe("xai.api_key");
-  });
-
-  it("still accepts the legacy Grok API key env var", async () => {
-    delete process.env.XAI_API_KEY;
-    process.env.GROK_CODE_XAI_API_KEY = "xai-test-key";
-
-    await expect(
-      Effect.runPromise(
-        resolveGrokAcpAuthMethodId(initializeWithAuthMethods(["cached_token", "xai.api_key"])),
-      ),
-    ).resolves.toBe("xai.api_key");
-  });
-
-  it("falls back to cached token auth when no API key is configured", async () => {
-    delete process.env.XAI_API_KEY;
-    delete process.env.GROK_CODE_XAI_API_KEY;
-
-    await expect(
-      Effect.runPromise(
-        resolveGrokAcpAuthMethodId(initializeWithAuthMethods(["cached_token", "xai.api_key"])),
-      ),
-    ).resolves.toBe("cached_token");
-  });
-
-  it("fails clearly when Grok exposes no supported ACP auth method", async () => {
-    delete process.env.XAI_API_KEY;
-    delete process.env.GROK_CODE_XAI_API_KEY;
-
-    const error = await Effect.runPromise(
-      resolveGrokAcpAuthMethodId(initializeWithAuthMethods(["browser_login"])).pipe(Effect.flip),
-    );
-
-    expect(error).toBeInstanceOf(EffectAcpErrors.AcpRequestError);
-    expect(error.message).toBe("Grok ACP authentication is unavailable.");
+    expect(spawn).toEqual({
+      command: "/usr/local/bin/grok",
+      args: ["agent", "stdio"],
+      cwd: "/tmp/project",
+      env: {
+        XAI_API_KEY: "secret",
+        GROK_OAUTH2_REFERRER: "t3code",
+      },
+    });
   });
 });
 
 describe("applyGrokAcpModelSelection", () => {
-  it("does not call Grok's unsupported ACP config-option method", async () => {
-    const calls: Array<
-      { type: "model"; value: string } | { type: "config"; id: string; value: string }
-    > = [];
+  const makeRecordingRuntime = (failure?: EffectAcpErrors.AcpError) => {
+    const modelCalls: Array<string> = [];
     const runtime = {
-      setModel: (value: string) =>
-        Effect.sync(() => {
-          calls.push({ type: "model", value });
-        }),
-      getConfigOptions: Effect.succeed([
-        {
-          id: "reasoning_effort",
-          name: "Reasoning Effort",
-          category: "model_config",
-          type: "select",
-          currentValue: "low",
-          options: [
-            { value: "low", name: "Low" },
-            { value: "high", name: "High" },
-          ],
-        },
-      ] as ReadonlyArray<EffectAcpSchema.SessionConfigOption>),
-      setConfigOption: (id: string, value: string | boolean) =>
-        Effect.sync(() => {
-          calls.push({ type: "config", id, value: String(value) });
-          return { configOptions: [] };
+      setSessionModel: (modelId: string) =>
+        Effect.gen(function* () {
+          modelCalls.push(modelId);
+          if (failure) return yield* failure;
+          return {};
         }),
     };
+    return { runtime, modelCalls };
+  };
 
-    await Effect.runPromise(
-      applyGrokAcpModelSelection({
+  it.effect("calls session/set_model when the requested model differs from current", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
         runtime,
-        model: "grok-build",
-        options: { reasoningEffort: "high" },
-        mapError: (context) => context,
-      }),
-    );
+        currentModelId: "grok-build",
+        requestedModelId: "grok-mock-alt",
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual(["grok-mock-alt"]);
+      expect(result).toBe("grok-mock-alt");
+    }),
+  );
 
-    expect(calls).toEqual([]);
-  });
+  it.effect("skips set_model when requested matches current", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
+        runtime,
+        currentModelId: "grok-build",
+        requestedModelId: "grok-build",
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual([]);
+      expect(result).toBe("grok-build");
+    }),
+  );
+
+  it.effect("skips set_model when no model is requested", () =>
+    Effect.gen(function* () {
+      const { runtime, modelCalls } = makeRecordingRuntime();
+      const result = yield* applyGrokAcpModelSelection({
+        runtime,
+        currentModelId: "grok-build",
+        requestedModelId: undefined,
+        mapError: (cause) => cause.message,
+      });
+      expect(modelCalls).toEqual([]);
+      expect(result).toBe("grok-build");
+    }),
+  );
+
+  it.effect("propagates session/set_model failures via mapError", () =>
+    Effect.gen(function* () {
+      const failure = EffectAcpErrors.AcpRequestError.invalidParams("session id not known");
+      const { runtime } = makeRecordingRuntime(failure);
+      const error = yield* Effect.flip(
+        applyGrokAcpModelSelection({
+          runtime,
+          currentModelId: "grok-build",
+          requestedModelId: "grok-mock-alt",
+          mapError: (cause) => cause.message,
+        }),
+      );
+      expect(error).toBe(failure.message);
+    }),
+  );
 });

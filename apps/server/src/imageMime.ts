@@ -35,10 +35,13 @@ export function parseBase64DataUrl(
   const match = /^data:([^,]+),([a-z0-9+/=\r\n ]+)$/i.exec(dataUrl.trim());
   if (!match) return null;
 
-  const headerParts = (match[1] ?? "")
-    .split(";")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
+  const headerParts: Array<string> = [];
+  for (const part of (match[1] ?? "").split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.length > 0) {
+      headerParts.push(trimmed);
+    }
+  }
   if (headerParts.length < 2) {
     return null;
   }
@@ -73,24 +76,6 @@ export function inferImageExtension(input: { mimeType: string; fileName?: string
   const fileNameExtension = extensionMatch ? `.${extensionMatch[1]!.toLowerCase()}` : "";
   if (SAFE_IMAGE_FILE_EXTENSIONS.has(fileNameExtension)) {
     return fileNameExtension;
-  }
-
-  return ".bin";
-}
-
-export function inferAttachmentExtension(input: { mimeType: string; fileName?: string }): string {
-  const fileName = input.fileName?.trim() ?? "";
-  if (fileName.length > 0 && !/[\\/]/.test(fileName)) {
-    const extensionMatch = /^.[^.]*\.([a-z0-9]{1,8})$/i.exec(fileName);
-    const extension = extensionMatch?.[1]?.toLowerCase();
-    if (extension && /^[a-z0-9]{1,8}$/.test(extension)) {
-      return `.${extension}`;
-    }
-  }
-
-  const fromMimeExtension = Mime.getExtension(input.mimeType);
-  if (fromMimeExtension && /^[a-z0-9]{1,8}$/i.test(fromMimeExtension)) {
-    return `.${fromMimeExtension.toLowerCase()}`;
   }
 
   return ".bin";

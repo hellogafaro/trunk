@@ -1,189 +1,172 @@
 /**
  * CodexAdapterLive - Scoped live implementation for the Codex provider adapter.
  *
- * Wraps `CodexAppServerManager` behind the `CodexAdapter` service contract and
- * maps manager failures into the shared `ProviderAdapterError` algebra.
+ * Wraps the typed Codex session runtime behind the `CodexAdapter` service
+ * contract and maps runtime failures into the shared `ProviderAdapterError`
+ * algebra.
  *
  * @module CodexAdapterLive
  */
 import {
-  type ChatAttachment,
   type CanonicalItemType,
   type CanonicalRequestType,
-  type ProviderComposerCapabilities,
+  type CodexSettings,
+  ProviderDriverKind,
   type ProviderEvent,
-  type ProviderListModelsResult,
-  type ProviderListPluginsResult,
-  type ProviderReadPluginResult,
-  type ProviderListSkillsResult,
+  ProviderInstanceId,
   type ProviderRuntimeEvent,
-  type ServerVoiceTranscriptionResult,
+  type ProviderRequestKind,
   type ThreadTokenUsageSnapshot,
   type ProviderUserInputAnswers,
   RuntimeItemId,
   RuntimeRequestId,
-  RuntimeTaskId,
   ProviderApprovalDecision,
-  ProviderItemId,
   ThreadId,
-  TurnId,
-} from "@synara/contracts";
-import { Effect, FileSystem, Layer, Queue, Schema, ServiceMap, Stream } from "effect";
+  ProviderSendTurnInput,
+} from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import { ChildProcessSpawner } from "effect/unstable/process";
+import * as CodexErrors from "effect-codex-app-server/errors";
+import * as EffectCodexSchema from "effect-codex-app-server/schema";
+
+import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 
 import {
-  ProviderAdapterProcessError,
   ProviderAdapterRequestError,
+  ProviderAdapterProcessError,
   ProviderAdapterSessionClosedError,
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
-import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
-import {
-  CodexAppServerManager,
-  type CodexAppServerStartSessionInput,
-} from "../../codexAppServerManager.ts";
-import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
-import {
-  codexGeneratedImageArtifact,
-  extractCodexGeneratedImageReference,
-  firstStringValue,
-  isCodexGeneratedImageItemType,
-  sanitizeNestedCodexGeneratedImagePayloads,
-} from "../../codexGeneratedImages.ts";
-import { isNonFatalCodexErrorMessage } from "../../codexErrorClassification.ts";
+import { type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
-import { makeRuntimeTaskListItem } from "../runtimeTaskList.ts";
-import { extractProposedPlanMarkdown } from "../planMode.ts";
-import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
-import { synaraSkillsDir } from "../skillsCatalog.ts";
+import {
+  CodexResumeCursorSchema,
+  CodexSessionRuntimeThreadIdMissingError,
+  makeCodexSessionRuntime,
+  type CodexSessionRuntimeError,
+  type CodexSessionRuntimeOptions,
+  type CodexSessionRuntimeShape,
+} from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
+const isCodexAppServerTransportError = Schema.is(CodexErrors.CodexAppServerTransportError);
+const isCodexSessionRuntimeThreadIdMissingError = Schema.is(
+  CodexSessionRuntimeThreadIdMissingError,
+);
+const isCodexResumeCursorSchema = Schema.is(CodexResumeCursorSchema);
 
-const PROVIDER = "codex" as const;
+const PROVIDER = ProviderDriverKind.make("codex");
 
 export interface CodexAdapterLiveOptions {
-  readonly manager?: CodexAppServerManager;
-  readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
+  readonly instanceId?: ProviderInstanceId;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly makeRuntime?: (
+    options: CodexSessionRuntimeOptions,
+  ) => Effect.Effect<
+    CodexSessionRuntimeShape,
+    CodexSessionRuntimeError,
+    ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+  >;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
 
-function toMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error && cause.message.length > 0) {
-    return sanitizeUserFacingErrorMessage(cause.message, fallback);
-  }
-  return fallback;
+interface CodexAdapterSessionContext {
+  readonly threadId: ThreadId;
+  readonly scope: Scope.Closeable;
+  readonly runtime: CodexSessionRuntimeShape;
+  readonly eventFiber: Fiber.Fiber<void, never>;
+  stopped: boolean;
 }
 
-function sanitizeUserFacingErrorMessage(message: string, fallback: string): string {
-  const normalized = message.trim();
-  if (normalized.length === 0) {
-    return fallback;
-  }
-
-  const firstLine = normalized.split("\n")[0]?.trim() ?? "";
-  const withoutInlineStack = firstLine.replace(/\s+at file:\/\/.*$/s, "").trim();
-  return withoutInlineStack.length > 0 ? withoutInlineStack : fallback;
-}
-
-function composeCodexInputWithFileAttachments(input: {
-  readonly input: string | undefined;
-  readonly attachments: ReadonlyArray<ChatAttachment> | undefined;
-  readonly attachmentsDir: string;
-}): string | undefined {
-  return appendFileAttachmentsPromptBlock({
-    text: input.input,
-    attachments: input.attachments,
-    attachmentsDir: input.attachmentsDir,
-    include: "all-files",
-  });
-}
-
-function toSessionError(
+function mapCodexRuntimeError(
   threadId: ThreadId,
-  cause: unknown,
-): ProviderAdapterSessionNotFoundError | ProviderAdapterSessionClosedError | undefined {
-  const normalized = toMessage(cause, "").toLowerCase();
-  if (normalized.includes("unknown session") || normalized.includes("unknown provider session")) {
-    return new ProviderAdapterSessionNotFoundError({
-      provider: PROVIDER,
-      threadId,
-      cause,
-    });
-  }
-  if (normalized.includes("session is closed")) {
+  method: string,
+  error: CodexSessionRuntimeError,
+): ProviderAdapterError {
+  if (isCodexAppServerProcessExitedError(error) || isCodexAppServerTransportError(error)) {
     return new ProviderAdapterSessionClosedError({
       provider: PROVIDER,
       threadId,
-      cause,
+      cause: error,
     });
   }
-  return undefined;
-}
 
-function toRequestError(threadId: ThreadId, method: string, cause: unknown): ProviderAdapterError {
-  const sessionError = toSessionError(threadId, cause);
-  if (sessionError) {
-    return sessionError;
+  if (isCodexSessionRuntimeThreadIdMissingError(error)) {
+    return new ProviderAdapterSessionNotFoundError({
+      provider: PROVIDER,
+      threadId,
+      cause: error,
+    });
   }
+
   return new ProviderAdapterRequestError({
     provider: PROVIDER,
     method,
-    detail: toMessage(cause, `${method} failed`),
-    cause,
+    detail: error.message,
+    cause: error,
   });
 }
 
-function asObject(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
+type CodexLifecycleItem =
+  | EffectCodexSchema.V2ItemStartedNotification["item"]
+  | EffectCodexSchema.V2ItemCompletedNotification["item"];
+
+type CodexToolUserInputQuestion =
+  | EffectCodexSchema.ServerRequest__ToolRequestUserInputQuestion
+  | EffectCodexSchema.ToolRequestUserInputParams__ToolRequestUserInputQuestion;
+
+const ApprovalDecisionPayload = Schema.Struct({
+  decision: ProviderApprovalDecision,
+});
+
+function readPayload<A>(
+  schema: Schema.Schema<A>,
+  payload: ProviderEvent["payload"],
+): A | undefined {
+  const isPayload = Schema.is(schema);
+  return isPayload(payload) ? payload : undefined;
 }
 
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
+function trimText(value: string | undefined | null): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
-function asArray(value: unknown): unknown[] | undefined {
-  return Array.isArray(value) ? value : undefined;
+const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
+
+function isFatalCodexProcessStderrMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return FATAL_CODEX_STDERR_SNIPPETS.some((snippet) => normalized.includes(snippet));
 }
 
-function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-// Keep manager-emitted stderr lines visible without escalating them into a fatal thread error.
-function providerErrorMapsToWarning(event: ProviderEvent): boolean {
-  return (
-    event.kind === "error" &&
-    (event.method === "process/stderr" ||
-      (event.method === "error" &&
-        typeof event.message === "string" &&
-        isNonFatalCodexErrorMessage(event.message)))
-  );
-}
-
-function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | undefined {
-  const usage = asObject(value);
-  const totalUsage = asObject(usage?.total_token_usage ?? usage?.total);
-  const lastUsage = asObject(usage?.last_token_usage ?? usage?.last);
-
-  const totalProcessedTokens =
-    asNumber(totalUsage?.total_tokens) ?? asNumber(totalUsage?.totalTokens);
-  const usedTokens =
-    asNumber(lastUsage?.total_tokens) ?? asNumber(lastUsage?.totalTokens) ?? totalProcessedTokens;
+function normalizeCodexTokenUsage(
+  usage: EffectCodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"],
+): ThreadTokenUsageSnapshot | undefined {
+  const totalProcessedTokens = usage.total.totalTokens;
+  const usedTokens = usage.last.totalTokens;
   if (usedTokens === undefined || usedTokens <= 0) {
     return undefined;
   }
 
-  const maxTokens = asNumber(usage?.model_context_window) ?? asNumber(usage?.modelContextWindow);
-  const inputTokens = asNumber(lastUsage?.input_tokens) ?? asNumber(lastUsage?.inputTokens);
-  const cachedInputTokens =
-    asNumber(lastUsage?.cached_input_tokens) ?? asNumber(lastUsage?.cachedInputTokens);
-  const outputTokens = asNumber(lastUsage?.output_tokens) ?? asNumber(lastUsage?.outputTokens);
-  const reasoningOutputTokens =
-    asNumber(lastUsage?.reasoning_output_tokens) ?? asNumber(lastUsage?.reasoningOutputTokens);
+  const maxTokens = usage.modelContextWindow ?? undefined;
+  const inputTokens = usage.last.inputTokens;
+  const cachedInputTokens = usage.last.cachedInputTokens;
+  const outputTokens = usage.last.outputTokens;
+  const reasoningOutputTokens = usage.last.reasoningOutputTokens;
 
   return {
     usedTokens,
@@ -206,15 +189,9 @@ function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | un
   };
 }
 
-function toTurnId(value: string | undefined): TurnId | undefined {
-  return value?.trim() ? TurnId.makeUnsafe(value) : undefined;
-}
-
-function toProviderItemId(value: string | undefined): ProviderItemId | undefined {
-  return value?.trim() ? ProviderItemId.makeUnsafe(value) : undefined;
-}
-
-function toTurnStatus(value: unknown): "completed" | "failed" | "cancelled" | "interrupted" {
+function toTurnStatus(
+  value: EffectCodexSchema.V2TurnCompletedNotification["turn"]["status"] | "cancelled",
+): "completed" | "failed" | "cancelled" | "interrupted" {
   switch (value) {
     case "completed":
     case "failed":
@@ -226,8 +203,8 @@ function toTurnStatus(value: unknown): "completed" | "failed" | "cancelled" | "i
   }
 }
 
-function normalizeItemType(raw: unknown): string {
-  const type = asString(raw);
+function normalizeItemType(raw: string | undefined | null): string {
+  const type = trimText(raw);
   if (!type) return "item";
   return type
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -237,9 +214,8 @@ function normalizeItemType(raw: unknown): string {
     .toLowerCase();
 }
 
-function toCanonicalItemType(raw: unknown): CanonicalItemType {
+function toCanonicalItemType(raw: string | undefined | null): CanonicalItemType {
   const type = normalizeItemType(raw);
-  if (isCodexGeneratedImageItemType(raw)) return "image_generation";
   if (type.includes("user")) return "user_message";
   if (type.includes("agent message") || type.includes("assistant")) return "assistant_message";
   if (type.includes("reasoning") || type.includes("thought")) return "reasoning";
@@ -252,14 +228,17 @@ function toCanonicalItemType(raw: unknown): CanonicalItemType {
   if (type.includes("collab")) return "collab_agent_tool_call";
   if (type.includes("web search")) return "web_search";
   if (type.includes("image")) return "image_view";
-  if (type.includes("review entered") || type.includes("entered review")) return "review_entered";
-  if (type.includes("review exited") || type.includes("exited review")) return "review_exited";
+  if (type.includes("review entered")) return "review_entered";
+  if (type.includes("review exited")) return "review_exited";
   if (type.includes("compact")) return "context_compaction";
   if (type.includes("error")) return "error";
   return "unknown";
 }
 
-function itemTitle(itemType: CanonicalItemType): string | undefined {
+function itemTitle(itemType: CanonicalItemType, item?: CodexLifecycleItem): string | undefined {
+  if (itemType === "mcp_tool_call" && item?.type === "mcpToolCall") {
+    return `${item.server} · ${item.tool}`;
+  }
   switch (itemType) {
     case "assistant_message":
       return "Assistant message";
@@ -279,8 +258,6 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
       return "Tool call";
     case "web_search":
       return "Web search";
-    case "image_generation":
-      return "Generated image";
     case "image_view":
       return "Image view";
     case "error":
@@ -290,67 +267,21 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
   }
 }
 
-function joinedTextParts(value: unknown): string | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const parts = value
-    .map((entry) => {
-      if (typeof entry === "string") return entry;
-      const object = asObject(entry);
-      return asString(object?.text) ?? asString(object?.summary);
-    })
-    .filter((entry): entry is string => typeof entry === "string")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-  return parts.length > 0 ? parts.join("\n\n") : undefined;
-}
-
-function reasoningSummaryDetail(item: Record<string, unknown>): string | undefined {
-  return asString(item.summary)?.trim() || joinedTextParts(item.summary);
-}
-
-function itemDetail(
-  item: Record<string, unknown>,
-  payload: Record<string, unknown>,
-): string | undefined {
-  const nestedResult = asObject(item.result);
+function itemDetail(item: CodexLifecycleItem): string | undefined {
   const candidates = [
-    asString(item.command),
-    asString(item.title),
-    asString(item.summary),
-    joinedTextParts(item.summary),
-    joinedTextParts(item.content),
-    asString(item.review),
-    asString(item.text),
-    asString(item.saved_path),
-    asString(item.savedPath),
-    asString(item.path),
-    asString(item.file_path),
-    asString(item.prompt),
-    asString(nestedResult?.command),
-    asString(payload.command),
-    asString(payload.message),
-    asString(payload.prompt),
+    "command" in item ? item.command : undefined,
+    "title" in item ? item.title : undefined,
+    "summary" in item ? item.summary : undefined,
+    "text" in item ? item.text : undefined,
+    "path" in item ? item.path : undefined,
+    "prompt" in item ? item.prompt : undefined,
   ];
   for (const candidate of candidates) {
-    if (!candidate) continue;
-    const trimmed = candidate.trim();
-    if (trimmed.length === 0) continue;
+    const trimmed = typeof candidate === "string" ? trimText(candidate) : undefined;
+    if (!trimmed) continue;
     return trimmed;
   }
   return undefined;
-}
-
-function itemStatus(
-  lifecycle: "item.started" | "item.updated" | "item.completed",
-  rawStatus: unknown,
-): "inProgress" | "completed" | "failed" | "declined" | undefined {
-  if (lifecycle === "item.started") {
-    return "inProgress";
-  }
-  if (lifecycle === "item.updated") {
-    return undefined;
-  }
-  return rawStatus === "failed" || rawStatus === "declined" ? rawStatus : "completed";
 }
 
 function toRequestTypeFromMethod(method: string): CanonicalRequestType {
@@ -376,7 +307,7 @@ function toRequestTypeFromMethod(method: string): CanonicalRequestType {
   }
 }
 
-function toRequestTypeFromKind(kind: unknown): CanonicalRequestType {
+function toRequestTypeFromKind(kind: ProviderRequestKind | undefined): CanonicalRequestType {
   switch (kind) {
     case "command":
       return "command_execution_approval";
@@ -389,79 +320,36 @@ function toRequestTypeFromKind(kind: unknown): CanonicalRequestType {
   }
 }
 
-function toRequestTypeFromResolvedPayload(
-  payload: Record<string, unknown> | undefined,
-): CanonicalRequestType {
-  const request = asObject(payload?.request);
-  const method = asString(request?.method) ?? asString(payload?.method);
-  if (method) {
-    return toRequestTypeFromMethod(method);
-  }
-  const requestKind = asString(request?.kind) ?? asString(payload?.requestKind);
-  if (requestKind) {
-    return toRequestTypeFromKind(requestKind);
-  }
-  return "unknown";
-}
-
 function toCanonicalUserInputAnswers(
-  answers: ProviderUserInputAnswers | undefined,
+  answers: EffectCodexSchema.ToolRequestUserInputResponse["answers"],
 ): ProviderUserInputAnswers {
-  if (!answers) {
-    return {};
-  }
-
-  const result: Record<string, string | ReadonlyArray<string> | null> = {};
-  for (const [questionId, value] of Object.entries(answers)) {
-    if (typeof value === "string") {
-      result[questionId] = value;
-      continue;
-    }
-
-    if (Array.isArray(value)) {
-      const normalized = value.filter((entry): entry is string => typeof entry === "string");
-      result[questionId] = normalized.length === 1 ? normalized[0]! : normalized;
-      continue;
-    }
-
-    const nestedAnswers = asArray(asObject(value)?.answers);
-    if (nestedAnswers) {
-      const normalized = nestedAnswers.filter(
-        (entry): entry is string => typeof entry === "string",
-      );
-      result[questionId] = normalized.length === 1 ? normalized[0]! : normalized;
-      continue;
-    }
-  }
-  return result;
+  return Object.fromEntries(
+    Object.entries(answers).map(([questionId, value]) => {
+      const normalizedAnswers = value.answers.length === 1 ? value.answers[0]! : [...value.answers];
+      return [questionId, normalizedAnswers] as const;
+    }),
+  );
 }
 
-function toUserInputQuestions(payload: Record<string, unknown> | undefined) {
-  const questions = asArray(payload?.questions);
-  if (!questions) {
-    return undefined;
-  }
-
+function toUserInputQuestions(questions: ReadonlyArray<CodexToolUserInputQuestion>) {
   const parsedQuestions = questions
-    .map((entry) => {
-      const question = asObject(entry);
-      if (!question) return undefined;
-      const options = asArray(question.options)
-        ?.map((option) => {
-          const optionRecord = asObject(option);
-          if (!optionRecord) return undefined;
-          const label = asString(optionRecord.label)?.trim();
-          const description = asString(optionRecord.description)?.trim();
-          if (!label || !description) {
-            return undefined;
-          }
-          return { label, description };
-        })
-        .filter((option): option is { label: string; description: string } => option !== undefined);
-      const id = asString(question.id)?.trim();
-      const header = asString(question.header)?.trim();
-      const prompt = asString(question.question)?.trim();
-      if (!id || !header || !prompt || !options || options.length === 0) {
+    .map((question) => {
+      const options =
+        question.options
+          ?.map((option) => {
+            const label = trimText(option.label);
+            const description = trimText(option.description);
+            if (!label || !description) {
+              return undefined;
+            }
+            return { label, description };
+          })
+          .filter((option) => option !== undefined) ?? [];
+
+      const id = trimText(question.id);
+      const header = trimText(question.header);
+      const prompt = trimText(question.question);
+      if (!id || !header || !prompt || options.length === 0) {
         return undefined;
       }
       return {
@@ -469,37 +357,21 @@ function toUserInputQuestions(payload: Record<string, unknown> | undefined) {
         header,
         question: prompt,
         options,
-        ...(question.multiSelect === true ? { multiSelect: true } : {}),
+        multiSelect: false,
       };
     })
-    .filter(
-      (
-        question,
-      ): question is {
-        id: string;
-        header: string;
-        question: string;
-        options: Array<{ label: string; description: string }>;
-      } => question !== undefined,
-    );
+    .filter((question) => question !== undefined);
 
   return parsedQuestions.length > 0 ? parsedQuestions : undefined;
 }
 
 function toThreadState(
-  value: unknown,
+  status: EffectCodexSchema.V2ThreadStatusChangedNotification["status"],
 ): "active" | "idle" | "archived" | "closed" | "compacted" | "error" {
-  switch (value) {
+  switch (status.type) {
     case "idle":
       return "idle";
-    case "archived":
-      return "archived";
-    case "closed":
-      return "closed";
-    case "compacted":
-      return "compacted";
-    case "error":
-    case "failed":
+    case "systemError":
       return "error";
     default:
       return "active";
@@ -531,183 +403,12 @@ function contentStreamKindFromMethod(
   }
 }
 
-function asRuntimeItemId(itemId: ProviderItemId): RuntimeItemId {
-  return RuntimeItemId.makeUnsafe(itemId);
+function asRuntimeItemId(itemId: ProviderEvent["itemId"] & string): RuntimeItemId {
+  return RuntimeItemId.make(itemId);
 }
 
 function asRuntimeRequestId(requestId: string): RuntimeRequestId {
-  return RuntimeRequestId.makeUnsafe(requestId);
-}
-
-function asRuntimeTaskId(taskId: string): RuntimeTaskId {
-  return RuntimeTaskId.makeUnsafe(taskId);
-}
-
-function codexEventMessage(
-  payload: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  return asObject(payload?.msg);
-}
-
-function codexEventBase(
-  event: ProviderEvent,
-  canonicalThreadId: ThreadId,
-): Omit<ProviderRuntimeEvent, "type" | "payload"> {
-  const payload = asObject(event.payload);
-  const msg = codexEventMessage(payload);
-  const turnId = event.turnId ?? toTurnId(asString(msg?.turn_id) ?? asString(msg?.turnId));
-  const itemId = event.itemId ?? toProviderItemId(asString(msg?.item_id) ?? asString(msg?.itemId));
-  const requestId = asString(msg?.request_id) ?? asString(msg?.requestId);
-  const base = runtimeEventBase(event, canonicalThreadId);
-  const providerRefs = base.providerRefs
-    ? {
-        ...base.providerRefs,
-        ...(turnId ? { providerTurnId: turnId } : {}),
-        ...(itemId ? { providerItemId: itemId } : {}),
-        ...(requestId ? { providerRequestId: requestId } : {}),
-      }
-    : {
-        ...(turnId ? { providerTurnId: turnId } : {}),
-        ...(itemId ? { providerItemId: itemId } : {}),
-        ...(requestId ? { providerRequestId: requestId } : {}),
-      };
-
-  return {
-    ...base,
-    ...(turnId ? { turnId } : {}),
-    ...(itemId ? { itemId: asRuntimeItemId(itemId) } : {}),
-    ...(requestId ? { requestId: asRuntimeRequestId(requestId) } : {}),
-    ...(Object.keys(providerRefs).length > 0 ? { providerRefs } : {}),
-  };
-}
-
-function codexGeneratedImageThreadId(
-  event: ProviderEvent,
-  payload: Record<string, unknown> | undefined,
-): string | undefined {
-  const msg = codexEventMessage(payload);
-  const nestedEvent = asObject(payload?.event);
-  return (
-    firstStringValue(msg, ["thread_id", "threadId", "threadID", "thread"]) ??
-    firstStringValue(nestedEvent, ["thread_id", "threadId", "threadID", "thread"]) ??
-    firstStringValue(payload, ["thread_id", "threadId", "threadID", "thread"]) ??
-    event.providerThreadId ??
-    event.threadId
-  );
-}
-
-function sanitizeGeneratedImagePayload(event: ProviderEvent, canonicalThreadId: ThreadId): unknown {
-  const payload = asObject(event.payload);
-  return sanitizeNestedCodexGeneratedImagePayloads({
-    value: event.payload ?? {},
-    threadId: codexGeneratedImageThreadId(event, payload) ?? canonicalThreadId,
-  });
-}
-
-function withSanitizedGeneratedImageRaw(
-  base: Omit<ProviderRuntimeEvent, "type" | "payload">,
-  event: ProviderEvent,
-  canonicalThreadId: ThreadId,
-): Omit<ProviderRuntimeEvent, "type" | "payload"> {
-  return {
-    ...base,
-    raw: {
-      source: eventRawSource(event),
-      method: event.method,
-      payload: sanitizeGeneratedImagePayload(event, canonicalThreadId),
-    },
-  };
-}
-
-function generatedImageEventCandidate(event: ProviderEvent): Record<string, unknown> | undefined {
-  const payload = asObject(event.payload);
-  const msg = codexEventMessage(payload);
-  const item = asObject(payload?.item);
-  const nestedEvent = asObject(payload?.event);
-  if (item) {
-    return item;
-  }
-  if (msg) {
-    return {
-      ...msg,
-      type: asString(msg.type) ?? "image_generation_end",
-    };
-  }
-  if (nestedEvent) {
-    return {
-      ...nestedEvent,
-      type: asString(nestedEvent.type) ?? "image_generation_end",
-    };
-  }
-  if (payload) {
-    return {
-      ...payload,
-      type: asString(payload.type) ?? "image_generation_end",
-    };
-  }
-  return undefined;
-}
-
-function mapGeneratedImageEndEvent(
-  event: ProviderEvent,
-  canonicalThreadId: ThreadId,
-): ProviderRuntimeEvent | undefined {
-  if (
-    event.method !== "codex/event/image_generation_end" &&
-    event.method !== "image_generation_end"
-  ) {
-    return undefined;
-  }
-  const payload = asObject(event.payload);
-  const candidate = generatedImageEventCandidate(event);
-  const reference = extractCodexGeneratedImageReference({
-    value: candidate,
-    threadId: codexGeneratedImageThreadId(event, payload) ?? canonicalThreadId,
-  });
-  if (!reference) {
-    return undefined;
-  }
-
-  const turnId =
-    event.turnId ??
-    toTurnId(
-      firstStringValue(candidate, ["turn_id", "turnId"]) ??
-        firstStringValue(payload, ["turn_id", "turnId"]),
-    );
-  const itemId =
-    event.itemId ??
-    toProviderItemId(
-      firstStringValue(candidate, ["item_id", "itemId", "call_id", "callId", "id"]) ??
-        firstStringValue(payload, ["item_id", "itemId", "call_id", "callId", "id"]),
-    );
-  const base = withSanitizedGeneratedImageRaw(
-    {
-      ...runtimeEventBase(
-        {
-          ...event,
-          ...(turnId ? { turnId } : {}),
-          ...(itemId ? { itemId } : {}),
-        },
-        canonicalThreadId,
-      ),
-      ...(turnId ? { turnId } : {}),
-      ...(itemId ? { itemId: asRuntimeItemId(itemId) } : {}),
-    },
-    event,
-    canonicalThreadId,
-  );
-
-  return {
-    ...base,
-    type: "item.completed",
-    payload: {
-      itemType: "image_generation",
-      status: "completed",
-      title: "Generated image",
-      detail: reference.path,
-      data: codexGeneratedImageArtifact(reference),
-    },
-  };
+  return RuntimeRequestId.make(requestId);
 }
 
 function eventRawSource(event: ProviderEvent): NonNullable<ProviderRuntimeEvent["raw"]>["source"] {
@@ -718,10 +419,7 @@ function providerRefsFromEvent(
   event: ProviderEvent,
 ): ProviderRuntimeEvent["providerRefs"] | undefined {
   const refs: Record<string, string> = {};
-  if (event.providerThreadId) refs.providerThreadId = event.providerThreadId;
-  if (event.providerParentThreadId) refs.providerParentThreadId = event.providerParentThreadId;
   if (event.turnId) refs.providerTurnId = event.turnId;
-  if (event.parentTurnId) refs.parentProviderTurnId = event.parentTurnId;
   if (event.itemId) refs.providerItemId = event.itemId;
   if (event.requestId) refs.providerRequestId = event.requestId;
 
@@ -738,11 +436,7 @@ function runtimeEventBase(
     provider: event.provider,
     threadId: canonicalThreadId,
     createdAt: event.createdAt,
-    ...(event.lifecycleGeneration !== undefined
-      ? { lifecycleGeneration: event.lifecycleGeneration }
-      : {}),
     ...(event.turnId ? { turnId: event.turnId } : {}),
-    ...(event.parentTurnId ? { parentTurnId: event.parentTurnId } : {}),
     ...(event.itemId ? { itemId: asRuntimeItemId(event.itemId) } : {}),
     ...(event.requestId ? { requestId: asRuntimeRequestId(event.requestId) } : {}),
     ...(refs ? { providerRefs: refs } : {}),
@@ -759,64 +453,35 @@ function mapItemLifecycle(
   canonicalThreadId: ThreadId,
   lifecycle: "item.started" | "item.updated" | "item.completed",
 ): ProviderRuntimeEvent | undefined {
-  const payload = asObject(event.payload);
-  const item = asObject(payload?.item);
-  const source = item ?? payload;
-  if (!source) {
+  const payload =
+    readPayload(EffectCodexSchema.V2ItemStartedNotification, event.payload) ??
+    readPayload(EffectCodexSchema.V2ItemCompletedNotification, event.payload);
+  const item = payload?.item;
+  if (!item) {
     return undefined;
   }
-
-  const itemType = toCanonicalItemType(source.type ?? source.kind);
+  const itemType = toCanonicalItemType(item.type);
   if (itemType === "unknown" && lifecycle !== "item.updated") {
     return undefined;
   }
-  const generatedImageReference =
-    itemType === "image_generation"
-      ? extractCodexGeneratedImageReference({
-          value: source,
-          threadId: codexGeneratedImageThreadId(event, payload) ?? canonicalThreadId,
-        })
-      : undefined;
-  if (
-    lifecycle === "item.completed" &&
-    itemType === "image_generation" &&
-    !generatedImageReference
-  ) {
-    return undefined;
-  }
 
-  const canonicalItemType =
-    lifecycle === "item.completed" && itemType === "review_exited" ? "assistant_message" : itemType;
-
-  // Only the provider-authored summary is user-visible reasoning. Raw content
-  // may contain model trace data and must not leak into transcript activities.
-  const detail =
-    itemType === "reasoning" ? reasoningSummaryDetail(source) : itemDetail(source, payload ?? {});
-  const status = itemStatus(lifecycle, source.status);
+  const detail = itemDetail(item);
+  const status =
+    lifecycle === "item.started"
+      ? "inProgress"
+      : lifecycle === "item.completed"
+        ? "completed"
+        : undefined;
 
   return {
-    ...(generatedImageReference
-      ? withSanitizedGeneratedImageRaw(
-          runtimeEventBase(event, canonicalThreadId),
-          event,
-          canonicalThreadId,
-        )
-      : runtimeEventBase(event, canonicalThreadId)),
+    ...runtimeEventBase(event, canonicalThreadId),
     type: lifecycle,
     payload: {
-      itemType: canonicalItemType,
+      itemType,
       ...(status ? { status } : {}),
-      ...(itemTitle(canonicalItemType) ? { title: itemTitle(canonicalItemType) } : {}),
-      ...(generatedImageReference
-        ? { detail: generatedImageReference.path }
-        : detail
-          ? { detail }
-          : {}),
-      ...(generatedImageReference
-        ? { data: codexGeneratedImageArtifact(generatedImageReference) }
-        : event.payload !== undefined
-          ? { data: event.payload }
-          : {}),
+      ...(itemTitle(itemType, item) ? { title: itemTitle(itemType, item) } : {}),
+      ...(detail ? { detail } : {}),
+      ...(event.payload !== undefined ? { data: event.payload } : {}),
     },
   };
 }
@@ -825,25 +490,17 @@ function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
 ): ReadonlyArray<ProviderRuntimeEvent> {
-  const payload = asObject(event.payload);
-  const turn = asObject(payload?.turn);
-  const generatedImageEndEvent = mapGeneratedImageEndEvent(event, canonicalThreadId);
-  if (generatedImageEndEvent) {
-    return [generatedImageEndEvent];
-  }
-
   if (event.kind === "error") {
     if (!event.message) {
       return [];
     }
-    const treatAsWarning = providerErrorMapsToWarning(event);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
-        type: treatAsWarning ? "runtime.warning" : "runtime.error",
+        type: "runtime.error",
         payload: {
           message: event.message,
-          ...(!treatAsWarning ? { class: "provider_error" as const } : {}),
+          class: "provider_error",
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },
@@ -852,7 +509,10 @@ function mapToRuntimeEvents(
 
   if (event.kind === "request") {
     if (event.method === "item/tool/requestUserInput") {
-      const questions = toUserInputQuestions(payload);
+      const payload =
+        readPayload(EffectCodexSchema.ServerRequest__ToolRequestUserInputParams, event.payload) ??
+        readPayload(EffectCodexSchema.ToolRequestUserInputParams, event.payload);
+      const questions = payload ? toUserInputQuestions(payload.questions) : undefined;
       if (!questions) {
         return [];
       }
@@ -867,8 +527,48 @@ function mapToRuntimeEvents(
       ];
     }
 
-    const detail =
-      asString(payload?.command) ?? asString(payload?.reason) ?? asString(payload?.prompt);
+    const detail = (() => {
+      switch (event.method) {
+        case "item/commandExecution/requestApproval": {
+          const payload = readPayload(
+            EffectCodexSchema.ServerRequest__CommandExecutionRequestApprovalParams,
+            event.payload,
+          );
+          return payload?.command ?? payload?.reason ?? undefined;
+        }
+        case "item/fileChange/requestApproval": {
+          const payload = readPayload(
+            EffectCodexSchema.ServerRequest__FileChangeRequestApprovalParams,
+            event.payload,
+          );
+          return payload?.reason ?? undefined;
+        }
+        case "applyPatchApproval": {
+          const payload = readPayload(
+            EffectCodexSchema.ServerRequest__ApplyPatchApprovalParams,
+            event.payload,
+          );
+          return payload?.reason ?? undefined;
+        }
+        case "execCommandApproval": {
+          const payload = readPayload(
+            EffectCodexSchema.ServerRequest__ExecCommandApprovalParams,
+            event.payload,
+          );
+          return payload?.reason ?? payload?.command.join(" ");
+        }
+        case "item/tool/call": {
+          const payload = readPayload(
+            EffectCodexSchema.ServerRequest__DynamicToolCallParams,
+            event.payload,
+          );
+          return payload?.tool ?? undefined;
+        }
+        default:
+          return undefined;
+      }
+    })();
+
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -883,7 +583,7 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "item/requestApproval/decision" && event.requestId) {
-    const decision = Schema.decodeUnknownSync(ProviderApprovalDecision)(payload?.decision);
+    const payload = readPayload(ApprovalDecisionPayload, event.payload);
     const requestType =
       event.requestKind !== undefined
         ? toRequestTypeFromKind(event.requestKind)
@@ -894,7 +594,7 @@ function mapToRuntimeEvents(
         type: "request.resolved",
         payload: {
           requestType,
-          ...(decision ? { decision } : {}),
+          ...(payload ? { decision: payload.decision } : {}),
           ...(event.payload !== undefined ? { resolution: event.payload } : {}),
         },
       },
@@ -954,9 +654,8 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "thread/started") {
-    const payloadThreadId = asString(asObject(payload?.thread)?.id);
-    const providerThreadId = payloadThreadId ?? asString(payload?.threadId);
-    if (!providerThreadId) {
+    const payload = readPayload(EffectCodexSchema.V2ThreadStartedNotification, event.payload);
+    if (!payload) {
       return [];
     }
     return [
@@ -964,23 +663,7 @@ function mapToRuntimeEvents(
         ...runtimeEventBase(event, canonicalThreadId),
         type: "thread.started",
         payload: {
-          providerThreadId,
-        },
-      },
-    ];
-  }
-
-  if (event.method === "thread/compacting") {
-    return [
-      {
-        ...runtimeEventBase(event, canonicalThreadId),
-        type: "item.updated",
-        payload: {
-          itemType: "context_compaction",
-          status: "inProgress",
-          title: "Context compaction",
-          detail: event.message ?? "Compacting context",
-          ...(event.payload !== undefined ? { data: event.payload } : {}),
+          providerThreadId: payload.thread.id,
         },
       },
     ];
@@ -993,6 +676,10 @@ function mapToRuntimeEvents(
     event.method === "thread/closed" ||
     event.method === "thread/compacted"
   ) {
+    const payload =
+      event.method === "thread/status/changed"
+        ? readPayload(EffectCodexSchema.V2ThreadStatusChangedNotification, event.payload)
+        : undefined;
     return [
       {
         type: "thread.state.changed",
@@ -1005,7 +692,9 @@ function mapToRuntimeEvents(
                 ? "closed"
                 : event.method === "thread/compacted"
                   ? "compacted"
-                  : toThreadState(asObject(payload?.thread)?.state ?? payload?.state),
+                  : payload
+                    ? toThreadState(payload.status)
+                    : "active",
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },
@@ -1013,21 +702,34 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "thread/name/updated") {
+    const payload = readPayload(EffectCodexSchema.V2ThreadNameUpdatedNotification, event.payload);
     return [
       {
         type: "thread.metadata.updated",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          ...(asString(payload?.threadName) ? { name: asString(payload?.threadName) } : {}),
-          ...(event.payload !== undefined ? { metadata: asObject(event.payload) } : {}),
+          ...(trimText(payload?.threadName) ? { name: trimText(payload?.threadName) } : {}),
+          ...(payload
+            ? {
+                metadata: {
+                  threadId: payload.threadId,
+                  ...(payload.threadName !== undefined && payload.threadName !== null
+                    ? { threadName: payload.threadName }
+                    : {}),
+                },
+              }
+            : {}),
         },
       },
     ];
   }
 
   if (event.method === "thread/tokenUsage/updated") {
-    const tokenUsage = asObject(payload?.tokenUsage);
-    const normalizedUsage = normalizeCodexTokenUsage(tokenUsage ?? event.payload);
+    const payload = readPayload(
+      EffectCodexSchema.V2ThreadTokenUsageUpdatedNotification,
+      event.payload,
+    );
+    const normalizedUsage = payload ? normalizeCodexTokenUsage(payload.tokenUsage) : undefined;
     if (!normalizedUsage) {
       return [];
     }
@@ -1052,28 +754,23 @@ function mapToRuntimeEvents(
         ...runtimeEventBase(event, canonicalThreadId),
         turnId,
         type: "turn.started",
-        payload: {
-          ...(asString(turn?.model) ? { model: asString(turn?.model) } : {}),
-          ...(asString(turn?.effort) ? { effort: asString(turn?.effort) } : {}),
-        },
+        payload: {},
       },
     ];
   }
 
   if (event.method === "turn/completed") {
-    const errorMessage = asString(asObject(turn?.error)?.message);
+    const payload = readPayload(EffectCodexSchema.V2TurnCompletedNotification, event.payload);
+    if (!payload) {
+      return [];
+    }
+    const errorMessage = trimText(payload.turn.error?.message);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "turn.completed",
         payload: {
-          state: toTurnStatus(turn?.status),
-          ...(asString(turn?.stopReason) ? { stopReason: asString(turn?.stopReason) } : {}),
-          ...(turn?.usage !== undefined ? { usage: turn.usage } : {}),
-          ...(asObject(turn?.modelUsage) ? { modelUsage: asObject(turn?.modelUsage) } : {}),
-          ...(asNumber(turn?.totalCostUsd) !== undefined
-            ? { totalCostUsd: asNumber(turn?.totalCostUsd) }
-            : {}),
+          state: toTurnStatus(payload.turn.status),
           ...(errorMessage ? { errorMessage } : {}),
         },
       },
@@ -1093,42 +790,37 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "turn/plan/updated") {
-    const steps = Array.isArray(payload?.plan) ? payload.plan : [];
+    const payload = readPayload(EffectCodexSchema.V2TurnPlanUpdatedNotification, event.payload);
+    if (!payload) {
+      return [];
+    }
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
-        type: "turn.tasks.updated",
+        type: "turn.plan.updated",
         payload: {
-          ...(asString(payload?.explanation)
-            ? { explanation: asString(payload?.explanation) }
-            : {}),
-          tasks: steps.flatMap((entry) => {
-            const taskEntry = asObject(entry);
-            if (!taskEntry) {
-              return [];
-            }
-            const item = makeRuntimeTaskListItem(
-              asString(taskEntry.step) ?? "task",
-              taskEntry.status,
-            );
-            return item ? [item] : [];
-          }),
+          ...(trimText(payload.explanation) ? { explanation: trimText(payload.explanation) } : {}),
+          plan: payload.plan.map((step) => ({
+            step: trimText(step.step) ?? "step",
+            status:
+              step.status === "completed" || step.status === "inProgress" ? step.status : "pending",
+          })),
         },
       },
     ];
   }
 
   if (event.method === "turn/diff/updated") {
+    const payload = readPayload(EffectCodexSchema.V2TurnDiffUpdatedNotification, event.payload);
+    if (!payload) {
+      return [];
+    }
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "turn.diff.updated",
         payload: {
-          unifiedDiff:
-            asString(payload?.unifiedDiff) ??
-            asString(payload?.diff) ??
-            asString(payload?.patch) ??
-            "",
+          unifiedDiff: payload.diff,
         },
       },
     ];
@@ -1140,15 +832,14 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "item/completed") {
-    const payload = asObject(event.payload);
-    const item = asObject(payload?.item);
-    const source = item ?? payload;
-    if (!source) {
+    const payload = readPayload(EffectCodexSchema.V2ItemCompletedNotification, event.payload);
+    const item = payload?.item;
+    if (!item) {
       return [];
     }
-    const itemType = source ? toCanonicalItemType(source.type ?? source.kind) : "unknown";
+    const itemType = toCanonicalItemType(item.type);
     if (itemType === "plan") {
-      const detail = itemDetail(source, payload ?? {});
+      const detail = itemDetail(item);
       if (!detail) {
         return [];
       }
@@ -1170,16 +861,22 @@ function mapToRuntimeEvents(
     event.method === "item/reasoning/summaryPartAdded" ||
     event.method === "item/commandExecution/terminalInteraction"
   ) {
-    const updated = mapItemLifecycle(event, canonicalThreadId, "item.updated");
-    return updated ? [updated] : [];
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "item.updated",
+        payload: {
+          itemType:
+            event.method === "item/reasoning/summaryPartAdded" ? "reasoning" : "command_execution",
+          ...(event.payload !== undefined ? { data: event.payload } : {}),
+        },
+      },
+    ];
   }
 
   if (event.method === "item/plan/delta") {
-    const delta =
-      event.textDelta ??
-      asString(payload?.delta) ??
-      asString(payload?.text) ??
-      asString(asObject(payload?.content)?.text);
+    const payload = readPayload(EffectCodexSchema.V2PlanDeltaNotification, event.payload);
+    const delta = event.textDelta ?? payload?.delta;
     if (!delta || delta.length === 0) {
       return [];
     }
@@ -1194,18 +891,9 @@ function mapToRuntimeEvents(
     ];
   }
 
-  if (
-    event.method === "item/agentMessage/delta" ||
-    event.method === "item/commandExecution/outputDelta" ||
-    event.method === "item/fileChange/outputDelta" ||
-    event.method === "item/reasoning/summaryTextDelta" ||
-    event.method === "item/reasoning/textDelta"
-  ) {
-    const delta =
-      event.textDelta ??
-      asString(payload?.delta) ??
-      asString(payload?.text) ??
-      asString(asObject(payload?.content)?.text);
+  if (event.method === "item/agentMessage/delta") {
+    const payload = readPayload(EffectCodexSchema.V2AgentMessageDeltaNotification, event.payload);
+    const delta = event.textDelta ?? payload?.delta;
     if (!delta || delta.length === 0) {
       return [];
     }
@@ -1216,41 +904,119 @@ function mapToRuntimeEvents(
         payload: {
           streamKind: contentStreamKindFromMethod(event.method),
           delta,
-          ...(typeof payload?.contentIndex === "number"
-            ? { contentIndex: payload.contentIndex }
-            : {}),
-          ...(typeof payload?.summaryIndex === "number"
-            ? { summaryIndex: payload.summaryIndex }
-            : {}),
+        },
+      },
+    ];
+  }
+
+  if (event.method === "item/commandExecution/outputDelta") {
+    const payload = readPayload(
+      EffectCodexSchema.V2CommandExecutionOutputDeltaNotification,
+      event.payload,
+    );
+    const delta = event.textDelta ?? payload?.delta;
+    if (!delta || delta.length === 0) {
+      return [];
+    }
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "content.delta",
+        payload: {
+          streamKind: "command_output",
+          delta,
+        },
+      },
+    ];
+  }
+
+  if (event.method === "item/fileChange/outputDelta") {
+    const payload = readPayload(
+      EffectCodexSchema.V2FileChangeOutputDeltaNotification,
+      event.payload,
+    );
+    const delta = event.textDelta ?? payload?.delta;
+    if (!delta || delta.length === 0) {
+      return [];
+    }
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "content.delta",
+        payload: {
+          streamKind: "file_change_output",
+          delta,
+        },
+      },
+    ];
+  }
+
+  if (event.method === "item/reasoning/summaryTextDelta") {
+    const payload = readPayload(
+      EffectCodexSchema.V2ReasoningSummaryTextDeltaNotification,
+      event.payload,
+    );
+    const delta = event.textDelta ?? payload?.delta;
+    if (!delta || delta.length === 0) {
+      return [];
+    }
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "content.delta",
+        payload: {
+          streamKind: "reasoning_summary_text",
+          delta,
+          ...(payload ? { summaryIndex: payload.summaryIndex } : {}),
+        },
+      },
+    ];
+  }
+
+  if (event.method === "item/reasoning/textDelta") {
+    const payload = readPayload(EffectCodexSchema.V2ReasoningTextDeltaNotification, event.payload);
+    const delta = event.textDelta ?? payload?.delta;
+    if (!delta || delta.length === 0) {
+      return [];
+    }
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "content.delta",
+        payload: {
+          streamKind: "reasoning_text",
+          delta,
+          ...(payload ? { contentIndex: payload.contentIndex } : {}),
         },
       },
     ];
   }
 
   if (event.method === "item/mcpToolCall/progress") {
+    const payload = readPayload(EffectCodexSchema.V2McpToolCallProgressNotification, event.payload);
+    if (!payload) {
+      return [];
+    }
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "tool.progress",
         payload: {
-          ...(asString(payload?.toolUseId) ? { toolUseId: asString(payload?.toolUseId) } : {}),
-          ...(asString(payload?.toolName) ? { toolName: asString(payload?.toolName) } : {}),
-          ...(asString(payload?.summary) ? { summary: asString(payload?.summary) } : {}),
-          ...(asNumber(payload?.elapsedSeconds) !== undefined
-            ? { elapsedSeconds: asNumber(payload?.elapsedSeconds) }
-            : {}),
+          summary: payload.message,
         },
       },
     ];
   }
 
   if (event.method === "serverRequest/resolved") {
-    const requestType =
-      toRequestTypeFromResolvedPayload(payload) !== "unknown"
-        ? toRequestTypeFromResolvedPayload(payload)
-        : event.requestId && event.requestKind !== undefined
-          ? toRequestTypeFromKind(event.requestKind)
-          : "unknown";
+    const payload = readPayload(
+      EffectCodexSchema.V2ServerRequestResolvedNotification,
+      event.payload,
+    );
+    if (!payload) {
+      return [];
+    }
+    const requestType = toRequestTypeFromKind(event.requestKind);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -1264,168 +1030,81 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "item/tool/requestUserInput/answered") {
+    const payload = readPayload(EffectCodexSchema.ToolRequestUserInputResponse, event.payload);
+    if (!payload) {
+      return [];
+    }
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "user-input.resolved",
         payload: {
-          answers: toCanonicalUserInputAnswers(
-            asObject(event.payload)?.answers as ProviderUserInputAnswers | undefined,
-          ),
-        },
-      },
-    ];
-  }
-
-  if (event.method === "codex/event/task_started") {
-    const msg = codexEventMessage(payload);
-    const taskId = asString(payload?.id) ?? asString(msg?.turn_id);
-    if (!taskId) {
-      return [];
-    }
-    return [
-      {
-        ...codexEventBase(event, canonicalThreadId),
-        type: "task.started",
-        payload: {
-          taskId: asRuntimeTaskId(taskId),
-          ...(asString(msg?.collaboration_mode_kind)
-            ? { taskType: asString(msg?.collaboration_mode_kind) }
-            : {}),
-        },
-      },
-    ];
-  }
-
-  if (event.method === "codex/event/task_complete") {
-    const msg = codexEventMessage(payload);
-    const taskId = asString(payload?.id) ?? asString(msg?.turn_id);
-    const proposedPlanMarkdown = extractProposedPlanMarkdown(asString(msg?.last_agent_message));
-    if (!taskId) {
-      if (!proposedPlanMarkdown) {
-        return [];
-      }
-      return [
-        {
-          ...codexEventBase(event, canonicalThreadId),
-          type: "turn.proposed.completed",
-          payload: {
-            planMarkdown: proposedPlanMarkdown,
-          },
-        },
-      ];
-    }
-    const events: ProviderRuntimeEvent[] = [
-      {
-        ...codexEventBase(event, canonicalThreadId),
-        type: "task.completed",
-        payload: {
-          taskId: asRuntimeTaskId(taskId),
-          status: "completed",
-          ...(asString(msg?.last_agent_message)
-            ? { summary: asString(msg?.last_agent_message) }
-            : {}),
-        },
-      },
-    ];
-    if (proposedPlanMarkdown) {
-      events.push({
-        ...codexEventBase(event, canonicalThreadId),
-        type: "turn.proposed.completed",
-        payload: {
-          planMarkdown: proposedPlanMarkdown,
-        },
-      });
-    }
-    return events;
-  }
-
-  if (event.method === "codex/event/agent_reasoning") {
-    const msg = codexEventMessage(payload);
-    const taskId = asString(payload?.id);
-    const description = asString(msg?.text);
-    if (!taskId || !description) {
-      return [];
-    }
-    return [
-      {
-        ...codexEventBase(event, canonicalThreadId),
-        type: "task.progress",
-        payload: {
-          taskId: asRuntimeTaskId(taskId),
-          description,
-        },
-      },
-    ];
-  }
-
-  if (event.method === "codex/event/reasoning_content_delta") {
-    const msg = codexEventMessage(payload);
-    const delta = asString(msg?.delta);
-    if (!delta) {
-      return [];
-    }
-    return [
-      {
-        ...codexEventBase(event, canonicalThreadId),
-        type: "content.delta",
-        payload: {
-          streamKind:
-            asNumber(msg?.summary_index) !== undefined
-              ? "reasoning_summary_text"
-              : "reasoning_text",
-          delta,
-          ...(asNumber(msg?.summary_index) !== undefined
-            ? { summaryIndex: asNumber(msg?.summary_index) }
-            : {}),
+          answers: toCanonicalUserInputAnswers(payload.answers),
         },
       },
     ];
   }
 
   if (event.method === "model/rerouted") {
+    const payload = readPayload(EffectCodexSchema.V2ModelReroutedNotification, event.payload);
+    if (!payload) {
+      return [];
+    }
     return [
       {
         type: "model.rerouted",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          fromModel: asString(payload?.fromModel) ?? "unknown",
-          toModel: asString(payload?.toModel) ?? "unknown",
-          reason: asString(payload?.reason) ?? "unknown",
+          fromModel: payload.fromModel,
+          toModel: payload.toModel,
+          reason: payload.reason,
         },
       },
     ];
   }
 
   if (event.method === "deprecationNotice") {
+    const payload = readPayload(EffectCodexSchema.V2DeprecationNoticeNotification, event.payload);
+    if (!payload) {
+      return [];
+    }
     return [
       {
         type: "deprecation.notice",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          summary: asString(payload?.summary) ?? "Deprecation notice",
-          ...(asString(payload?.details) ? { details: asString(payload?.details) } : {}),
+          summary: payload.summary,
+          ...(trimText(payload.details) ? { details: trimText(payload.details) } : {}),
         },
       },
     ];
   }
 
   if (event.method === "configWarning") {
+    const payload = readPayload(EffectCodexSchema.V2ConfigWarningNotification, event.payload);
+    if (!payload) {
+      return [];
+    }
     return [
       {
         type: "config.warning",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          summary: asString(payload?.summary) ?? "Configuration warning",
-          ...(asString(payload?.details) ? { details: asString(payload?.details) } : {}),
-          ...(asString(payload?.path) ? { path: asString(payload?.path) } : {}),
-          ...(payload?.range !== undefined ? { range: payload.range } : {}),
+          summary: payload.summary,
+          ...(trimText(payload.details) ? { details: trimText(payload.details) } : {}),
+          ...(trimText(payload.path) ? { path: trimText(payload.path) } : {}),
+          ...(payload.range !== undefined && payload.range !== null
+            ? { range: payload.range }
+            : {}),
         },
       },
     ];
   }
 
   if (event.method === "account/updated") {
+    if (!readPayload(EffectCodexSchema.V2AccountUpdatedNotification, event.payload)) {
+      return [];
+    }
     return [
       {
         type: "account.updated",
@@ -1438,6 +1117,9 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "account/rateLimits/updated") {
+    if (!readPayload(EffectCodexSchema.V2AccountRateLimitsUpdatedNotification, event.payload)) {
+      return [];
+    }
     return [
       {
         type: "account.rate-limits.updated",
@@ -1450,58 +1132,86 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "mcpServer/oauthLogin/completed") {
+    const payload = readPayload(
+      EffectCodexSchema.V2McpServerOauthLoginCompletedNotification,
+      event.payload,
+    );
+    if (!payload) {
+      return [];
+    }
     return [
       {
         type: "mcp.oauth.completed",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          success: payload?.success === true,
-          ...(asString(payload?.name) ? { name: asString(payload?.name) } : {}),
-          ...(asString(payload?.error) ? { error: asString(payload?.error) } : {}),
+          success: payload.success,
+          name: payload.name,
+          ...(trimText(payload.error) ? { error: trimText(payload.error) } : {}),
         },
       },
     ];
   }
 
   if (event.method === "thread/realtime/started") {
-    const realtimeSessionId = asString(payload?.realtimeSessionId);
+    const payload = readPayload(
+      EffectCodexSchema.V2ThreadRealtimeStartedNotification,
+      event.payload,
+    );
+    if (!payload) {
+      return [];
+    }
     return [
       {
         type: "thread.realtime.started",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          realtimeSessionId,
+          realtimeSessionId: payload.realtimeSessionId ?? undefined,
         },
       },
     ];
   }
 
   if (event.method === "thread/realtime/itemAdded") {
+    const payload = readPayload(
+      EffectCodexSchema.V2ThreadRealtimeItemAddedNotification,
+      event.payload,
+    );
+    if (!payload) {
+      return [];
+    }
     return [
       {
         type: "thread.realtime.item-added",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          item: event.payload ?? {},
+          item: payload.item,
         },
       },
     ];
   }
 
   if (event.method === "thread/realtime/outputAudio/delta") {
+    const payload = readPayload(
+      EffectCodexSchema.V2ThreadRealtimeOutputAudioDeltaNotification,
+      event.payload,
+    );
+    if (!payload) {
+      return [];
+    }
     return [
       {
         type: "thread.realtime.audio.delta",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          audio: event.payload ?? {},
+          audio: payload.audio,
         },
       },
     ];
   }
 
   if (event.method === "thread/realtime/error") {
-    const message = asString(payload?.message) ?? event.message ?? "Realtime error";
+    const payload = readPayload(EffectCodexSchema.V2ThreadRealtimeErrorNotification, event.payload);
+    const message = payload?.message ?? event.message ?? "Realtime error";
     return [
       {
         type: "thread.realtime.error",
@@ -1514,36 +1224,67 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "thread/realtime/closed") {
+    const payload = readPayload(
+      EffectCodexSchema.V2ThreadRealtimeClosedNotification,
+      event.payload,
+    );
     return [
       {
         type: "thread.realtime.closed",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          reason: event.message,
+          reason: payload?.reason ?? event.message,
         },
       },
     ];
   }
 
   if (event.method === "error") {
-    const message =
-      asString(asObject(payload?.error)?.message) ?? event.message ?? "Provider runtime error";
+    const payload = readPayload(EffectCodexSchema.V2ErrorNotification, event.payload);
+    const message = payload?.error.message ?? event.message ?? "Provider runtime error";
     const willRetry = payload?.willRetry === true;
-    const treatAsWarning = willRetry || isNonFatalCodexErrorMessage(message);
     return [
       {
-        type: treatAsWarning ? "runtime.warning" : "runtime.error",
+        type: willRetry ? "runtime.warning" : "runtime.error",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
           message,
-          ...(!treatAsWarning ? { class: "provider_error" as const } : {}),
+          ...(!willRetry ? { class: "provider_error" as const } : {}),
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },
     ];
   }
 
+  if (event.method === "process/stderr") {
+    const message = event.message ?? "Codex process stderr";
+    const isFatal = isFatalCodexProcessStderrMessage(message);
+    return [
+      isFatal
+        ? {
+            type: "runtime.error",
+            ...runtimeEventBase(event, canonicalThreadId),
+            payload: {
+              message,
+              class: "provider_error" as const,
+              ...(event.payload !== undefined ? { detail: event.payload } : {}),
+            },
+          }
+        : {
+            type: "runtime.warning",
+            ...runtimeEventBase(event, canonicalThreadId),
+            payload: {
+              message,
+              ...(event.payload !== undefined ? { detail: event.payload } : {}),
+            },
+          },
+    ];
+  }
+
   if (event.method === "windows/worldWritableWarning") {
+    if (!readPayload(EffectCodexSchema.V2WindowsWorldWritableWarningNotification, event.payload)) {
+      return [];
+    }
     return [
       {
         type: "runtime.warning",
@@ -1557,8 +1298,13 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "windowsSandbox/setupCompleted") {
-    const payloadRecord = asObject(event.payload);
-    const success = payloadRecord?.success;
+    const payload = readPayload(
+      EffectCodexSchema.V2WindowsSandboxSetupCompletedNotification,
+      event.payload,
+    );
+    if (!payload) {
+      return [];
+    }
     const successMessage = event.message ?? "Windows sandbox setup completed";
     const failureMessage = event.message ?? "Windows sandbox setup failed";
 
@@ -1567,12 +1313,12 @@ function mapToRuntimeEvents(
         type: "session.state.changed",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          state: success === false ? "error" : "ready",
-          reason: success === false ? failureMessage : successMessage,
+          state: payload.success === false ? "error" : "ready",
+          reason: payload.success === false ? failureMessage : successMessage,
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },
-      ...(success === false
+      ...(payload.success === false
         ? [
             {
               type: "runtime.warning" as const,
@@ -1590,464 +1336,109 @@ function mapToRuntimeEvents(
   return [];
 }
 
-const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const serverConfig = yield* Effect.service(ServerConfig);
-    const nativeEventLogger =
-      options?.nativeEventLogger ??
-      (options?.nativeEventLogPath !== undefined
-        ? yield* makeEventNdjsonLogger(options.nativeEventLogPath, {
-            stream: "native",
-          })
-        : undefined);
+/**
+ * Build a Codex provider adapter bound to a specific `CodexSettings` payload.
+ *
+ * The adapter is a captured closure over `codexConfig` — the `binaryPath` and
+ * `homePath` are read from that payload, not from `ServerSettingsService`.
+ * This is what makes multi-instance routing possible: each `ProviderInstance`
+ * in the registry owns its own closure with its own config, so two Codex
+ * instances with different `homePath`s cannot step on each other.
+ */
+export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
+  codexConfig: CodexSettings,
+  options?: CodexAdapterLiveOptions,
+) {
+  const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("codex");
+  const fileSystem = yield* FileSystem.FileSystem;
+  const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const crypto = yield* Crypto.Crypto;
+  const serverConfig = yield* Effect.service(ServerConfig);
+  const nativeEventLogger =
+    options?.nativeEventLogger ??
+    (options?.nativeEventLogPath !== undefined
+      ? yield* makeEventNdjsonLogger(options.nativeEventLogPath, {
+          stream: "native",
+        })
+      : undefined);
+  const managedNativeEventLogger =
+    options?.nativeEventLogger === undefined ? nativeEventLogger : undefined;
+  const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const sessions = new Map<ThreadId, CodexAdapterSessionContext>();
 
-    const manager = yield* Effect.acquireRelease(
+  const startSession: CodexAdapterShape["startSession"] = (input) =>
+    Effect.scoped(
       Effect.gen(function* () {
-        if (options?.manager) {
-          return options.manager;
-        }
-        const services = yield* Effect.services<never>();
-        return (
-          options?.makeManager?.(services) ??
-          new CodexAppServerManager(services, {
-            synaraSkillsDir: synaraSkillsDir(serverConfig.baseDir),
-          })
-        );
-      }),
-      (manager) => Effect.promise(() => manager.stopAll()),
-    );
-
-    const startSession: CodexAdapterShape["startSession"] = (input) => {
-      if (input.provider !== undefined && input.provider !== PROVIDER) {
-        return Effect.fail(
-          new ProviderAdapterValidationError({
+        if (input.provider !== undefined && input.provider !== PROVIDER) {
+          return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
             operation: "startSession",
             issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
-          }),
-        );
-      }
-
-      const managerInput: CodexAppServerStartSessionInput = {
-        threadId: input.threadId,
-        provider: "codex",
-        ...(input.lifecycleGeneration !== undefined
-          ? { lifecycleGeneration: input.lifecycleGeneration }
-          : {}),
-        ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
-        ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-        ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
-        runtimeMode: input.runtimeMode,
-        ...(input.modelSelection?.provider === "codex"
-          ? { model: input.modelSelection.model }
-          : {}),
-        ...(input.modelSelection?.provider === "codex" &&
-        input.modelSelection.options?.reasoningEffort !== undefined
-          ? { effort: input.modelSelection.options.reasoningEffort }
-          : {}),
-        ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
-          ? { serviceTier: "fast" }
-          : {}),
-      };
-
-      return Effect.tryPromise({
-        try: () => manager.startSession(managerInput),
-        catch: (cause) =>
-          new ProviderAdapterProcessError({
-            provider: PROVIDER,
-            threadId: input.threadId,
-            detail: toMessage(cause, "Failed to start Codex adapter session."),
-            cause,
-          }),
-      }).pipe(Effect.map((session) => session));
-    };
-
-    const sendTurn: CodexAdapterShape["sendTurn"] = (input) =>
-      Effect.gen(function* () {
-        const codexAttachments = yield* Effect.forEach(
-          input.attachments ?? [],
-          (attachment) =>
-            Effect.gen(function* () {
-              if (attachment.type !== "image") {
-                return null;
-              }
-              const attachmentPath = resolveProviderAttachmentPath({
-                attachmentsDir: serverConfig.attachmentsDir,
-                attachment,
-              });
-              if (!attachmentPath) {
-                return yield* toRequestError(
-                  input.threadId,
-                  "turn/start",
-                  new Error(`Invalid attachment id '${attachment.id}'.`),
-                );
-              }
-              const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterRequestError({
-                      provider: PROVIDER,
-                      method: "turn/start",
-                      detail: toMessage(cause, "Failed to read attachment file."),
-                      cause,
-                    }),
-                ),
-              );
-              return {
-                type: "image" as const,
-                url: `data:${attachment.mimeType};base64,${Buffer.from(bytes).toString("base64")}`,
-              };
-            }),
-          { concurrency: 4 },
-        );
-        const nativeCodexAttachments = codexAttachments.filter(
-          (attachment): attachment is NonNullable<typeof attachment> => attachment !== null,
-        );
-        const composedInput = composeCodexInputWithFileAttachments({
-          input: input.input,
-          attachments: input.attachments,
-          attachmentsDir: serverConfig.attachmentsDir,
-        });
-        const managerInput = {
-          threadId: input.threadId,
-          ...(composedInput !== undefined ? { input: composedInput } : {}),
-          ...(input.skills !== undefined ? { skills: input.skills } : {}),
-          ...(input.mentions !== undefined ? { mentions: input.mentions } : {}),
-          ...(input.modelSelection?.provider === "codex"
-            ? { model: input.modelSelection.model }
-            : {}),
-          ...(input.modelSelection?.provider === "codex" &&
-          input.modelSelection.options?.reasoningEffort !== undefined
-            ? { effort: input.modelSelection.options.reasoningEffort }
-            : {}),
-          ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
-            ? { serviceTier: "fast" }
-            : {}),
-          ...(input.interactionMode !== undefined
-            ? { interactionMode: input.interactionMode }
-            : {}),
-          ...(nativeCodexAttachments.length > 0 ? { attachments: nativeCodexAttachments } : {}),
-        };
-
-        return yield* Effect.tryPromise({
-          try: () => manager.sendTurn(managerInput),
-          catch: (cause) => toRequestError(input.threadId, "turn/start", cause),
-        }).pipe(
-          Effect.map((result) => ({
-            ...result,
-            threadId: input.threadId,
-          })),
-        );
-      });
-
-    const steerTurn: CodexAdapterShape["steerTurn"] = (input) =>
-      Effect.gen(function* () {
-        const codexAttachments = yield* Effect.forEach(
-          input.attachments ?? [],
-          (attachment) =>
-            Effect.gen(function* () {
-              if (attachment.type !== "image") {
-                return null;
-              }
-              const attachmentPath = resolveProviderAttachmentPath({
-                attachmentsDir: serverConfig.attachmentsDir,
-                attachment,
-              });
-              if (!attachmentPath) {
-                return yield* toRequestError(
-                  input.threadId,
-                  "turn/steer",
-                  new Error(`Invalid attachment id '${attachment.id}'.`),
-                );
-              }
-              const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterRequestError({
-                      provider: PROVIDER,
-                      method: "turn/steer",
-                      detail: toMessage(cause, "Failed to read attachment file."),
-                      cause,
-                    }),
-                ),
-              );
-              return {
-                type: "image" as const,
-                url: `data:${attachment.mimeType};base64,${Buffer.from(bytes).toString("base64")}`,
-              };
-            }),
-          { concurrency: 4 },
-        );
-        const nativeCodexAttachments = codexAttachments.filter(
-          (attachment): attachment is NonNullable<typeof attachment> => attachment !== null,
-        );
-        const composedInput = composeCodexInputWithFileAttachments({
-          input: input.input,
-          attachments: input.attachments,
-          attachmentsDir: serverConfig.attachmentsDir,
-        });
-        const managerInput = {
-          threadId: input.threadId,
-          ...(composedInput !== undefined ? { input: composedInput } : {}),
-          ...(input.skills !== undefined ? { skills: input.skills } : {}),
-          ...(input.mentions !== undefined ? { mentions: input.mentions } : {}),
-          ...(input.modelSelection?.provider === "codex"
-            ? { model: input.modelSelection.model }
-            : {}),
-          ...(input.modelSelection?.provider === "codex" &&
-          input.modelSelection.options?.reasoningEffort !== undefined
-            ? { effort: input.modelSelection.options.reasoningEffort }
-            : {}),
-          ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
-            ? { serviceTier: "fast" }
-            : {}),
-          ...(input.interactionMode !== undefined
-            ? { interactionMode: input.interactionMode }
-            : {}),
-          ...(nativeCodexAttachments.length > 0 ? { attachments: nativeCodexAttachments } : {}),
-        };
-
-        return yield* Effect.tryPromise({
-          try: () => manager.steerTurn(managerInput),
-          catch: (cause) => toRequestError(input.threadId, "turn/steer", cause),
-        }).pipe(
-          Effect.map((result) => ({
-            ...result,
-            threadId: input.threadId,
-          })),
-        );
-      });
-
-    const startReview: CodexAdapterShape["startReview"] = (input) =>
-      Effect.tryPromise({
-        try: () => manager.startReview(input),
-        catch: (cause) => toRequestError(input.threadId, "review/start", cause),
-      }).pipe(
-        Effect.map((result) => ({
-          ...result,
-          threadId: input.threadId,
-        })),
-      );
-
-    const interruptTurn: CodexAdapterShape["interruptTurn"] = (
-      threadId,
-      turnId,
-      providerThreadId,
-    ) =>
-      Effect.tryPromise({
-        try: () => manager.interruptTurn(threadId, turnId, providerThreadId),
-        catch: (cause) => toRequestError(threadId, "turn/interrupt", cause),
-      });
-
-    const readThread: CodexAdapterShape["readThread"] = (threadId) =>
-      Effect.tryPromise({
-        try: () => manager.readThread(threadId),
-        catch: (cause) => toRequestError(threadId, "thread/read", cause),
-      }).pipe(
-        Effect.map((snapshot) => ({
-          threadId,
-          turns: snapshot.turns,
-          cwd: snapshot.cwd ?? null,
-        })),
-      );
-
-    const readExternalThread: NonNullable<CodexAdapterShape["readExternalThread"]> = (input) =>
-      Effect.tryPromise({
-        try: () => manager.readExternalThread(input),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "thread/read",
-            detail: toMessage(cause, "Failed to read external Codex thread."),
-            cause,
-          }),
-      }).pipe(
-        Effect.map((snapshot) => ({
-          threadId: ThreadId.makeUnsafe(snapshot.threadId),
-          turns: snapshot.turns,
-          cwd: snapshot.cwd ?? null,
-        })),
-      );
-
-    const rollbackThread: CodexAdapterShape["rollbackThread"] = (threadId, numTurns) => {
-      if (!Number.isInteger(numTurns) || numTurns < 1) {
-        return Effect.fail(
-          new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "rollbackThread",
-            issue: "numTurns must be an integer >= 1.",
-          }),
-        );
-      }
-
-      return Effect.tryPromise({
-        try: () => manager.rollbackThread(threadId, numTurns),
-        catch: (cause) => toRequestError(threadId, "thread/rollback", cause),
-      }).pipe(
-        Effect.map((snapshot) => ({
-          threadId,
-          turns: snapshot.turns,
-        })),
-      );
-    };
-
-    const compactThread: NonNullable<CodexAdapterShape["compactThread"]> = (threadId) =>
-      Effect.tryPromise({
-        try: () => manager.compactThread(threadId),
-        catch: (cause) => toRequestError(threadId, "thread/compact/start", cause),
-      });
-
-    const forkThread: CodexAdapterShape["forkThread"] = (input) =>
-      Effect.tryPromise({
-        try: () => manager.forkThread(input),
-        catch: (cause) => toRequestError(input.sourceThreadId, "thread/fork", cause),
-      });
-
-    const respondToRequest: CodexAdapterShape["respondToRequest"] = (
-      threadId,
-      requestId,
-      decision,
-    ) =>
-      Effect.tryPromise({
-        try: () => manager.respondToRequest(threadId, requestId, decision),
-        catch: (cause) => toRequestError(threadId, "item/requestApproval/decision", cause),
-      });
-
-    const respondToUserInput: CodexAdapterShape["respondToUserInput"] = (
-      threadId,
-      requestId,
-      answers,
-    ) =>
-      Effect.tryPromise({
-        try: () => manager.respondToUserInput(threadId, requestId, answers),
-        catch: (cause) => toRequestError(threadId, "item/tool/requestUserInput", cause),
-      });
-
-    const stopSession: CodexAdapterShape["stopSession"] = (threadId) =>
-      Effect.tryPromise({
-        try: () => manager.stopSession(threadId),
-        catch: (cause) =>
-          new ProviderAdapterProcessError({
-            provider: PROVIDER,
-            threadId,
-            detail: toMessage(cause, "Failed to stop Codex adapter session."),
-            cause,
-          }),
-      });
-
-    const listSessions: CodexAdapterShape["listSessions"] = () =>
-      Effect.sync(() => manager.listSessions());
-
-    const hasSession: CodexAdapterShape["hasSession"] = (threadId) =>
-      Effect.sync(() => manager.hasSession(threadId));
-
-    const stopAll: CodexAdapterShape["stopAll"] = () =>
-      Effect.tryPromise({
-        try: () => manager.stopAll(),
-        catch: (cause) =>
-          new ProviderAdapterProcessError({
-            provider: PROVIDER,
-            threadId: ThreadId.makeUnsafe("codex:all"),
-            detail: toMessage(cause, "Failed to stop all Codex app-server processes."),
-            cause,
-          }),
-      });
-
-    const getComposerCapabilities: NonNullable<CodexAdapterShape["getComposerCapabilities"]> = () =>
-      Effect.succeed(manager.getComposerCapabilities() satisfies ProviderComposerCapabilities);
-
-    const listSkills: NonNullable<CodexAdapterShape["listSkills"]> = (input) =>
-      Effect.tryPromise({
-        try: () =>
-          manager.listSkills({
-            cwd: input.cwd,
-            ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
-            ...(input.forceReload !== undefined ? { forceReload: input.forceReload } : {}),
-          }),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "skills/list",
-            detail: toMessage(cause, "skills/list failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ProviderListSkillsResult));
-
-    const listPlugins: NonNullable<CodexAdapterShape["listPlugins"]> = (input) =>
-      Effect.tryPromise({
-        try: () =>
-          manager.listPlugins({
-            ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
-            ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
-            ...(input.forceRemoteSync !== undefined
-              ? { forceRemoteSync: input.forceRemoteSync }
-              : {}),
-            ...(input.forceReload !== undefined ? { forceReload: input.forceReload } : {}),
-          }),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "plugin/list",
-            detail: toMessage(cause, "plugin/list failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ProviderListPluginsResult));
-
-    const readPlugin: NonNullable<CodexAdapterShape["readPlugin"]> = (input) =>
-      Effect.tryPromise({
-        try: () =>
-          manager.readPlugin({
-            marketplacePath: input.marketplacePath,
-            pluginName: input.pluginName,
-          }),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "plugin/read",
-            detail: toMessage(cause, "plugin/read failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ProviderReadPluginResult));
-
-    const listModels: NonNullable<CodexAdapterShape["listModels"]> = (_input) =>
-      Effect.tryPromise({
-        try: () => manager.listModels(),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "model/list",
-            detail: toMessage(cause, "model/list failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ProviderListModelsResult));
-
-    const transcribeVoice: NonNullable<CodexAdapterShape["transcribeVoice"]> = (input) =>
-      Effect.tryPromise({
-        try: () => manager.transcribeVoice(input),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "voice/transcribe",
-            detail: toMessage(cause, "voice/transcribe failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ServerVoiceTranscriptionResult));
-
-    const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
-
-    yield* Effect.acquireRelease(
-      Effect.gen(function* () {
-        const writeNativeEvent = (event: ProviderEvent) =>
-          Effect.gen(function* () {
-            if (!nativeEventLogger) {
-              return;
-            }
-            yield* nativeEventLogger.write(event, event.threadId);
           });
+        }
 
-        const services = yield* Effect.services<never>();
-        const listener = (event: ProviderEvent) =>
+        const existing = sessions.get(input.threadId);
+        if (existing && !existing.stopped) {
+          yield* Effect.suspend(() => stopSessionInternal(existing));
+        }
+
+        const serviceTier =
+          input.modelSelection?.instanceId === boundInstanceId
+            ? getCodexServiceTierOptionValue(input.modelSelection)
+            : undefined;
+        const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+        const runtimeInput: CodexSessionRuntimeOptions = {
+          threadId: input.threadId,
+          providerInstanceId: boundInstanceId,
+          cwd: input.cwd ?? process.cwd(),
+          binaryPath: codexConfig.binaryPath,
+          ...(options?.environment ? { environment: options.environment } : {}),
+          ...(codexConfig.homePath ? { homePath: codexConfig.homePath } : {}),
+          ...(isCodexResumeCursorSchema(input.resumeCursor)
+            ? { resumeCursor: input.resumeCursor }
+            : {}),
+          runtimeMode: input.runtimeMode,
+          ...(input.modelSelection?.instanceId === boundInstanceId
+            ? { model: input.modelSelection.model }
+            : {}),
+          ...(serviceTier ? { serviceTier } : {}),
+          ...(mcpSession
+            ? {
+                environment: {
+                  ...(options?.environment ?? process.env),
+                  T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
+                },
+                appServerArgs: [
+                  "-c",
+                  `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
+                  "-c",
+                  'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
+                ],
+              }
+            : {}),
+        };
+        const sessionScope = yield* Scope.make("sequential");
+        let sessionScopeTransferred = false;
+        yield* Effect.addFinalizer(() =>
+          sessionScopeTransferred ? Effect.void : Scope.close(sessionScope, Exit.void),
+        );
+        const createRuntime = options?.makeRuntime ?? makeCodexSessionRuntime;
+        const runtime = yield* createRuntime(runtimeInput).pipe(
+          Effect.provideService(Scope.Scope, sessionScope),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
+          Effect.provideService(Crypto.Crypto, crypto),
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapterProcessError({
+                provider: PROVIDER,
+                threadId: input.threadId,
+                detail: cause.message,
+                cause,
+              }),
+          ),
+        );
+
+        const eventFiber = yield* Stream.runForEach(runtime.events, (event) =>
           Effect.gen(function* () {
             yield* writeNativeEvent(event);
             const runtimeEvents = mapToRuntimeEvents(event, event.threadId);
@@ -2061,60 +1452,269 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
               return;
             }
             yield* Queue.offerAll(runtimeEventQueue, runtimeEvents);
-          }).pipe(Effect.runPromiseWith(services));
-        manager.on("event", listener);
-        return listener;
+          }),
+        ).pipe(Effect.forkChild);
+
+        const started = yield* runtime.start().pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapterProcessError({
+                provider: PROVIDER,
+                threadId: input.threadId,
+                detail: cause.message,
+                cause,
+              }),
+          ),
+          Effect.onError(() =>
+            runtime.close.pipe(
+              Effect.andThen(Effect.ignore(Scope.close(sessionScope, Exit.void))),
+              Effect.andThen(Fiber.interrupt(eventFiber)),
+              Effect.ignore,
+            ),
+          ),
+        );
+
+        sessions.set(input.threadId, {
+          threadId: input.threadId,
+          scope: sessionScope,
+          runtime,
+          eventFiber,
+          stopped: false,
+        });
+        sessionScopeTransferred = true;
+
+        return started;
       }),
-      (listener) =>
-        Effect.gen(function* () {
-          yield* Effect.sync(() => {
-            manager.off("event", listener);
-          });
-          yield* Queue.shutdown(runtimeEventQueue);
-        }),
     );
 
+  const resolveAttachment = Effect.fn("resolveAttachment")(function* (
+    input: ProviderSendTurnInput,
+    attachment: NonNullable<ProviderSendTurnInput["attachments"]>[number],
+  ) {
+    const attachmentPath = resolveAttachmentPath({
+      attachmentsDir: serverConfig.attachmentsDir,
+      attachment,
+    });
+    if (!attachmentPath) {
+      return yield* new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "turn/start",
+        detail: `Invalid attachment id '${attachment.id}'.`,
+      });
+    }
+    const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "turn/start",
+            detail: `Failed to read attachment file: ${cause.message}.`,
+            cause,
+          }),
+      ),
+    );
     return {
-      provider: PROVIDER,
-      capabilities: {
-        sessionModelSwitch: "in-session",
-        supportsSkillMentions: true,
-        supportsSkillDiscovery: true,
-        supportsNativeSlashCommandDiscovery: false,
-        supportsPluginMentions: true,
-        supportsPluginDiscovery: true,
-        supportsRuntimeModelList: true,
-        supportsTurnSteering: true,
-        supportsLiveTurnDiffPatch: true,
-      },
-      startSession,
-      sendTurn,
-      steerTurn,
-      startReview,
-      interruptTurn,
-      readThread,
-      readExternalThread,
-      rollbackThread,
-      compactThread,
-      forkThread,
-      respondToRequest,
-      respondToUserInput,
-      stopSession,
-      listSessions,
-      hasSession,
-      stopAll,
-      getComposerCapabilities,
-      listSkills,
-      listPlugins,
-      readPlugin,
-      listModels,
-      transcribeVoice,
-      streamEvents: Stream.fromQueue(runtimeEventQueue),
-    } satisfies CodexAdapterShape;
+      type: "image" as const,
+      url: `data:${attachment.mimeType};base64,${Buffer.from(bytes).toString("base64")}`,
+    };
   });
 
-export const CodexAdapterLive = Layer.effect(CodexAdapter, makeCodexAdapter());
+  const sendTurn: CodexAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
+    const codexAttachments = yield* Effect.forEach(
+      input.attachments ?? [],
+      (attachment) => resolveAttachment(input, attachment),
+      { concurrency: 1 },
+    );
 
-export function makeCodexAdapterLive(options?: CodexAdapterLiveOptions) {
-  return Layer.effect(CodexAdapter, makeCodexAdapter(options));
-}
+    const session = yield* requireSession(input.threadId);
+    const reasoningEffort =
+      input.modelSelection?.instanceId === boundInstanceId
+        ? getModelSelectionStringOptionValue(input.modelSelection, "reasoningEffort")
+        : undefined;
+    const serviceTier =
+      input.modelSelection?.instanceId === boundInstanceId
+        ? getCodexServiceTierOptionValue(input.modelSelection)
+        : undefined;
+    return yield* session.runtime
+      .sendTurn({
+        ...(input.input !== undefined ? { input: input.input } : {}),
+        ...(input.modelSelection?.instanceId === boundInstanceId
+          ? { model: input.modelSelection.model }
+          : {}),
+        ...(reasoningEffort
+          ? {
+              effort: reasoningEffort as EffectCodexSchema.V2TurnStartParams__ReasoningEffort,
+            }
+          : {}),
+        ...(serviceTier ? { serviceTier } : {}),
+        ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+        ...(codexAttachments.length > 0 ? { attachments: codexAttachments } : {}),
+      })
+      .pipe(Effect.mapError((cause) => mapCodexRuntimeError(input.threadId, "turn/start", cause)));
+  });
+
+  const requireSession = Effect.fn("requireSession")(function* (threadId: ThreadId) {
+    const session = sessions.get(threadId);
+    if (!session || session.stopped) {
+      return yield* new ProviderAdapterSessionNotFoundError({
+        provider: PROVIDER,
+        threadId,
+      });
+    }
+    return session;
+  });
+
+  const interruptTurn: CodexAdapterShape["interruptTurn"] = (threadId, turnId) =>
+    requireSession(threadId).pipe(
+      Effect.flatMap((session) => session.runtime.interruptTurn(turnId)),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(threadId, "turn/interrupt", cause),
+      ),
+    );
+
+  const readThread: CodexAdapterShape["readThread"] = (threadId) =>
+    requireSession(threadId).pipe(
+      Effect.flatMap((session) => session.runtime.readThread),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(threadId, "thread/read", cause),
+      ),
+      Effect.map((snapshot) => ({
+        threadId,
+        turns: snapshot.turns,
+      })),
+    );
+
+  const rollbackThread: CodexAdapterShape["rollbackThread"] = (threadId, numTurns) => {
+    if (!Number.isInteger(numTurns) || numTurns < 1) {
+      return Effect.fail(
+        new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "rollbackThread",
+          issue: "numTurns must be an integer >= 1.",
+        }),
+      );
+    }
+
+    return requireSession(threadId).pipe(
+      Effect.flatMap((session) => session.runtime.rollbackThread(numTurns)),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(threadId, "thread/rollback", cause),
+      ),
+      Effect.map((snapshot) => ({
+        threadId,
+        turns: snapshot.turns,
+      })),
+    );
+  };
+
+  const respondToRequest: CodexAdapterShape["respondToRequest"] = (threadId, requestId, decision) =>
+    requireSession(threadId).pipe(
+      Effect.flatMap((session) => session.runtime.respondToRequest(requestId, decision)),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(threadId, "item/requestApproval/decision", cause),
+      ),
+    );
+
+  const respondToUserInput: CodexAdapterShape["respondToUserInput"] = (
+    threadId,
+    requestId,
+    answers,
+  ) =>
+    requireSession(threadId).pipe(
+      Effect.flatMap((session) => session.runtime.respondToUserInput(requestId, answers)),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterSessionNotFoundError"
+          ? cause
+          : mapCodexRuntimeError(threadId, "item/tool/requestUserInput", cause),
+      ),
+    );
+
+  const writeNativeEvent = Effect.fn("writeNativeEvent")(function* (event: ProviderEvent) {
+    if (!nativeEventLogger) {
+      return;
+    }
+    yield* nativeEventLogger.write(event, event.threadId);
+  });
+
+  const stopSessionInternal = Effect.fn("stopSessionInternal")(function* (
+    session: CodexAdapterSessionContext,
+  ) {
+    if (session.stopped) {
+      return;
+    }
+    session.stopped = true;
+    sessions.delete(session.threadId);
+    yield* session.runtime.close.pipe(Effect.ignore);
+    yield* Effect.ignore(Scope.close(session.scope, Exit.void));
+    yield* Fiber.interrupt(session.eventFiber).pipe(Effect.ignore);
+  });
+
+  const stopSession: CodexAdapterShape["stopSession"] = (threadId) =>
+    Effect.gen(function* () {
+      const session = sessions.get(threadId);
+      if (!session) {
+        return;
+      }
+      yield* stopSessionInternal(session);
+    });
+
+  const listSessions: CodexAdapterShape["listSessions"] = () =>
+    Effect.forEach(
+      Array.from(sessions.values()).filter((session) => !session.stopped),
+      (session) => session.runtime.getSession,
+      { concurrency: 1 },
+    );
+
+  const hasSession: CodexAdapterShape["hasSession"] = (threadId) =>
+    Effect.succeed(Boolean(sessions.get(threadId) && !sessions.get(threadId)?.stopped));
+
+  const stopAll: CodexAdapterShape["stopAll"] = () =>
+    Effect.forEach(Array.from(sessions.values()), stopSessionInternal, {
+      concurrency: 1,
+      discard: true,
+    }).pipe(Effect.asVoid);
+
+  yield* Effect.acquireRelease(Effect.void, () =>
+    stopAll().pipe(
+      Effect.andThen(Queue.shutdown(runtimeEventQueue)),
+      Effect.andThen(managedNativeEventLogger?.close() ?? Effect.void),
+      Effect.ignore,
+    ),
+  );
+
+  return {
+    provider: PROVIDER,
+    capabilities: {
+      sessionModelSwitch: "in-session",
+    },
+    startSession,
+    sendTurn,
+    interruptTurn,
+    readThread,
+    rollbackThread,
+    respondToRequest,
+    respondToUserInput,
+    stopSession,
+    listSessions,
+    hasSession,
+    stopAll,
+    get streamEvents() {
+      return Stream.fromQueue(runtimeEventQueue);
+    },
+  } satisfies CodexAdapterShape;
+});
+
+// NOTE: the old `CodexAdapterLive` / `makeCodexAdapterLive` singleton Layer
+// exports have been removed as part of the per-instance-driver refactor.
+// `makeCodexAdapter(codexConfig, options?)` is now invoked directly by
+// `CodexDriver.create()` for each configured instance; downstream consumers
+// (server bootstrap, integration harness, this module's tests) will be
+// migrated to the registry in a follow-up pass.

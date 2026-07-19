@@ -1,4 +1,5 @@
-import { SchemaIssue, Schema } from "effect";
+import * as SchemaIssue from "effect/SchemaIssue";
+import * as Schema from "effect/Schema";
 
 import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
 
@@ -6,7 +7,7 @@ export class OrchestrationCommandJsonParseError extends Schema.TaggedErrorClass<
   "OrchestrationCommandJsonParseError",
   {
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -18,7 +19,7 @@ export class OrchestrationCommandDecodeError extends Schema.TaggedErrorClass<Orc
   "OrchestrationCommandDecodeError",
   {
     issue: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -31,7 +32,7 @@ export class OrchestrationCommandInvariantError extends Schema.TaggedErrorClass<
   {
     commandType: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -44,68 +45,11 @@ export class OrchestrationCommandPreviouslyRejectedError extends Schema.TaggedEr
   {
     commandId: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
     return `Command previously rejected (${this.commandId}): ${this.detail}`;
-  }
-}
-
-export class OrchestrationCommandIdentityCollisionError extends Schema.TaggedErrorClass<OrchestrationCommandIdentityCollisionError>()(
-  "OrchestrationCommandIdentityCollisionError",
-  {
-    commandId: Schema.String,
-    detail: Schema.String,
-  },
-) {
-  override get message(): string {
-    return `Command identity collision (${this.commandId}): ${this.detail}`;
-  }
-}
-
-export class OrchestrationCommandTimeoutError extends Schema.TaggedErrorClass<OrchestrationCommandTimeoutError>()(
-  "OrchestrationCommandTimeoutError",
-  {
-    commandId: Schema.String,
-    commandType: Schema.String,
-    timeoutMs: Schema.Number,
-    cause: Schema.optional(Schema.Defect),
-  },
-) {
-  override get message(): string {
-    return `Orchestration command timed out (${this.commandType}, ${this.commandId}) after ${this.timeoutMs}ms`;
-  }
-}
-
-export class OrchestrationCommandAdmissionError extends Schema.TaggedErrorClass<OrchestrationCommandAdmissionError>()(
-  "OrchestrationCommandAdmissionError",
-  {
-    commandId: Schema.String,
-    commandType: Schema.String,
-    capacity: Schema.Number,
-    reservedCapacity: Schema.Number,
-    reason: Schema.Literals(["overloaded", "stopped"]),
-  },
-) {
-  override get message(): string {
-    return this.reason === "stopped"
-      ? `Orchestration command admission is stopped (${this.commandType}, ${this.commandId})`
-      : `Orchestration command queue is overloaded (${this.commandType}, ${this.commandId}); capacity ${this.capacity}, reserved ${this.reservedCapacity}`;
-  }
-}
-
-export class OrchestrationCommandInternalError extends Schema.TaggedErrorClass<OrchestrationCommandInternalError>()(
-  "OrchestrationCommandInternalError",
-  {
-    commandId: Schema.String,
-    commandType: Schema.String,
-    detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
-  },
-) {
-  override get message(): string {
-    return `Orchestration command failed unexpectedly (${this.commandType}): ${this.detail}`;
   }
 }
 
@@ -114,7 +58,7 @@ export class OrchestrationProjectorDecodeError extends Schema.TaggedErrorClass<O
   {
     eventType: Schema.String,
     issue: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -127,7 +71,7 @@ export class OrchestrationListenerCallbackError extends Schema.TaggedErrorClass<
   {
     listener: Schema.Literals(["read-model", "domain-event"]),
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -137,12 +81,8 @@ export class OrchestrationListenerCallbackError extends Schema.TaggedErrorClass<
 
 export type OrchestrationDispatchError =
   | ProjectionRepositoryError
-  | OrchestrationCommandAdmissionError
   | OrchestrationCommandInvariantError
-  | OrchestrationCommandInternalError
-  | OrchestrationCommandIdentityCollisionError
   | OrchestrationCommandPreviouslyRejectedError
-  | OrchestrationCommandTimeoutError
   | OrchestrationProjectorDecodeError
   | OrchestrationListenerCallbackError;
 

@@ -1,57 +1,27 @@
 /**
  * OrchestrationEngineService - Service interface for orchestration command handling.
  *
- * Owns command validation/dispatch and lightweight command-state updates backed by
+ * Owns command validation/dispatch and in-memory read-model updates backed by
  * `OrchestrationEventStore` persistence. It does not own provider process
  * management or transport concerns (e.g. websocket request parsing).
  *
- * Uses Effect `ServiceMap.Service` for dependency injection. Command dispatch,
+ * Uses Effect `Context.Service` for dependency injection. Command dispatch,
  * replay, and unknown-input decoding all return typed domain errors.
  *
  * @module OrchestrationEngineService
  */
-import type {
-  OrchestrationCommand,
-  OrchestrationEvent,
-  OrchestrationReadModel,
-} from "@synara/contracts";
-import { ServiceMap } from "effect";
-import type { Effect, Scope, Stream } from "effect";
+import type { OrchestrationCommand, OrchestrationEvent } from "@t3tools/contracts";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import type * as Stream from "effect/Stream";
 
 import type { OrchestrationDispatchError } from "../Errors.ts";
-import type {
-  OrchestrationEventStoreError,
-  ProjectionRepositoryError,
-} from "../../persistence/Errors.ts";
-import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipal.ts";
-
-export interface OrchestrationDispatchContext {
-  readonly attachmentPrincipal?: ManagedAttachmentPrincipal;
-}
-
-export interface OrchestrationProjectionCatchUpStatus {
-  readonly state: "healthy" | "degraded";
-  readonly inFlight: boolean;
-  readonly retryAttempts: number;
-  readonly lastFailure: string | null;
-}
+import type { OrchestrationEventStoreError } from "../../persistence/Errors.ts";
 
 /**
  * OrchestrationEngineShape - Service API for orchestration command and event flow.
  */
 export interface OrchestrationEngineShape {
-  /** Reject new normal mutations while retaining reserved lifecycle progress. */
-  readonly quiesce: Effect.Effect<void>;
-
-  /** Resolve after every command admitted before the current idle fence settles. */
-  readonly drain: Effect.Effect<void>;
-
-  /** Reject all admission, drain queued commands, and stop the command worker. */
-  readonly stop: Effect.Effect<void>;
-
-  /** Current deferred-projection recovery state for health and diagnostics. */
-  readonly getProjectionCatchUpStatus: Effect.Effect<OrchestrationProjectionCatchUpStatus>;
-
   /**
    * Replay persisted orchestration events from an exclusive sequence cursor.
    *
@@ -61,32 +31,6 @@ export interface OrchestrationEngineShape {
   readonly readEvents: (
     fromSequenceExclusive: number,
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
-
-  /** Read a durable, inclusive high-water-fenced event range for transport catch-up. */
-  readonly readEventsThrough: (
-    fromSequenceExclusive: number,
-    throughSequenceInclusive: number,
-  ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
-
-  /** Capture the durable orchestration event-log high-water sequence. */
-  readonly getEventHighWaterSequence: Effect.Effect<number, OrchestrationEventStoreError>;
-
-  /**
-   * Register a domain-event subscriber before returning its stream. Transport
-   * snapshot handshakes use this exact attachment boundary to close replay gaps.
-   */
-  readonly subscribeDomainEvents: Effect.Effect<
-    Stream.Stream<OrchestrationEvent>,
-    never,
-    Scope.Scope
-  >;
-
-  /**
-   * Read the command-oriented in-memory model used by orchestration tests and
-   * compatibility callers. Runtime snapshot reads should prefer
-   * ProjectionSnapshotQuery.
-   */
-  readonly getReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
 
   /**
    * Dispatch a validated orchestration command.
@@ -99,31 +43,7 @@ export interface OrchestrationEngineShape {
    */
   readonly dispatch: (
     command: OrchestrationCommand,
-    context?: OrchestrationDispatchContext,
   ) => Effect.Effect<{ sequence: number }, OrchestrationDispatchError, never>;
-
-  /**
-   * Repair project-facing projection state for older installs without clearing
-   * existing chat rows.
-   *
-   * Replays the snapshot-related projector cursors and refreshes the in-memory
-   * command model from projection state.
-   */
-  readonly repairState: () => Effect.Effect<
-    OrchestrationReadModel,
-    OrchestrationDispatchError | OrchestrationEventStoreError,
-    never
-  >;
-
-  /**
-   * Reload the command-facing read model from projection tables after
-   * maintenance code mutates projection state outside the command queue.
-   */
-  readonly refreshCommandReadModel: () => Effect.Effect<
-    OrchestrationReadModel,
-    OrchestrationDispatchError | ProjectionRepositoryError,
-    never
-  >;
 
   /**
    * Stream persisted domain events in dispatch order.
@@ -136,8 +56,15 @@ export interface OrchestrationEngineShape {
 /**
  * OrchestrationEngineService - Service tag for orchestration engine access.
  *
+ * @example
+ * ```ts
+ * const program = Effect.gen(function* () {
+ *   const engine = yield* OrchestrationEngineService
+ *   return yield* engine.dispatch(command)
+ * })
+ * ```
  */
-export class OrchestrationEngineService extends ServiceMap.Service<
+export class OrchestrationEngineService extends Context.Service<
   OrchestrationEngineService,
   OrchestrationEngineShape
->()("synara/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}
+>()("t3/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}

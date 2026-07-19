@@ -3,10 +3,12 @@ import {
   type KeybindingCommand,
   type KeybindingRule,
   type ResolvedKeybindingsConfig,
-} from "@synara/contracts";
-import { Schema } from "effect";
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 
 export const PROJECT_SCRIPT_KEYBINDING_INVALID_MESSAGE = "Invalid keybinding.";
+
+const decodeKeybindingRule = Schema.decodeUnknownOption(KeybindingRuleSchema);
 
 function normalizeProjectScriptKeybindingInput(
   keybinding: string | null | undefined,
@@ -22,7 +24,7 @@ export function decodeProjectScriptKeybindingRule(input: {
   const normalizedKey = normalizeProjectScriptKeybindingInput(input.keybinding);
   if (!normalizedKey) return null;
 
-  const decoded = Schema.decodeUnknownOption(KeybindingRuleSchema)({
+  const decoded = decodeKeybindingRule({
     key: normalizedKey,
     command: input.command,
   });

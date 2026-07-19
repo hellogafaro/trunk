@@ -1,19 +1,31 @@
-import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
+import { describe, expect, it } from "vite-plus/test";
+import * as Schema from "effect/Schema";
 
-import { ProviderRuntimeEvent, type ProviderRuntimeEventType } from "./providerRuntime";
+import { ProviderRuntimeEvent } from "./providerRuntime.ts";
 
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
 
 describe("ProviderRuntimeEvent", () => {
-  it("includes turn.steered in the exported event type", () => {
-    const eventType: ProviderRuntimeEventType = "turn.steered";
-    expect(eventType).toBe("turn.steered");
+  it("accepts fork-provided driver kinds as branded slugs", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "session.started",
+      eventId: "event-ollama-session",
+      provider: "ollama",
+      providerInstanceId: "ollama_local",
+      createdAt: "2026-02-28T00:00:00.000Z",
+      threadId: "thread-1",
+      payload: {
+        message: "started",
+      },
+    });
+
+    expect(parsed.provider).toBe("ollama");
+    expect(parsed.providerInstanceId).toBe("ollama_local");
   });
 
-  it("decodes turn.tasks.updated for task-list rendering", () => {
+  it("decodes turn.plan.updated for plan rendering", () => {
     const parsed = decodeRuntimeEvent({
-      type: "turn.tasks.updated",
+      type: "turn.plan.updated",
       eventId: "event-1",
       provider: "claudeAgent",
       sessionId: "runtime-session-1",
@@ -22,19 +34,19 @@ describe("ProviderRuntimeEvent", () => {
       turnId: "turn-1",
       payload: {
         explanation: "Implement schema updates",
-        tasks: [
-          { task: "Define event union", status: "completed" },
-          { task: "Wire adapter mapping", status: "inProgress" },
+        plan: [
+          { step: "Define event union", status: "completed" },
+          { step: "Wire adapter mapping", status: "inProgress" },
         ],
       },
     });
 
-    expect(parsed.type).toBe("turn.tasks.updated");
-    if (parsed.type !== "turn.tasks.updated") {
-      throw new Error("expected turn.tasks.updated");
+    expect(parsed.type).toBe("turn.plan.updated");
+    if (parsed.type !== "turn.plan.updated") {
+      throw new Error("expected turn.plan.updated");
     }
-    expect(parsed.payload.tasks).toHaveLength(2);
-    expect(parsed.payload.tasks[1]?.status).toBe("inProgress");
+    expect(parsed.payload.plan).toHaveLength(2);
+    expect(parsed.payload.plan[1]?.status).toBe("inProgress");
   });
 
   it("decodes proposed-plan completion events", () => {
@@ -155,7 +167,6 @@ describe("ProviderRuntimeEvent", () => {
       payload: {
         usage: {
           usedTokens: 31251,
-          usedPercent: 15.6255,
           maxTokens: 200000,
           toolUses: 25,
           durationMs: 43567,
@@ -169,6 +180,5 @@ describe("ProviderRuntimeEvent", () => {
     }
     expect(parsed.payload.usage.maxTokens).toBe(200000);
     expect(parsed.payload.usage.usedTokens).toBe(31251);
-    expect(parsed.payload.usage.usedPercent).toBe(15.6255);
   });
 });

@@ -1,62 +1,76 @@
-# Trunk
+# Trunk — Web-only fork
 
-Trunk is a web-only interface for coding agents. It uses Synara as its upstream engine while
-keeping the product focused on the browser and server: there is no Electron desktop application
-or marketing site in this fork.
+This repository is a fully open-source fork of [Trunk](https://github.com/pingdotgg/t3code), specialized for a web-only experience. It provides a browser-based GUI for coding agents, currently including Codex, Claude, Cursor, and OpenCode.
 
-Trunk supports the provider integrations inherited from Synara. Chats, projects, and history
-remain local to the server through Synara's existing `.synara` storage and `SYNARA_*`
-configuration.
+The product is intentionally focused on the web app and server. Desktop and native applications are not part of this fork's product scope. The project is available under the [MIT License](./LICENSE).
 
-## Requirements
+## Installation
 
-- [Bun](https://bun.sh/) 1.3.12 or newer in the supported 1.3 line
-- Node.js 24.13.1 or newer in the supported 24.x line
-- At least one installed and authenticated coding-agent provider
+> [!WARNING]
+> Trunk currently supports Codex, Claude, Cursor, and OpenCode.
+> Install and authenticate at least one provider before use:
+>
+> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
+> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
+> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `cursor-agent login`
+> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
 
-For example, install the [Codex CLI](https://developers.openai.com/codex/cli) and run
-`codex login`, or install [Claude Code](https://claude.com/product/claude-code) and run
-`claude auth login`.
-
-## Run from source
+### Run from source
 
 ```bash
-bun install
-bun run dev
+vp i
+vp run dev
 ```
-
-`bun run dev` starts the web application and server together. The focused development commands
-are `bun run dev:web` and `bun run dev:server`.
 
 For a production build:
 
 ```bash
-bun run build
-bun run start
+vp run build
+vp run start
 ```
 
-## Quality checks
+## Some notes
+
+We are very very early in this project. Expect bugs.
+
+We are not accepting contributions yet.
+
+There's no public docs site yet, checkout the miscellaneous markdown files in [docs](./docs).
+
+## Documentation
+
+- [Getting started](./docs/getting-started/quick-start.md)
+- [Architecture overview](./docs/architecture/overview.md)
+- [Provider guides](./docs/providers/codex.md)
+- [Operations](./docs/operations/ci.md)
+- [Reference](./docs/reference/encyclopedia.md)
+
+## If you REALLY want to contribute still.... read this first
+
+### Install `vp`
+
+Trunk uses Vite+ so you'll need to install the global `vp` command-line tool.
+
+#### macOS / Linux
 
 ```bash
-bun run fmt
-bun run lint
-bun run typecheck
-bun run test
+curl -fsSL https://vite.plus | bash
 ```
 
-Browser tests live in `apps/web`; CI runs the stable browser suite before building the web and
-server packages.
+#### Windows
 
-## Upstream
+```bash
+irm https://vite.plus/ps1 | iex
+```
 
-Trunk is a fork of [Synara](https://github.com/Emanuele-web04/synara) and retains Synara's
-internal package names, protocols, persistence formats, and provider integrations to keep normal
-`upstream/main` merges straightforward. Synara is Copyright (c) 2026 Emanuele Di Pietro and is
-used under the MIT License.
+Checkout their getting started guide for more information: https://viteplus.dev/guide/
 
-See [WEB_PARITY.md](./WEB_PARITY.md) for native capabilities that may eventually be migrated to
-server-backed web features.
+### Install dependencies
 
-## License
+```bash
+vp i
+```
 
-Trunk and the upstream Synara code are available under the [MIT License](./LICENSE).
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
+
+Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).

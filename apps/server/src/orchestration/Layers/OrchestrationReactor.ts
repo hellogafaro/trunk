@@ -1,4 +1,5 @@
-import { Effect, Layer } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
 import {
   OrchestrationReactor,
@@ -7,22 +8,22 @@ import {
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
-import { StudioOutputReactor } from "../Services/StudioOutputReactor.ts";
+import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
+import * as AgentAwarenessRelay from "../../relay/AgentAwarenessRelay.ts";
 
 export const makeOrchestrationReactor = Effect.gen(function* () {
   const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerCommandReactor = yield* ProviderCommandReactor;
   const checkpointReactor = yield* CheckpointReactor;
-  const studioOutputReactor = yield* StudioOutputReactor;
+  const threadDeletionReactor = yield* ThreadDeletionReactor;
+  const agentAwarenessRelay = yield* AgentAwarenessRelay.AgentAwarenessRelay;
 
-  const start: OrchestrationReactorShape["start"] = Effect.gen(function* () {
-    yield* studioOutputReactor.start;
-    yield* checkpointReactor.start;
-    yield* providerRuntimeIngestion.start;
-    // Install every runtime observer before provider command dispatch can
-    // begin. Reverse-order finalization then drains provider commands first,
-    // runtime ingestion second, checkpoints third, and Studio output last.
-    yield* providerCommandReactor.start;
+  const start: OrchestrationReactorShape["start"] = Effect.fn("start")(function* () {
+    yield* providerRuntimeIngestion.start();
+    yield* providerCommandReactor.start();
+    yield* checkpointReactor.start();
+    yield* threadDeletionReactor.start();
+    yield* agentAwarenessRelay.start();
   });
 
   return {

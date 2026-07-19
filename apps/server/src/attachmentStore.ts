@@ -1,17 +1,14 @@
-import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 
-import type { ChatAttachment } from "@synara/contracts";
+import type { ChatAttachment } from "@t3tools/contracts";
 
 import {
   normalizeAttachmentRelativePath,
   resolveAttachmentRelativePath,
 } from "./attachmentPaths.ts";
-import {
-  inferAttachmentExtension,
-  inferImageExtension,
-  SAFE_IMAGE_FILE_EXTENSIONS,
-} from "./imageMime.ts";
+import { inferImageExtension, SAFE_IMAGE_FILE_EXTENSIONS } from "./imageMime.ts";
 
 const ATTACHMENT_FILENAME_EXTENSIONS = [...SAFE_IMAGE_FILE_EXTENSIONS, ".bin"];
 const ATTACHMENT_ID_THREAD_SEGMENT_MAX_CHARS = 80;
@@ -42,7 +39,7 @@ export function createAttachmentId(threadId: string): string | null {
   if (!threadSegment) {
     return null;
   }
-  return `${threadSegment}-${randomUUID()}`;
+  return `${threadSegment}-${NodeCrypto.randomUUID()}`;
 }
 
 export function parseThreadSegmentFromAttachmentId(attachmentId: string): string | null {
@@ -66,15 +63,6 @@ export function attachmentRelativePath(attachment: ChatAttachment): string {
       });
       return `${attachment.id}${extension}`;
     }
-    case "file": {
-      const extension = inferAttachmentExtension({
-        mimeType: attachment.mimeType,
-        fileName: attachment.name,
-      });
-      return `${attachment.id}${extension}`;
-    }
-    case "assistant-selection":
-      return `${attachment.id}.bin`;
   }
 }
 
@@ -101,7 +89,7 @@ export function resolveAttachmentPathById(input: {
       attachmentsDir: input.attachmentsDir,
       relativePath: `${normalizedId}${extension}`,
     });
-    if (maybePath && existsSync(maybePath)) {
+    if (maybePath && NodeFS.existsSync(maybePath)) {
       return maybePath;
     }
   }

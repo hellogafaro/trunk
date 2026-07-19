@@ -1,25 +1,72 @@
-import type { GitBranch } from "@synara/contracts";
-import {
-  deriveAssociatedWorktreeMetadata,
-  type AssociatedWorktreeMetadata,
-} from "@synara/shared/threadWorkspace";
-import { Schema } from "effect";
+import type { EnvironmentId, VcsRef, ProjectId } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+export {
+  dedupeRemoteBranchesWithLocalMatches,
+  deriveLocalBranchNameFromRemoteRef,
+} from "@t3tools/shared/git";
+
+export interface EnvironmentOption {
+  environmentId: EnvironmentId;
+  projectId: ProjectId;
+  label: string;
+  isPrimary: boolean;
+}
 
 export const EnvMode = Schema.Literals(["local", "worktree"]);
 export type EnvMode = typeof EnvMode.Type;
+
+const GENERIC_LOCAL_ENVIRONMENT_LABELS = new Set(["local", "local environment"]);
+
+function normalizeDisplayLabel(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+export function resolveEnvironmentOptionLabel(input: {
+  isPrimary: boolean;
+  environmentId: EnvironmentId;
+  runtimeLabel?: string | null;
+  savedLabel?: string | null;
+}): string {
+  const runtimeLabel = normalizeDisplayLabel(input.runtimeLabel);
+  const savedLabel = normalizeDisplayLabel(input.savedLabel);
+
+  if (input.isPrimary) {
+    const preferredLocalLabel = [runtimeLabel, savedLabel].find((label) => {
+      if (!label) return false;
+      return !GENERIC_LOCAL_ENVIRONMENT_LABELS.has(label.toLowerCase());
+    });
+    return preferredLocalLabel ?? "This device";
+  }
+
+  return runtimeLabel ?? savedLabel ?? input.environmentId;
+}
+
+export function resolveEnvModeLabel(mode: EnvMode): string {
+  return mode === "worktree" ? "New worktree" : "Current checkout";
+}
+
+export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null): string {
+  return activeWorktreePath ? "Current worktree" : resolveEnvModeLabel("local");
+}
+
+export function resolveLockedWorkspaceLabel(activeWorktreePath: string | null): string {
+  return activeWorktreePath ? "Worktree" : "Local checkout";
+}
 
 export function resolveEffectiveEnvMode(input: {
   activeWorktreePath: string | null;
   hasServerThread: boolean;
   draftThreadEnvMode: EnvMode | undefined;
-  serverThreadEnvMode?: EnvMode | undefined;
 }): EnvMode {
-  const { activeWorktreePath, hasServerThread, draftThreadEnvMode, serverThreadEnvMode } = input;
-  return activeWorktreePath ||
-    serverThreadEnvMode === "worktree" ||
-    (!hasServerThread && draftThreadEnvMode === "worktree")
-    ? "worktree"
-    : "local";
+  const { activeWorktreePath, hasServerThread, draftThreadEnvMode } = input;
+  if (!hasServerThread) {
+    if (activeWorktreePath) {
+      return "local";
+    }
+    return draftThreadEnvMode === "worktree" ? "worktree" : "local";
+  }
+  return activeWorktreePath ? "worktree" : "local";
 }
 
 export function resolveDraftEnvModeAfterBranchChange(input: {
@@ -50,138 +97,54 @@ export function resolveBranchToolbarValue(input: {
   return currentGitBranch ?? activeThreadBranch;
 }
 
-// Local threads should mirror the concrete checkout; stale thread metadata makes
-// the current Git branch appear selectable while clicks only perform a no-op.
-export function shouldSyncLocalThreadBranch(input: {
-  envMode: EnvMode;
-  activeWorktreePath: string | null;
-  activeThreadBranch: string | null;
-  currentGitBranch: string | null;
-  hasServerThread: boolean;
-  isBranchActionPending: boolean;
-}): boolean {
-  return (
-    input.envMode === "local" &&
-    input.activeWorktreePath === null &&
-    !input.isBranchActionPending &&
-    input.currentGitBranch !== null &&
-    (input.hasServerThread || input.activeThreadBranch !== null) &&
-    input.activeThreadBranch !== input.currentGitBranch
-  );
-}
-
-// Branch-only local updates should keep the paired worktree metadata intact.
-export function resolveAssociatedWorktreeMetadataAfterWorkspacePatch(input: {
-  branch: string | null;
-  worktreePath: string | null;
-  existingAssociatedWorktreePath: string | null;
-  existingAssociatedWorktreeBranch: string | null;
-  existingAssociatedWorktreeRef: string | null;
-  patchAssociatedWorktreePath?: string | null;
-  patchAssociatedWorktreeBranch?: string | null;
-  patchAssociatedWorktreeRef?: string | null;
-}): AssociatedWorktreeMetadata {
-  const shouldPreserveExistingAssociation =
-    !input.worktreePath && input.patchAssociatedWorktreePath === undefined;
-
-  return deriveAssociatedWorktreeMetadata({
-    branch: input.branch,
-    worktreePath: input.worktreePath,
-    ...(input.patchAssociatedWorktreePath !== undefined
-      ? { associatedWorktreePath: input.patchAssociatedWorktreePath }
-      : shouldPreserveExistingAssociation
-        ? { associatedWorktreePath: input.existingAssociatedWorktreePath }
-        : {}),
-    ...(input.patchAssociatedWorktreeBranch !== undefined
-      ? { associatedWorktreeBranch: input.patchAssociatedWorktreeBranch }
-      : shouldPreserveExistingAssociation
-        ? { associatedWorktreeBranch: input.existingAssociatedWorktreeBranch }
-        : {}),
-    ...(input.patchAssociatedWorktreeRef !== undefined
-      ? { associatedWorktreeRef: input.patchAssociatedWorktreeRef }
-      : input.patchAssociatedWorktreeBranch === undefined && shouldPreserveExistingAssociation
-        ? { associatedWorktreeRef: input.existingAssociatedWorktreeRef }
-        : {}),
-  });
-}
-
-export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
-  const firstSeparatorIndex = branchName.indexOf("/");
-  if (firstSeparatorIndex <= 0 || firstSeparatorIndex === branchName.length - 1) {
-    return branchName;
-  }
-  return branchName.slice(firstSeparatorIndex + 1);
-}
-
-function deriveLocalBranchNameCandidatesFromRemoteRef(
-  branchName: string,
-  remoteName?: string,
-): ReadonlyArray<string> {
-  const candidates = new Set<string>();
-  const firstSlashCandidate = deriveLocalBranchNameFromRemoteRef(branchName);
-  if (firstSlashCandidate.length > 0) {
-    candidates.add(firstSlashCandidate);
-  }
-
-  if (remoteName) {
-    const remotePrefix = `${remoteName}/`;
-    if (branchName.startsWith(remotePrefix) && branchName.length > remotePrefix.length) {
-      candidates.add(branchName.slice(remotePrefix.length));
-    }
-  }
-
-  return [...candidates];
-}
-
-export function dedupeRemoteBranchesWithLocalMatches(
-  branches: ReadonlyArray<GitBranch>,
-): ReadonlyArray<GitBranch> {
-  const localBranchNames = new Set(
-    branches.filter((branch) => !branch.isRemote).map((branch) => branch.name),
-  );
-
-  return branches.filter((branch) => {
-    if (!branch.isRemote) {
-      return true;
-    }
-
-    if (branch.remoteName !== "origin") {
-      return true;
-    }
-
-    const localBranchCandidates = deriveLocalBranchNameCandidatesFromRemoteRef(
-      branch.name,
-      branch.remoteName,
-    );
-    return !localBranchCandidates.some((candidate) => localBranchNames.has(candidate));
-  });
-}
-
 export function resolveBranchSelectionTarget(input: {
   activeProjectCwd: string;
   activeWorktreePath: string | null;
-  branch: Pick<GitBranch, "isDefault" | "worktreePath">;
+  refName: Pick<VcsRef, "isDefault" | "worktreePath">;
 }): {
   checkoutCwd: string;
   nextWorktreePath: string | null;
   reuseExistingWorktree: boolean;
 } {
-  const { activeProjectCwd, activeWorktreePath, branch } = input;
+  const { activeProjectCwd, activeWorktreePath, refName } = input;
 
-  if (branch.worktreePath) {
+  if (refName.worktreePath) {
     return {
-      checkoutCwd: branch.worktreePath,
-      nextWorktreePath: branch.worktreePath === activeProjectCwd ? null : branch.worktreePath,
+      checkoutCwd: refName.worktreePath,
+      nextWorktreePath: refName.worktreePath === activeProjectCwd ? null : refName.worktreePath,
       reuseExistingWorktree: true,
     };
   }
 
   const nextWorktreePath =
-    activeWorktreePath !== null && branch.isDefault ? null : activeWorktreePath;
+    activeWorktreePath !== null && refName.isDefault ? null : activeWorktreePath;
 
   return {
     checkoutCwd: nextWorktreePath ?? activeProjectCwd,
     nextWorktreePath,
     reuseExistingWorktree: false,
   };
+}
+
+export function shouldIncludeBranchPickerItem(input: {
+  itemValue: string;
+  normalizedQuery: string;
+  createBranchItemValue: string | null;
+  checkoutPullRequestItemValue: string | null;
+}): boolean {
+  const { itemValue, normalizedQuery, createBranchItemValue, checkoutPullRequestItemValue } = input;
+
+  if (normalizedQuery.length === 0) {
+    return true;
+  }
+
+  if (createBranchItemValue && itemValue === createBranchItemValue) {
+    return true;
+  }
+
+  if (checkoutPullRequestItemValue && itemValue === checkoutPullRequestItemValue) {
+    return true;
+  }
+
+  return itemValue.toLowerCase().includes(normalizedQuery);
 }

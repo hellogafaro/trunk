@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
-import { inferAttachmentExtension, inferImageExtension, parseBase64DataUrl } from "./imageMime.ts";
+import { inferImageExtension, parseBase64DataUrl } from "./imageMime.ts";
 
 describe("imageMime", () => {
   it("parses base64 data URL with mime type", () => {
@@ -34,10 +34,5 @@ describe("imageMime", () => {
 
   it("does not read inherited keys from mime extension map", () => {
     expect(inferImageExtension({ mimeType: "constructor" })).toBe(".bin");
-  });
-
-  it("infers generic attachment extensions from mime type", () => {
-    expect(inferAttachmentExtension({ mimeType: "application/pdf" })).toBe(".pdf");
-    expect(inferAttachmentExtension({ mimeType: "text/plain" })).toBe(".txt");
   });
 });

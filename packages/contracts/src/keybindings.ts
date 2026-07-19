@@ -1,63 +1,12 @@
-import { Schema } from "effect";
-import { TrimmedString } from "./baseSchemas";
+import * as Schema from "effect/Schema";
+import { TrimmedString } from "./baseSchemas.ts";
 
 export const MAX_KEYBINDING_VALUE_LENGTH = 64;
-const MAX_KEYBINDING_WHEN_LENGTH = 256;
+export const MAX_KEYBINDING_WHEN_LENGTH = 256;
 export const MAX_WHEN_EXPRESSION_DEPTH = 64;
 export const MAX_SCRIPT_ID_LENGTH = 24;
 export const MAX_KEYBINDINGS_COUNT = 256;
 
-const STATIC_KEYBINDING_COMMANDS = [
-  "sidebar.toggle",
-  "sidebar.search",
-  "sidebar.addProject",
-  "sidebar.importThread",
-  "terminal.toggle",
-  "terminal.split",
-  "terminal.splitRight",
-  "terminal.splitLeft",
-  "terminal.splitDown",
-  "terminal.splitUp",
-  "terminal.new",
-  "terminal.close",
-  "terminal.workspace.newFullWidth",
-  "terminal.workspace.closeActive",
-  "terminal.workspace.terminal",
-  "terminal.workspace.chat",
-  "browser.toggle",
-  "diff.toggle",
-  "composer.focus.toggle",
-  "modelPicker.toggle",
-  "model.next",
-  "model.previous",
-  "traitsPicker.toggle",
-  "settings.usage",
-  "chat.new",
-  "chat.newLatestProject",
-  "chat.newChat",
-  "chat.newLocal",
-  "chat.newTerminal",
-  "chat.newClaude",
-  "chat.newCodex",
-  "chat.newCursor",
-  "chat.split",
-  "view.recent.next",
-  "view.recent.previous",
-  "thread.jump.1",
-  "thread.jump.2",
-  "thread.jump.3",
-  "thread.jump.4",
-  "thread.jump.5",
-  "thread.jump.6",
-  "thread.jump.7",
-  "thread.jump.8",
-  "thread.jump.9",
-  "chat.visible.next",
-  "chat.visible.previous",
-  "editor.openFavorite",
-] as const;
-
-// Shared list of numbered thread-jump commands used by the web shortcut UI.
 export const THREAD_JUMP_KEYBINDING_COMMANDS = [
   "thread.jump.1",
   "thread.jump.2",
@@ -70,6 +19,56 @@ export const THREAD_JUMP_KEYBINDING_COMMANDS = [
   "thread.jump.9",
 ] as const;
 export type ThreadJumpKeybindingCommand = (typeof THREAD_JUMP_KEYBINDING_COMMANDS)[number];
+
+export const MODEL_PICKER_JUMP_KEYBINDING_COMMANDS = [
+  "modelPicker.jump.1",
+  "modelPicker.jump.2",
+  "modelPicker.jump.3",
+  "modelPicker.jump.4",
+  "modelPicker.jump.5",
+  "modelPicker.jump.6",
+  "modelPicker.jump.7",
+  "modelPicker.jump.8",
+  "modelPicker.jump.9",
+] as const;
+export type ModelPickerJumpKeybindingCommand =
+  (typeof MODEL_PICKER_JUMP_KEYBINDING_COMMANDS)[number];
+
+export const THREAD_KEYBINDING_COMMANDS = [
+  "thread.previous",
+  "thread.next",
+  ...THREAD_JUMP_KEYBINDING_COMMANDS,
+] as const;
+export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
+
+export const MODEL_PICKER_KEYBINDING_COMMANDS = [
+  "modelPicker.toggle",
+  ...MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
+] as const;
+export type ModelPickerKeybindingCommand = (typeof MODEL_PICKER_KEYBINDING_COMMANDS)[number];
+
+const STATIC_KEYBINDING_COMMANDS = [
+  "sidebar.toggle",
+  "terminal.toggle",
+  "terminal.split",
+  "terminal.splitVertical",
+  "terminal.new",
+  "terminal.close",
+  "rightPanel.toggle",
+  "diff.toggle",
+  "preview.toggle",
+  "preview.refresh",
+  "preview.focusUrl",
+  "preview.zoomIn",
+  "preview.zoomOut",
+  "preview.resetZoom",
+  "commandPalette.toggle",
+  "chat.new",
+  "chat.newLocal",
+  "editor.openFavorite",
+  ...MODEL_PICKER_KEYBINDING_COMMANDS,
+  ...THREAD_KEYBINDING_COMMANDS,
+] as const;
 
 export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
   Schema.Literal("script."),
@@ -86,12 +85,12 @@ export const KeybindingCommand = Schema.Union([
 ]);
 export type KeybindingCommand = typeof KeybindingCommand.Type;
 
-const KeybindingValue = TrimmedString.check(
+export const KeybindingValue = TrimmedString.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(MAX_KEYBINDING_VALUE_LENGTH),
 );
 
-const KeybindingWhen = TrimmedString.check(
+export const KeybindingWhen = TrimmedString.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(MAX_KEYBINDING_WHEN_LENGTH),
 );
@@ -117,24 +116,27 @@ export const KeybindingShortcut = Schema.Struct({
 });
 export type KeybindingShortcut = typeof KeybindingShortcut.Type;
 
-export const KeybindingWhenNode: Schema.Schema<KeybindingWhenNode> = Schema.Union([
+const KeybindingWhenNodeRef = Schema.suspend(
+  (): Schema.Codec<KeybindingWhenNode> => KeybindingWhenNode,
+);
+export const KeybindingWhenNode = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("identifier"),
     name: Schema.NonEmptyString,
   }),
   Schema.Struct({
     type: Schema.Literal("not"),
-    node: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
+    node: KeybindingWhenNodeRef,
   }),
   Schema.Struct({
     type: Schema.Literal("and"),
-    left: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
-    right: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
+    left: KeybindingWhenNodeRef,
+    right: KeybindingWhenNodeRef,
   }),
   Schema.Struct({
     type: Schema.Literal("or"),
-    left: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
-    right: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
+    left: KeybindingWhenNodeRef,
+    right: KeybindingWhenNodeRef,
   }),
 ]);
 export type KeybindingWhenNode =
@@ -154,3 +156,16 @@ export const ResolvedKeybindingsConfig = Schema.Array(ResolvedKeybindingRule).ch
   Schema.isMaxLength(MAX_KEYBINDINGS_COUNT),
 );
 export type ResolvedKeybindingsConfig = typeof ResolvedKeybindingsConfig.Type;
+
+export class KeybindingsConfigError extends Schema.TaggedErrorClass<KeybindingsConfigError>()(
+  "KeybindingsConfigParseError",
+  {
+    configPath: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Unable to parse keybindings config at ${this.configPath}: ${this.detail}`;
+  }
+}

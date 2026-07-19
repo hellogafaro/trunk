@@ -1,31 +1,20 @@
-# Trunk web parity
+# Web parity decisions
 
-Trunk is a web-only fork of [Synara](https://github.com/Emanuele-web04/synara). Synara's
-Electron implementation remains available in upstream history; this file tracks native
-capabilities worth migrating behind server APIs when there is a concrete web use case.
+Trunk is web-only. The removed Electron implementation remains recoverable from Git history at
+`backup/trunk-t3-code-2026-07-19`; it is not part of the active application or dependency graph.
 
-## Candidate migrations
+Before restoring any former desktop capability, decide whether it belongs in a browser, should be
+implemented by the server, or should stay deleted. Search for `TODO(trunk-web-parity)` to find the
+remaining decision points near active web code.
 
-- **AppSnap and screen capture** — capture a screen or application window on the host and
-  deliver the image and source metadata to the active composer.
-- **Native notifications** — send task-completion and activity notifications through a
-  server-side host integration, with browser notifications as the web fallback.
-- **File and folder selection** — let the server provide an explicit, permission-aware host
-  path picker where browser file inputs are insufficient.
-- **Save and reveal-file actions** — save exports to a chosen host path and reveal generated
-  files in the host file manager.
-- **Context menus and clipboard operations** — preserve native menu commands and image/text
-  clipboard behavior where browser APIs do not offer equivalent permissions or formats.
-- **Voice transcription** — move host-assisted audio capture and transcription to an explicit
-  server endpoint while retaining browser recording where supported.
-- **Browser lifecycle operations** — expose the useful parts of native browser-panel window,
-  focus, and navigation management through server-owned browser sessions.
-- **External URL handling** — validate and open external links through a server host action
-  when the browser cannot or should not open them directly.
-
-## Migration policy
-
-Add new Electron-only capabilities introduced upstream to this list during merges. Keep
-existing compatibility branches when they still compile, and mark relevant web call sites
-with `TODO(trunk-web-parity)` until a real server-backed migration is designed. No generic
-capability framework or validation layer is planned yet.
+| Former desktop capability                                        | Web-only decision to make                                                                                    |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Embedded Chromium `<webview>` and element picker                 | Prefer the existing server-managed Playwright browser; port only missing interaction or inspection behavior. |
+| File and folder pickers                                          | Use browser file APIs where possible; otherwise expose a constrained server-side picker.                     |
+| Save and reveal-file actions                                     | Download in the browser, or add a scoped server action; do not expose an unrestricted shell primitive.       |
+| Native notifications                                             | Use the Web Notifications API with explicit permission.                                                      |
+| Context menus and clipboard                                      | Prefer browser-native APIs and the existing DOM context-menu fallback.                                       |
+| External URL handling                                            | Use safe browser navigation with protocol allow-listing.                                                     |
+| Secure credential storage                                        | Keep secrets server-side; browser sessions should retain only scoped session credentials.                    |
+| Window lifecycle, application menus, updates, and OS integration | Delete permanently unless a concrete web use case appears.                                                   |
+| SSH/WSL desktop environment management                           | Delete; remote environments should be represented and managed by the server.                                 |

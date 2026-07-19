@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type * as EffectAcpSchema from "effect-acp/schema";
 
@@ -8,6 +8,8 @@ import {
   parsePermissionRequest,
   parseSessionModeState,
   parseSessionUpdateEvent,
+  sessionUpdateIsReplay,
+  syntheticLoadSessionResponseFromInitialize,
 } from "./AcpRuntimeModel.ts";
 
 describe("AcpRuntimeModel", () => {
@@ -57,6 +59,95 @@ describe("AcpRuntimeModel", () => {
     } satisfies EffectAcpSchema.NewSessionResponse);
 
     expect(modelConfigId).toBe("model");
+  });
+
+  it("detects Grok session replay updates from _meta.isReplay", () => {
+    expect(
+      sessionUpdateIsReplay({
+        _meta: { isReplay: true },
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "replayed" },
+        },
+      } satisfies EffectAcpSchema.SessionNotification),
+    ).toBe(true);
+    expect(
+      sessionUpdateIsReplay({
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "live" },
+        },
+      } satisfies EffectAcpSchema.SessionNotification),
+    ).toBe(false);
+  });
+
+  it("builds a synthetic load response from initialize model state", () => {
+    const response = syntheticLoadSessionResponseFromInitialize({
+      protocolVersion: 1,
+      _meta: {
+        modelState: {
+          currentModelId: "grok-build",
+          availableModels: [{ modelId: "grok-build", name: "Grok Build" }],
+        },
+      },
+    } satisfies EffectAcpSchema.InitializeResponse);
+
+    expect(response.models?.currentModelId).toBe("grok-build");
+    expect(response._meta).toMatchObject({ t3SessionLoadReady: "replay_idle" });
+  });
+
+  it("accepts initialize model descriptions with null", () => {
+    const response = syntheticLoadSessionResponseFromInitialize({
+      protocolVersion: 1,
+      _meta: {
+        modelState: {
+          currentModelId: "grok-build",
+          availableModels: [{ modelId: "grok-build", name: "Grok Build", description: null }],
+        },
+      },
+    } satisfies EffectAcpSchema.InitializeResponse);
+
+    expect(response.models?.availableModels[0]?.description).toBeNull();
+  });
+
+  it("ignores malformed initialize model state in synthetic load responses", () => {
+    const response = syntheticLoadSessionResponseFromInitialize({
+      protocolVersion: 1,
+      _meta: {
+        modelState: {
+          currentModelId: "grok-build",
+          availableModels: [null],
+        },
+        modeState: {
+          currentModeId: "code",
+          availableModes: [{ id: "code", name: 12 }],
+        },
+      },
+    } as EffectAcpSchema.InitializeResponse);
+
+    expect(response.models).toBeUndefined();
+    expect(response.modes).toBeUndefined();
+    expect(response._meta).toMatchObject({ t3SessionLoadReady: "replay_idle" });
+  });
+
+  it("builds a synthetic load response with initialize mode state", () => {
+    const response = syntheticLoadSessionResponseFromInitialize({
+      protocolVersion: 1,
+      _meta: {
+        modeState: {
+          currentModeId: "code",
+          availableModes: [
+            { id: "ask", name: "Ask" },
+            { id: "code", name: "Code" },
+          ],
+        },
+      },
+    } satisfies EffectAcpSchema.InitializeResponse);
+
+    expect(response.modes?.currentModeId).toBe("code");
+    expect(response.modes?.availableModes).toHaveLength(2);
   });
 
   it("projects typed ACP tool call updates into runtime events", () => {
@@ -164,167 +255,6 @@ describe("AcpRuntimeModel", () => {
     }
   });
 
-  it("derives useful tool details when Cursor sends empty rawInput placeholders", () => {
-    const searchCompleted = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "find-1",
-        kind: "search",
-        status: "completed",
-        rawOutput: {
-          totalFiles: 33,
-          truncated: false,
-        },
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    expect(searchCompleted.events).toHaveLength(1);
-    expect(searchCompleted.events[0]).toMatchObject({
-      _tag: "ToolCallUpdated",
-      toolCall: {
-        toolCallId: "find-1",
-        kind: "search",
-        status: "completed",
-        title: "Searched",
-        detail: "33 files found",
-      },
-    });
-
-    const readCompleted = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "read-1",
-        kind: "read",
-        status: "completed",
-        rawOutput: {
-          content: "one\ntwo\n",
-        },
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    expect(readCompleted.events[0]).toMatchObject({
-      _tag: "ToolCallUpdated",
-      toolCall: {
-        toolCallId: "read-1",
-        kind: "read",
-        status: "completed",
-        title: "Read",
-        detail: "Read 2 lines",
-      },
-    });
-
-    const locatedRead = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "read-2",
-        title: "Read File",
-        kind: "read",
-        status: "pending",
-        rawInput: {},
-        locations: [{ path: "src/index.ts", line: 12 }],
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    expect(locatedRead.events[0]).toMatchObject({
-      _tag: "ToolCallUpdated",
-      toolCall: {
-        toolCallId: "read-2",
-        title: "Reading",
-        kind: "read",
-        detail: "src/index.ts:12",
-      },
-    });
-  });
-
-  it("infers Cursor placeholder kinds before deriving display titles", () => {
-    const findPending = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "find-placeholder",
-        title: "Find",
-        status: "pending",
-        rawInput: {},
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    expect(findPending.events[0]).toMatchObject({
-      _tag: "ToolCallUpdated",
-      toolCall: {
-        toolCallId: "find-placeholder",
-        kind: "search",
-        title: "Searching",
-        data: {
-          kind: "search",
-        },
-      },
-    });
-
-    const readPending = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "read-placeholder",
-        title: "Read File",
-        status: "pending",
-        rawInput: {},
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    expect(readPending.events[0]).toMatchObject({
-      _tag: "ToolCallUpdated",
-      toolCall: {
-        toolCallId: "read-placeholder",
-        kind: "read",
-        title: "Reading",
-        data: {
-          kind: "read",
-        },
-      },
-    });
-  });
-
-  it("keeps inferred Cursor action titles when completion updates only contain generic Tool", () => {
-    const pending = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "find-placeholder",
-        title: "Find",
-        status: "pending",
-        rawInput: {},
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-    const completed = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "find-placeholder",
-        title: "Tool",
-        status: "completed",
-        rawOutput: {
-          totalFiles: 4,
-          truncated: false,
-        },
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    const pendingEvent = pending.events[0];
-    const completedEvent = completed.events[0];
-    if (pendingEvent?._tag === "ToolCallUpdated" && completedEvent?._tag === "ToolCallUpdated") {
-      expect(mergeToolCallState(pendingEvent.toolCall, completedEvent.toolCall)).toMatchObject({
-        toolCallId: "find-placeholder",
-        kind: "search",
-        status: "completed",
-        title: "Searched",
-        detail: "4 files found",
-      });
-    }
-  });
-
   it("trims padded current mode updates before emitting a mode change", () => {
     const result = parseSessionUpdateEvent({
       sessionId: "session-1",
@@ -392,7 +322,6 @@ describe("AcpRuntimeModel", () => {
       {
         _tag: "ContentDelta",
         text: "hello from acp",
-        streamKind: "assistant_text",
         rawPayload: {
           sessionId: "session-1",
           update: {
@@ -400,81 +329,6 @@ describe("AcpRuntimeModel", () => {
             content: {
               type: "text",
               text: "hello from acp",
-            },
-          },
-        },
-      },
-    ]);
-
-    const thoughtResult = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "agent_thought_chunk",
-        messageId: " thought-1 ",
-        content: {
-          type: "text",
-          text: "checking files",
-        },
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    expect(thoughtResult.events).toEqual([
-      {
-        _tag: "ContentDelta",
-        itemId: "thought-1",
-        text: "checking files",
-        streamKind: "reasoning_text",
-        rawPayload: {
-          sessionId: "session-1",
-          update: {
-            sessionUpdate: "agent_thought_chunk",
-            messageId: " thought-1 ",
-            content: {
-              type: "text",
-              text: "checking files",
-            },
-          },
-        },
-      },
-    ]);
-  });
-
-  it("projects ACP usage updates into context-window snapshots", () => {
-    const result = parseSessionUpdateEvent({
-      sessionId: "session-1",
-      update: {
-        sessionUpdate: "usage_update",
-        size: 1_000_000,
-        used: 42_000,
-        cost: {
-          amount: 0.2,
-          currency: "USD",
-        },
-      },
-    } satisfies EffectAcpSchema.SessionNotification);
-
-    expect(result.events).toEqual([
-      {
-        _tag: "UsageUpdated",
-        usage: {
-          usedTokens: 42_000,
-          usedPercent: 4.2,
-          maxTokens: 1_000_000,
-          compactsAutomatically: true,
-        },
-        cost: {
-          amount: 0.2,
-          currency: "USD",
-        },
-        rawPayload: {
-          sessionId: "session-1",
-          update: {
-            sessionUpdate: "usage_update",
-            size: 1_000_000,
-            used: 42_000,
-            cost: {
-              amount: 0.2,
-              currency: "USD",
             },
           },
         },

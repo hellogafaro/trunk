@@ -1,13 +1,8 @@
-// FILE: ThreadErrorBanner.tsx
-// Purpose: Shows dismissible thread-level runtime errors above the transcript.
-// Layer: Chat status presentation
-// Exports: ThreadErrorBanner
-
 import { memo } from "react";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
-import { IconButton } from "../ui/icon-button";
-import { CircleAlertIcon, XIcon } from "~/lib/icons";
-import { ChatColumnBannerFrame } from "./ChatColumnBannerFrame";
+import { Button } from "../ui/button";
+import { CircleAlertIcon, XIcon } from "lucide-react";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
@@ -18,24 +13,25 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
 }) {
   if (!error) return null;
   return (
-    <ChatColumnBannerFrame>
+    <div className="mx-auto w-full max-w-208 pt-3">
       <Alert variant="error">
         <CircleAlertIcon />
-        <AlertDescription className="line-clamp-3" title={error}>
-          {error}
-        </AlertDescription>
+        <Tooltip>
+          <TooltipTrigger render={<AlertDescription className="line-clamp-3" />}>
+            {error}
+          </TooltipTrigger>
+          <TooltipPopup side="top" className="max-w-96 whitespace-pre-wrap">
+            {error}
+          </TooltipPopup>
+        </Tooltip>
         {onDismiss && (
           <AlertAction>
-            <IconButton
-              label="Dismiss error"
-              className="size-6 text-destructive/60 hover:text-destructive sm:size-6"
-              onClick={onDismiss}
-            >
-              <XIcon className="size-3.5" />
-            </IconButton>
+            <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
+              <XIcon className="text-destructive" />
+            </Button>
           </AlertAction>
         )}
       </Alert>
-    </ChatColumnBannerFrame>
+    </div>
   );
 });
