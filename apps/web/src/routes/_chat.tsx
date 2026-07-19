@@ -1,6 +1,12 @@
 import type { ResolvedKeybindingsConfig } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
+import {
+  Outlet,
+  createFileRoute,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -48,6 +54,8 @@ import {
 } from "~/components/ui/sidebar";
 import type { SidebarResizableOptions } from "~/components/ui/sidebar";
 import { cn } from "~/lib/utils";
+import { APP_DISPLAY_NAME } from "~/branding";
+import { useFocusedChatContext } from "~/focusedChatContext";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
@@ -66,6 +74,28 @@ const THREAD_SIDEBAR_RESIZABLE: SidebarResizableOptions = {
 const MAINTENANCE_EVENT_STALE_MS = 5 * 60 * 1000;
 
 type MaintenanceToastId = ReturnType<typeof toastManager.add>;
+
+function BrowserTabTitle() {
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const routeProjectId = useParams({
+    strict: false,
+    select: (params) => params.projectId ?? null,
+  });
+  const { activeProject } = useFocusedChatContext();
+  const routeProject = useStore(
+    (store) => store.projects.find((project) => project.id === routeProjectId) ?? null,
+  );
+  const project = activeProject ?? routeProject;
+  const context = pathname.startsWith("/studio")
+    ? "Studio"
+    : (project?.localName ?? project?.name ?? null);
+
+  useEffect(() => {
+    document.title = context ? `${APP_DISPLAY_NAME} | ${context}` : APP_DISPLAY_NAME;
+  }, [context]);
+
+  return null;
+}
 
 function ThreadRetentionMaintenanceToast() {
   const toastIdRef = useRef<MaintenanceToastId | null>(null);
@@ -579,6 +609,7 @@ function ChatRouteLayout() {
       data-sidebar-side="left"
     >
       <ThreadRetentionMaintenanceToast />
+      <BrowserTabTitle />
       <ChatRouteGlobalShortcuts />
       {sidebarElement}
       {mainContentShell}
