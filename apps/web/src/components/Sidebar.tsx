@@ -185,7 +185,7 @@ import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import { ProviderIcon } from "./ProviderIcon";
 import { SidebarLeadingControls } from "./SidebarHeaderNavigationControls";
-import { SynaraLogo } from "./SynaraLogo";
+import { Logo } from "./Logo";
 import { FolderClosed } from "./FolderClosed";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import { ThreadHoverCardContent } from "./ThreadHoverCardContent";
@@ -6771,7 +6771,7 @@ export default function Sidebar() {
   const wordmark = (
     <div className="flex w-full items-center gap-1.5">
       <SidebarTrigger className="shrink-0 text-muted-foreground/75 hover:text-foreground md:hidden" />
-      <SynaraLogo aria-label="Trunk" className="size-4" />
+      <Logo aria-label="Trunk" className="size-4" />
       {headerControls}
     </div>
   );
@@ -6823,7 +6823,7 @@ export default function Sidebar() {
             )}
           >
             {titlebarControls}
-            <SynaraLogo
+            <Logo
               aria-label="Trunk"
               className="pointer-events-none ml-auto size-3.5 text-[var(--color-text-foreground-secondary)] opacity-80"
             />

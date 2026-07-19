@@ -1,4 +1,4 @@
-// FILE: SynaraLogo.tsx
+// FILE: Logo.tsx
 // Purpose: Render the Trunk mark as an inline SVG that follows theme foreground color.
 // Layer: Shared app branding primitive
 
@@ -6,7 +6,7 @@ import type { SVGProps } from "react";
 import { SYNARA_LOGO_PATHS } from "~/assets/synaraLogoPath";
 import { cn } from "~/lib/utils";
 
-export function SynaraLogo({ className, ...props }: SVGProps<SVGSVGElement>) {
+export function Logo({ className, ...props }: SVGProps<SVGSVGElement>) {
   const ariaLabel = props["aria-label"];
 
   return (

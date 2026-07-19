@@ -2,7 +2,7 @@
 // Purpose: Render the branded startup face while the app is still booting a route or session.
 // Layer: Shared app loading presentation
 
-import { SynaraLogo } from "~/components/SynaraLogo";
+import { Logo } from "~/components/Logo";
 
 export function SplashScreen({
   errorMessage,
@@ -16,7 +16,7 @@ export function SplashScreen({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-background">
       <div className="flex flex-col items-center gap-5 select-none">
-        <SynaraLogo aria-label="Trunk" className="size-12 opacity-10" />
+        <Logo aria-label="Trunk" className="size-12 opacity-10" />
 
         {errorMessage ? (
           <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
