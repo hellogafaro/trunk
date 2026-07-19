@@ -1,5 +1,6 @@
 // FILE: taskCompletion.tsx
 // Purpose: Bridges thread completion and attention-needed events to in-app toasts and OS notifications.
+// TODO(trunk-web-parity): migrate host-native notifications through the server.
 // Layer: Notification runtime
 // Exports: TaskCompletionNotifications and browser permission helpers
 

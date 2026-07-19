@@ -1186,6 +1186,7 @@ export function BrowserPanel({
     if (!activeTab) {
       return;
     }
+    // TODO(trunk-web-parity): migrate native browser focus and clipboard actions through the server.
     // Desktop: copy through the native Electron clipboard. navigator.clipboard can reject
     // with "Document is not focused" while the native browser view holds focus, so this
     // mirrors the keyboard chord — main writes the URL and emits onCopyLink, which surfaces

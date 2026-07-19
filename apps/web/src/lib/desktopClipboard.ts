@@ -1,6 +1,7 @@
 // FILE: desktopClipboard.ts
 // Purpose: Tiny renderer-side wrapper for desktop clipboard image writes exposed by
 // Electron preload. Browser-only clipboard fallbacks live with the calling feature.
+// TODO(trunk-web-parity): migrate privileged clipboard formats through the server.
 // Layer: Web desktop bridge utility
 // Exports: copyPngBlobToDesktopClipboard
 

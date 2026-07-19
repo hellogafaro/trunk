@@ -14,6 +14,7 @@ interface ImportMeta {
 declare global {
   interface Window {
     nativeApi?: NativeApi;
+    // TODO(trunk-web-parity): migrate useful native bridge capabilities through the server.
     desktopBridge?: DesktopBridge;
   }
 }

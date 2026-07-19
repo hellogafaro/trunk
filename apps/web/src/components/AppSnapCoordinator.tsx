@@ -1,5 +1,6 @@
 // FILE: AppSnapCoordinator.tsx
 // Purpose: Routes native macOS AppSnaps into the correct Synara composer draft.
+// TODO(trunk-web-parity): migrate AppSnap capture and delivery through the server.
 // Layer: Root web coordinator
 // Depends on: Desktop bridge, focused chat context, and existing composer attachment intake.
 
