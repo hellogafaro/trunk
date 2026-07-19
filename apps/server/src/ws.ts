@@ -21,6 +21,8 @@ import {
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
+  AUTOMATION_WS_METHODS,
+  AutomationOperationError,
   CommandId,
   type DiscoveredLocalServerList,
   EventId,
@@ -112,6 +114,7 @@ import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import * as AutomationService from "./automation/AutomationService.ts";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -275,6 +278,12 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
+  [AUTOMATION_WS_METHODS.subscribe, AuthOrchestrationReadScope],
+  [AUTOMATION_WS_METHODS.create, AuthOrchestrationOperateScope],
+  [AUTOMATION_WS_METHODS.update, AuthOrchestrationOperateScope],
+  [AUTOMATION_WS_METHODS.setStatus, AuthOrchestrationOperateScope],
+  [AUTOMATION_WS_METHODS.runNow, AuthOrchestrationOperateScope],
+  [AUTOMATION_WS_METHODS.delete, AuthOrchestrationOperateScope],
   [ORCHESTRATION_WS_METHODS.dispatchCommand, AuthOrchestrationOperateScope],
   [ORCHESTRATION_WS_METHODS.getTurnDiff, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.getFullThreadDiff, AuthOrchestrationReadScope],
@@ -397,6 +406,10 @@ const makeWsRpcLayer = (
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
+      const automations = yield* Effect.serviceOption(AutomationService.AutomationService);
+      const automationUnavailable = new AutomationOperationError({
+        message: "Automations are unavailable in this server runtime.",
+      });
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
@@ -947,6 +960,56 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [AUTOMATION_WS_METHODS.subscribe]: (_input) =>
+          observeRpcStream(
+            AUTOMATION_WS_METHODS.subscribe,
+            Option.isSome(automations)
+              ? automations.value.snapshots
+              : Stream.fail(automationUnavailable),
+            { "rpc.aggregate": "automation" },
+          ),
+        [AUTOMATION_WS_METHODS.create]: (input) =>
+          observeRpcEffect(
+            AUTOMATION_WS_METHODS.create,
+            Option.isSome(automations)
+              ? automations.value.create(input).pipe(Effect.map((automation) => ({ automation })))
+              : Effect.fail(automationUnavailable),
+            { "rpc.aggregate": "automation" },
+          ),
+        [AUTOMATION_WS_METHODS.update]: (input) =>
+          observeRpcEffect(
+            AUTOMATION_WS_METHODS.update,
+            Option.isSome(automations)
+              ? automations.value.update(input).pipe(Effect.map((automation) => ({ automation })))
+              : Effect.fail(automationUnavailable),
+            { "rpc.aggregate": "automation" },
+          ),
+        [AUTOMATION_WS_METHODS.setStatus]: (input) =>
+          observeRpcEffect(
+            AUTOMATION_WS_METHODS.setStatus,
+            Option.isSome(automations)
+              ? automations.value
+                  .setStatus(input)
+                  .pipe(Effect.map((automation) => ({ automation })))
+              : Effect.fail(automationUnavailable),
+            { "rpc.aggregate": "automation" },
+          ),
+        [AUTOMATION_WS_METHODS.runNow]: (input) =>
+          observeRpcEffect(
+            AUTOMATION_WS_METHODS.runNow,
+            Option.isSome(automations)
+              ? automations.value.runNow(input).pipe(Effect.map((run) => ({ run })))
+              : Effect.fail(automationUnavailable),
+            { "rpc.aggregate": "automation" },
+          ),
+        [AUTOMATION_WS_METHODS.delete]: (input) =>
+          observeRpcEffect(
+            AUTOMATION_WS_METHODS.delete,
+            Option.isSome(automations)
+              ? automations.value.delete(input.automationId)
+              : Effect.fail(automationUnavailable),
+            { "rpc.aggregate": "automation" },
+          ),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,

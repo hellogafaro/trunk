@@ -33,6 +33,16 @@ import type {
 } from "./project.ts";
 import type { ProviderInstanceId } from "./providerInstance.ts";
 import type {
+  AutomationCreateInput,
+  AutomationDeleteInput,
+  AutomationMutationResult,
+  AutomationRunNowInput,
+  AutomationRunNowResult,
+  AutomationSetStatusInput,
+  AutomationSnapshot,
+  AutomationUpdateInput,
+} from "./automation.ts";
+import type {
   ServerConfig,
   ServerProcessDiagnosticsResult,
   ServerProcessResourceHistoryInput,
@@ -1033,6 +1043,17 @@ export interface EnvironmentApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  automations: {
+    subscribe: (
+      callback: (snapshot: AutomationSnapshot) => void,
+      options?: { onResubscribe?: () => void },
+    ) => () => void;
+    create: (input: AutomationCreateInput) => Promise<AutomationMutationResult>;
+    update: (input: AutomationUpdateInput) => Promise<AutomationMutationResult>;
+    setStatus: (input: AutomationSetStatusInput) => Promise<AutomationMutationResult>;
+    runNow: (input: AutomationRunNowInput) => Promise<AutomationRunNowResult>;
+    delete: (input: AutomationDeleteInput) => Promise<void>;
   };
   preview: {
     open: (input: typeof PreviewOpenInput.Encoded) => Promise<PreviewSessionSnapshot>;

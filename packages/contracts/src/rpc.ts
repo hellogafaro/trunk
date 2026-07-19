@@ -4,6 +4,18 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
 import {
+  AUTOMATION_WS_METHODS,
+  AutomationCreateInput,
+  AutomationDeleteInput,
+  AutomationMutationResult,
+  AutomationOperationError,
+  AutomationRunNowInput,
+  AutomationRunNowResult,
+  AutomationSetStatusInput,
+  AutomationSnapshot,
+  AutomationUpdateInput,
+} from "./automation.ts";
+import {
   AuthAccessStreamError,
   AuthAccessStreamEvent,
   EnvironmentAuthorizationError,
@@ -687,6 +699,42 @@ export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
   },
 );
 
+export const WsAutomationSubscribeRpc = Rpc.make(AUTOMATION_WS_METHODS.subscribe, {
+  payload: Schema.Struct({}),
+  success: AutomationSnapshot,
+  error: Schema.Union([AutomationOperationError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsAutomationCreateRpc = Rpc.make(AUTOMATION_WS_METHODS.create, {
+  payload: AutomationCreateInput,
+  success: AutomationMutationResult,
+  error: Schema.Union([AutomationOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsAutomationUpdateRpc = Rpc.make(AUTOMATION_WS_METHODS.update, {
+  payload: AutomationUpdateInput,
+  success: AutomationMutationResult,
+  error: Schema.Union([AutomationOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsAutomationSetStatusRpc = Rpc.make(AUTOMATION_WS_METHODS.setStatus, {
+  payload: AutomationSetStatusInput,
+  success: AutomationMutationResult,
+  error: Schema.Union([AutomationOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsAutomationRunNowRpc = Rpc.make(AUTOMATION_WS_METHODS.runNow, {
+  payload: AutomationRunNowInput,
+  success: AutomationRunNowResult,
+  error: Schema.Union([AutomationOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsAutomationDeleteRpc = Rpc.make(AUTOMATION_WS_METHODS.delete, {
+  payload: AutomationDeleteInput,
+  error: Schema.Union([AutomationOperationError, EnvironmentAuthorizationError]),
+});
+
 export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
   payload: Schema.Struct({}),
   success: TerminalEvent,
@@ -723,6 +771,12 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  WsAutomationSubscribeRpc,
+  WsAutomationCreateRpc,
+  WsAutomationUpdateRpc,
+  WsAutomationSetStatusRpc,
+  WsAutomationRunNowRpc,
+  WsAutomationDeleteRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,

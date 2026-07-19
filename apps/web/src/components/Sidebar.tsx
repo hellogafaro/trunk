@@ -2,6 +2,7 @@ import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
+  Clock3Icon,
   CloudIcon,
   ContainerIcon,
   FolderPlusIcon,
@@ -2912,6 +2913,16 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 <Kbd className="h-5 min-w-0 px-1.5 text-xs">{commandPaletteShortcutLabel}</Kbd>
               ) : null}
             </CommandDialogTrigger>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground focus-visible:ring-0"
+              render={<Link to="/automations" />}
+            >
+              <Clock3Icon className="size-3.5 text-muted-foreground/70" />
+              <span className="flex-1 truncate text-left text-xs">Automations</span>
+            </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroup>
