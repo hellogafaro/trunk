@@ -38,7 +38,6 @@ const MODE_ARGS = {
   ],
   "dev:server": ["run", "dev", "--filter=@synara/cli"],
   "dev:web": ["run", "dev", "--filter=@synara/web"],
-  "dev:desktop": ["run", "dev", "--filter=@synara/desktop", "--filter=@synara/web", "--parallel"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 type DevMode = keyof typeof MODE_ARGS;
@@ -189,7 +188,6 @@ export function createDevRunnerEnv({
       ...baseEnv,
       SYNARA_PORT: String(serverPort),
       PORT: String(webPort),
-      ELECTRON_RENDERER_PORT: String(webPort),
       VITE_WS_URL: `ws://${formattedClientHost}:${serverPort}`,
       VITE_DEV_SERVER_URL: devUrl?.toString() ?? `http://localhost:${webPort}`,
       SYNARA_HOME: resolvedBaseDir,

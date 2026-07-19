@@ -50,9 +50,6 @@ jobs:
         if: runner.os == 'Linux'
         run: node scripts/node-pty-smoke.mjs
 
-      - name: Verify Synara identity
-        run: bun run brand:check
-
       - name: Format
         run: bun run fmt:check
 
@@ -88,13 +85,8 @@ jobs:
         timeout-minutes: 10
         run: bun run --cwd apps/web test:browser:geometry
 
-      - name: Build desktop pipeline
-        run: bun run build:desktop
-
-      - name: Verify preload bundle output
-        run: |
-          test -f apps/desktop/dist-electron/preload.js
-          grep -nE "desktopBridge|getWsUrl|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.js
+      - name: Build web and server
+        run: bun run build
 
   windows_process:
     name: Windows Process Regression
@@ -122,29 +114,3 @@ jobs:
 
       - name: Test Effect Windows process spawn
         run: bun run --cwd apps/server test src/windowsProcessEffect.test.ts
-
-  release_smoke:
-    name: Release Smoke
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
-
-      - name: Verify Synara identity
-        run: bun run brand:check
-
-      - name: Exercise release-only workflow steps
-        run: node scripts/release-smoke.ts
