@@ -567,9 +567,26 @@ export const make = Effect.gen(function* ServerBrowserMake() {
           };
           tabs.set(key, created);
 
+          let verificationRefreshPending = false;
+          const scheduleVerificationRefresh = (): void => {
+            if (verificationRefreshPending || page.isClosed()) return;
+            verificationRefreshPending = true;
+            void page
+              .waitForTimeout(250)
+              .then(async () => {
+                verificationRefreshPending = false;
+                if (!page.isClosed()) await publishStatus(created, "Success");
+              })
+              .catch(() => {
+                verificationRefreshPending = false;
+              });
+          };
+
           page.on("load", () => {
             void publishStatus(created, "Success");
           });
+          page.on("frameattached", scheduleVerificationRefresh);
+          page.on("framenavigated", scheduleVerificationRefresh);
           page.on("console", (message: ConsoleMessage) => {
             const location = message.location();
             appendBounded(created.consoleEntries, {
@@ -642,12 +659,14 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     action: string,
     run: () => Promise<A>,
   ): Promise<A> => {
-    if (tab.verification && !["snapshot", "waitFor"].includes(action)) {
+    if (!["snapshot", "waitFor"].includes(action)) {
+      const previousVerification = tab.verification;
       tab.verification = await readPageVerification(tab.page);
       if (tab.verification) {
+        await publishStatus(tab, "Success");
         throw operationError("automation-verification-required", tab.verification.reason);
       }
-      await publishStatus(tab, "Success");
+      if (previousVerification) await publishStatus(tab, "Success");
     }
     const startedAt = nowIso();
     const event: PreviewAutomationActionEvent = {
