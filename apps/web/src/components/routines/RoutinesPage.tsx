@@ -649,7 +649,7 @@ export function RoutinesPage() {
                 </Button>
                 <Button
                   size="icon-xs"
-                  variant="destructive"
+                  variant="ghost"
                   disabled={busy}
                   aria-label="Delete routine"
                   onClick={() => {
