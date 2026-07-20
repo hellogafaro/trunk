@@ -406,7 +406,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
                       type="button"
                       size="sm"
                       variant="ghost"
-                      className="h-7 px-2 text-xs text-muted-foreground"
+                      className="h-7 px-2 text-muted-foreground"
                       onClick={() => setAccentColor("")}
                     >
                       Clear

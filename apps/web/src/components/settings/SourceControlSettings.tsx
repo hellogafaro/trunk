@@ -262,7 +262,7 @@ function DiscoveryItemRow({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="h-7 px-2 text-muted-foreground hover:text-foreground"
                 onClick={() => setIsExpanded((open) => !open)}
                 aria-expanded={isExpanded}
                 aria-label={`Toggle ${item.label} details`}
@@ -426,7 +426,7 @@ function EmptySourceControlDiscovery({
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 px-3 text-xs"
+            className="h-8 gap-1.5 px-3"
             onClick={onScan}
             disabled={isPending}
           >

@@ -2908,7 +2908,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
               }
             >
               <SearchIcon className="size-3.5 text-muted-foreground/70" />
-              <span className="flex-1 truncate text-left text-xs">Search</span>
+              <span className="flex-1 truncate text-left">Search</span>
               {commandPaletteShortcutLabel ? (
                 <Kbd className="h-5 min-w-0 px-1.5 text-xs">{commandPaletteShortcutLabel}</Kbd>
               ) : null}
@@ -2921,7 +2921,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
               render={<Link to="/automations" />}
             >
               <Clock3Icon className="size-3.5 text-muted-foreground/70" />
-              <span className="flex-1 truncate text-left text-xs">Automations</span>
+              <span className="flex-1 truncate text-left">Automations</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

@@ -55,7 +55,7 @@ function ConfiguredT3ConnectSidebarSignIn() {
         <SidebarMenuItem>
           <SidebarMenuButton
             size="sm"
-            className="gap-2 px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="gap-2 px-2 py-2 text-muted-foreground hover:bg-accent hover:text-foreground"
             onClick={openAuthPrompt}
           >
             <LogInIcon className="size-4" />

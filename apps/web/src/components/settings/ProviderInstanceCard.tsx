@@ -210,7 +210,7 @@ function ProviderEnvironmentSection(props: {
           type="button"
           size="sm"
           variant="outline"
-          className="h-7 gap-1.5 px-2 text-xs"
+          className="h-7 gap-1.5 px-2"
           onClick={() =>
             setRows([
               ...rows,
@@ -710,7 +710,7 @@ export function ProviderInstanceCard({
             <Button
               size="sm"
               variant="ghost"
-              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              className="h-7 px-2 text-muted-foreground hover:text-foreground"
               onClick={() => onExpandedChange(!isExpanded)}
               aria-label={`Toggle ${displayName} details`}
             >

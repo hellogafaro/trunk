@@ -82,8 +82,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     isActive={isActive}
                     className={
                       isActive
-                        ? "gap-2.5 px-2.5 py-2 text-left text-[13px] font-medium text-foreground"
-                        : "gap-2.5 px-2.5 py-2 text-left text-[13px] text-muted-foreground/70 hover:text-foreground/80"
+                        ? "gap-2.5 px-2.5 py-2 text-left font-medium text-foreground"
+                        : "gap-2.5 px-2.5 py-2 text-left text-muted-foreground/70 hover:text-foreground/80"
                     }
                     onClick={() => handleSectionClick(item.to)}
                   >
@@ -111,7 +111,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
             <SidebarMenuItem>
               <SidebarMenuButton
                 size="sm"
-                className="gap-2 px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="gap-2 px-2 py-2 text-muted-foreground hover:bg-accent hover:text-foreground"
                 onClick={handleBackClick}
               >
                 <ArrowLeftIcon className="size-4" />
