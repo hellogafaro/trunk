@@ -22,9 +22,9 @@ New automations default to **Ask before changes** (`approval-required`). File-ed
 
 ## Lifecycle
 
-- **Pause** cancels queued work and clears the next schedule. A run already in progress is allowed to finish.
-- **Resume** validates the project, model, target, and future schedule again.
-- **Run now** queues work even when an automation is paused, except when its target chat was deleted.
+- **Disable** cancels queued work and clears the next schedule. A run already in progress is allowed to finish.
+- **Enable** validates the project, model, target, and future schedule again.
+- **Run now** queues work even when an automation is disabled, except when its target chat was deleted.
 - **Delete** interrupts active turns where possible, cancels actionable runs, and tombstones the definition while preserving terminal history in storage.
 
-The Automations page is the primary setup surface. Chat setup remains available as an optional shortcut, and agents with the `automations` capability can list, create, update, pause/resume, run, and delete routines.
+The Automations page is the primary setup surface. Chat setup remains available as an optional shortcut, and agents with the `automations` capability can list, create, update, enable/disable, run, and delete routines.

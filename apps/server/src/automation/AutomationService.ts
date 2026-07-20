@@ -222,8 +222,8 @@ export const make = Effect.gen(function* () {
   ) {
     yield* repository.upsert({
       ...automation,
-      status: "stopped",
-      stopReason: "target-deleted",
+      status: "disabled",
+      disableReason: "target-deleted",
       nextRunAt: null,
       updatedAt: now,
       deletedAt: null,
@@ -408,8 +408,8 @@ export const make = Effect.gen(function* () {
     if (automation.schedule.type === "once") {
       yield* repository.upsert({
         ...automation,
-        status: "stopped",
-        stopReason: "once-completed",
+        status: "disabled",
+        disableReason: "once-completed",
         nextRunAt: null,
         updatedAt: finishedAt,
         deletedAt: null,
@@ -438,7 +438,7 @@ export const make = Effect.gen(function* () {
 
     for (const automation of automations) {
       if (
-        automation.status !== "active" ||
+        automation.status !== "enabled" ||
         automation.nextRunAt === null ||
         Date.parse(automation.nextRunAt) > nowEpochMillis
       ) {
@@ -451,9 +451,11 @@ export const make = Effect.gen(function* () {
           : yield* Effect.fromResult(calculateNextRunAt(automation.schedule, nowEpochMillis));
       const updated = {
         ...automation,
-        status: automation.schedule.type === "once" ? ("stopped" as const) : automation.status,
-        stopReason:
-          automation.schedule.type === "once" ? ("once-completed" as const) : automation.stopReason,
+        status: automation.schedule.type === "once" ? ("disabled" as const) : automation.status,
+        disableReason:
+          automation.schedule.type === "once"
+            ? ("once-completed" as const)
+            : automation.disableReason,
         nextRunAt,
         updatedAt: nowString,
         deletedAt: null,
@@ -496,11 +498,11 @@ export const make = Effect.gen(function* () {
                 error: failureMessage(error),
                 finishedAt,
               });
-              if (automation.schedule.type === "once" && automation.status !== "stopped") {
+              if (automation.schedule.type === "once" && automation.status !== "disabled") {
                 yield* repository.upsert({
                   ...automation,
-                  status: "stopped",
-                  stopReason: "once-completed",
+                  status: "disabled",
+                  disableReason: "once-completed",
                   nextRunAt: null,
                   updatedAt: finishedAt,
                   deletedAt: null,
@@ -558,8 +560,8 @@ export const make = Effect.gen(function* () {
               runtimeMode: input.runtimeMode,
               schedule: input.schedule,
               target: input.target,
-              status: "active",
-              stopReason: null,
+              status: "enabled",
+              disableReason: null,
               nextRunAt,
               createdAt: now,
               updatedAt: now,
@@ -588,7 +590,7 @@ export const make = Effect.gen(function* () {
             const nowEpochMillis = yield* Clock.currentTimeMillis;
             const now = DateTime.formatIso(DateTime.makeUnsafe(nowEpochMillis));
             const nextRunAt =
-              existing.status === "active"
+              existing.status === "enabled"
                 ? yield* validateDefinition(input, nowEpochMillis)
                 : existing.nextRunAt;
             const automation = {
@@ -624,7 +626,7 @@ export const make = Effect.gen(function* () {
             const nowEpochMillis = yield* Clock.currentTimeMillis;
             const now = DateTime.formatIso(DateTime.makeUnsafe(nowEpochMillis));
             const nextRunAt =
-              input.status === "active"
+              input.status === "enabled"
                 ? yield* validateDefinition(
                     {
                       automationId: existing.id,
@@ -643,16 +645,16 @@ export const make = Effect.gen(function* () {
             const automation = {
               ...existing,
               status: input.status,
-              stopReason: input.status === "stopped" ? ("manual" as const) : null,
+              disableReason: input.status === "disabled" ? ("manual" as const) : null,
               nextRunAt,
               updatedAt: now,
               deletedAt: null,
             };
-            if (input.status === "stopped") {
+            if (input.status === "disabled") {
               yield* repository.stopAndCancelQueued({
                 automation,
                 finishedAt: now,
-                error: "Automation paused before this run started.",
+                error: "Automation was disabled before this run started.",
               });
             } else {
               yield* repository.upsert(automation);
@@ -673,7 +675,7 @@ export const make = Effect.gen(function* () {
         .withPermits(1)(
           Effect.gen(function* () {
             const automation = yield* requireAutomation(input.automationId);
-            if (automation.stopReason === "target-deleted") {
+            if (automation.disableReason === "target-deleted") {
               return yield* operationError(
                 "Choose another target chat before running this automation.",
               );

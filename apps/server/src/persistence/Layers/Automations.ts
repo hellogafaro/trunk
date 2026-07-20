@@ -57,7 +57,7 @@ const make = Effect.gen(function* () {
         schedule_json AS "schedule",
         target_json AS "target",
         status,
-        stop_reason AS "stopReason",
+        disable_reason AS "disableReason",
         next_run_at AS "nextRunAt",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
@@ -81,7 +81,7 @@ const make = Effect.gen(function* () {
         schedule_json AS "schedule",
         target_json AS "target",
         status,
-        stop_reason AS "stopReason",
+        disable_reason AS "disableReason",
         next_run_at AS "nextRunAt",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
@@ -96,13 +96,13 @@ const make = Effect.gen(function* () {
     execute: (row) => sql`
       INSERT INTO automations (
         automation_id, title, prompt, project_id, model_selection_json, runtime_mode,
-        schedule_json, target_json, status, stop_reason, next_run_at,
+        schedule_json, target_json, status, disable_reason, next_run_at,
         created_at, updated_at, deleted_at
       ) VALUES (
         ${row.id}, ${row.title}, ${row.prompt}, ${row.projectId},
         ${row.modelSelection === null ? null : JSON.stringify(row.modelSelection)},
         ${row.runtimeMode}, ${JSON.stringify(row.schedule)}, ${JSON.stringify(row.target)}, ${row.status},
-        ${row.stopReason}, ${row.nextRunAt}, ${row.createdAt}, ${row.updatedAt}, ${row.deletedAt}
+        ${row.disableReason}, ${row.nextRunAt}, ${row.createdAt}, ${row.updatedAt}, ${row.deletedAt}
       )
       ON CONFLICT (automation_id) DO UPDATE SET
         title = excluded.title,
@@ -113,7 +113,7 @@ const make = Effect.gen(function* () {
         schedule_json = excluded.schedule_json,
         target_json = excluded.target_json,
         status = excluded.status,
-        stop_reason = excluded.stop_reason,
+        disable_reason = excluded.disable_reason,
         next_run_at = excluded.next_run_at,
         updated_at = excluded.updated_at,
         deleted_at = excluded.deleted_at
@@ -124,7 +124,7 @@ const make = Effect.gen(function* () {
     Request: Schema.Struct({ automationId: AutomationId, deletedAt: Schema.String }),
     execute: ({ automationId, deletedAt }) => sql`
       UPDATE automations
-      SET status = 'stopped', stop_reason = 'manual', next_run_at = NULL,
+      SET status = 'disabled', disable_reason = 'manual', next_run_at = NULL,
           updated_at = ${deletedAt}, deleted_at = ${deletedAt}
       WHERE automation_id = ${automationId}
     `,

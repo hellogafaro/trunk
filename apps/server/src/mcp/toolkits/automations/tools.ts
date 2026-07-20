@@ -85,10 +85,10 @@ export const AutomationUpdateTool = Tool.make("automation_update", {
 
 export const AutomationSetStatusTool = Tool.make("automation_set_status", {
   description:
-    "Pause or resume a scheduled task. Pausing cancels queued work; a current run may finish.",
+    "Enable or disable a scheduled task. Disabling cancels queued work; a current run may finish.",
   parameters: Schema.Struct({
     automationId: AutomationId,
-    status: Schema.Literals(["active", "stopped"]),
+    status: Schema.Literals(["enabled", "disabled"]),
   }),
   success: Automation,
   failure: AutomationOperationError,

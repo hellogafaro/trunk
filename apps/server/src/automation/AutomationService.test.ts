@@ -236,7 +236,7 @@ it.effect(
     }),
 );
 
-it.effect("revalidates a stopped automation before resuming it", () =>
+it.effect("revalidates a disabled automation before enabling it", () =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
     yield* withAutomationRuntime(
@@ -244,10 +244,10 @@ it.effect("revalidates a stopped automation before resuming it", () =>
       commands,
       Effect.gen(function* () {
         const service = yield* AutomationService;
-        const automationId = AutomationId.make("automation:resume-validation");
+        const automationId = AutomationId.make("automation:enable-validation");
         yield* service.create({
           automationId,
-          title: "Resume validation",
+          title: "Enable validation",
           prompt: "Run the task.",
           projectId,
           modelSelection,
@@ -256,10 +256,10 @@ it.effect("revalidates a stopped automation before resuming it", () =>
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "fresh-thread" },
         });
-        yield* service.setStatus({ automationId, status: "stopped" });
+        yield* service.setStatus({ automationId, status: "disabled" });
         yield* service.update({
           automationId,
-          title: "Resume validation",
+          title: "Enable validation",
           prompt: "Run the task.",
           projectId,
           modelSelection: null,
@@ -269,7 +269,7 @@ it.effect("revalidates a stopped automation before resuming it", () =>
           target: { type: "fresh-thread" },
         });
 
-        const result = yield* Effect.exit(service.setStatus({ automationId, status: "active" }));
+        const result = yield* Effect.exit(service.setStatus({ automationId, status: "enabled" }));
         assert.equal(result._tag, "Failure");
       }),
     );

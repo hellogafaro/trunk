@@ -105,7 +105,7 @@ const updateAutomation = Effect.fn("automation.update")(function* (
 
 const setAutomationStatus = Effect.fn("automation.setStatus")(function* (input: {
   readonly automationId: AutomationId;
-  readonly status: "active" | "stopped";
+  readonly status: "enabled" | "disabled";
 }) {
   yield* requireCapability();
   return yield* (yield* AutomationService).setStatus(input);

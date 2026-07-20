@@ -37,8 +37,8 @@ layer("AutomationRepository", (it) => {
           type: "persistent-thread",
           threadId: ThreadId.make("automation-thread:test"),
         },
-        status: "active",
-        stopReason: null,
+        status: "enabled",
+        disableReason: null,
         nextRunAt: "2026-07-20T07:00:00.000Z",
         createdAt: "2026-07-18T12:00:00.000Z",
         updatedAt: "2026-07-18T12:00:00.000Z",
@@ -79,7 +79,7 @@ layer("AutomationRepository", (it) => {
       const deleted = yield* repository.getById(automationId);
       assert.isTrue(Option.isSome(deleted));
       if (Option.isSome(deleted)) {
-        assert.equal(deleted.value.status, "stopped");
+        assert.equal(deleted.value.status, "disabled");
         assert.equal(deleted.value.deletedAt, "2026-07-18T13:00:00.000Z");
       }
       assert.equal((yield* repository.listRunsByAutomation(automationId, 10)).length, 1);
@@ -99,8 +99,8 @@ layer("AutomationRepository", (it) => {
         runtimeMode: "approval-required",
         schedule: { type: "once", runAt: "2026-07-20T07:00:00.000Z" },
         target: { type: "fresh-thread" },
-        status: "active",
-        stopReason: null,
+        status: "enabled",
+        disableReason: null,
         nextRunAt: "2026-07-20T07:00:00.000Z",
         createdAt: "2026-07-18T12:00:00.000Z",
         updatedAt: "2026-07-18T12:00:00.000Z",
@@ -161,8 +161,8 @@ layer("AutomationRepository", (it) => {
           runtimeMode: "approval-required" as const,
           schedule: { type: "cron" as const, expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "existing-thread" as const, threadId: ThreadId.make("thread:test") },
-          status: "active" as const,
-          stopReason: null,
+          status: "enabled" as const,
+          disableReason: null,
           nextRunAt: "2026-07-21T09:00:00.000Z",
           createdAt: "2026-07-18T12:00:00.000Z",
           updatedAt: "2026-07-18T12:00:00.000Z",

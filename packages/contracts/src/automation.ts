@@ -47,11 +47,15 @@ export const AutomationTarget = Schema.Union([
 ]);
 export type AutomationTarget = typeof AutomationTarget.Type;
 
-export const AutomationStatus = Schema.Literals(["active", "stopped"]);
+export const AutomationStatus = Schema.Literals(["enabled", "disabled"]);
 export type AutomationStatus = typeof AutomationStatus.Type;
 
-export const AutomationStopReason = Schema.Literals(["manual", "once-completed", "target-deleted"]);
-export type AutomationStopReason = typeof AutomationStopReason.Type;
+export const AutomationDisableReason = Schema.Literals([
+  "manual",
+  "once-completed",
+  "target-deleted",
+]);
+export type AutomationDisableReason = typeof AutomationDisableReason.Type;
 
 export const AutomationRunStatus = Schema.Literals([
   "queued",
@@ -75,7 +79,7 @@ export const Automation = Schema.Struct({
   schedule: AutomationSchedule,
   target: AutomationTarget,
   status: AutomationStatus,
-  stopReason: Schema.NullOr(AutomationStopReason),
+  disableReason: Schema.NullOr(AutomationDisableReason),
   nextRunAt: Schema.NullOr(IsoDateTime),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

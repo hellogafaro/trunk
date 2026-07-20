@@ -15,7 +15,7 @@ import {
   isProviderAvailable,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { automationEnvironment } from "../../state/automations";
 import { useEnvironments } from "../../state/environments";
@@ -39,6 +39,10 @@ import { Input } from "../ui/input";
 import { Clock3Icon, PlayIcon, PlusIcon, StopIcon, Trash2, XIcon } from "../ui/icons";
 import { Textarea } from "../ui/textarea";
 import { Spinner } from "../ui/spinner";
+import { Calendar } from "../ui/calendar";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { DiffPanelShell } from "../DiffPanelShell";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
@@ -70,17 +74,74 @@ interface Draft {
   readonly timeZone: string;
 }
 
-const fieldClass =
-  "h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/24";
-
 const CREATE_AUTOMATION_PROMPT =
   "Set up an automation with me. Interview me to produce the most accurate possible prompt: clarify the outcome, relevant project context, schedule and time zone, chat behavior, model, and permission level. Show me the complete routine and ask for confirmation before using the automation tools to create it. Prefer a dedicated chat and approval-required permissions unless I choose otherwise.";
 
 function localDateTimeInput(offsetMs = 60 * 60 * 1_000): string {
   const date = new Date(Date.now() + offsetMs);
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
+  return formatLocalDateTime(date);
 }
+
+function formatLocalDateTime(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function parseLocalDateTime(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, year, month, day, hour, minute] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+const TIME_ZONE_OPTIONS = Array.from(
+  new Set(["UTC", ...Intl.supportedValuesOf("timeZone")]),
+  (value) => ({ value, label: value }),
+);
+
+interface AutomationSelectOption {
+  readonly value: string;
+  readonly label: string;
+}
+
+const TARGET_OPTIONS: ReadonlyArray<AutomationSelectOption> = [
+  { value: "persistent-thread", label: "One automation chat" },
+  { value: "fresh-thread", label: "New chat each run" },
+  { value: "existing-thread", label: "Existing chat" },
+];
+
+const RUNTIME_MODE_OPTIONS: ReadonlyArray<AutomationSelectOption> = [
+  { value: "approval-required", label: "Ask before changes" },
+  { value: "auto-accept-edits", label: "Allow file edits" },
+  { value: "full-access", label: "Full access" },
+];
+
+const SCHEDULE_OPTIONS: ReadonlyArray<AutomationSelectOption> = [
+  { value: "once", label: "Once" },
+  { value: "hourly", label: "Every hour" },
+  { value: "daily", label: "Every day" },
+  { value: "weekdays", label: "Weekdays" },
+  { value: "weekly", label: "Every week" },
+];
+
+const WEEKDAY_OPTIONS: ReadonlyArray<AutomationSelectOption> = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+].map((label, value) => ({ value: String(value), label }));
+
+const MINUTE_OPTIONS: ReadonlyArray<AutomationSelectOption> = Array.from(
+  { length: 60 },
+  (_, minute) => ({
+    value: String(minute),
+    label: minute === 0 ? "On the hour" : `${minute} minutes past`,
+  }),
+);
 
 function emptyDraft(environmentId = "", projectId = ""): Draft {
   return {
@@ -333,6 +394,13 @@ export function AutomationsPage() {
       provider.models.length > 0,
   );
   const selectedProvider = providers.find((provider) => provider.instanceId === draft.instanceId);
+  const timeZoneOptions = useMemo(
+    () =>
+      TIME_ZONE_OPTIONS.some((option) => option.value === draft.timeZone)
+        ? TIME_ZONE_OPTIONS
+        : [{ value: draft.timeZone, label: draft.timeZone }, ...TIME_ZONE_OPTIONS],
+    [draft.timeZone],
+  );
 
   const toastError = useCallback((title: string, error: Error) => {
     toastManager.add(stackedThreadToast({ type: "error", title, description: error.message }));
@@ -515,7 +583,7 @@ export function AutomationsPage() {
                       <span
                         className={cn(
                           "mt-1.5 size-2 shrink-0 rounded-full",
-                          scoped.automation.status === "active"
+                          scoped.automation.status === "enabled"
                             ? "bg-success"
                             : "bg-muted-foreground/40",
                         )}
@@ -568,7 +636,9 @@ export function AutomationsPage() {
                   variant="ghost"
                   disabled={busy}
                   aria-label={
-                    selected.automation.status === "active" ? "Stop automation" : "Start automation"
+                    selected.automation.status === "enabled"
+                      ? "Disable automation"
+                      : "Enable automation"
                   }
                   onClick={() =>
                     void perform("Could not change automation", () =>
@@ -576,13 +646,13 @@ export function AutomationsPage() {
                         environmentId: selected.environmentId,
                         input: {
                           automationId: selected.automation.id,
-                          status: selected.automation.status === "active" ? "stopped" : "active",
+                          status: selected.automation.status === "enabled" ? "disabled" : "enabled",
                         },
                       }),
                     )
                   }
                 >
-                  <StopIcon />
+                  {selected.automation.status === "enabled" ? <StopIcon /> : <PlayIcon />}
                 </Button>
                 <Button
                   size="icon-xs"
@@ -647,18 +717,21 @@ export function AutomationsPage() {
                 <SectionTitle>Details</SectionTitle>
                 <Row label="Status">
                   <Badge
-                    variant={selected.automation.status === "active" ? "success" : "secondary"}
+                    variant={selected.automation.status === "enabled" ? "success" : "secondary"}
                   >
-                    {selected.automation.status === "active" ? "Active" : "Stopped"}
+                    {selected.automation.status === "enabled" ? "Enabled" : "Disabled"}
                   </Badge>
                 </Row>
                 <Row label="Environment">
-                  <select
-                    className={fieldClass}
+                  <AutomationSelect
+                    ariaLabel="Environment"
                     value={draft.environmentId}
                     disabled={selected !== null}
-                    onChange={(event) => {
-                      const environmentId = event.target.value;
+                    options={environments.map((environment) => ({
+                      value: environment.environmentId,
+                      label: environment.label,
+                    }))}
+                    onValueChange={(environmentId) => {
                       const project = projects.find(
                         (candidate) => candidate.environmentId === environmentId,
                       );
@@ -674,25 +747,23 @@ export function AutomationsPage() {
                         model: project?.defaultModelSelection?.model ?? "",
                       });
                     }}
-                  >
-                    {environments.map((environment) => (
-                      <option key={environment.environmentId} value={environment.environmentId}>
-                        {environment.label}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </Row>
                 <Row label="Project">
-                  <select
-                    className={fieldClass}
+                  <AutomationSelect
+                    ariaLabel="Project"
                     value={draft.projectId}
-                    onChange={(event) => {
+                    options={selectedProjects.map((project) => ({
+                      value: project.id,
+                      label: project.title,
+                    }))}
+                    onValueChange={(projectId) => {
                       const project = selectedProjects.find(
-                        (candidate) => candidate.id === event.target.value,
+                        (candidate) => candidate.id === projectId,
                       );
                       changeDraft({
                         ...draft,
-                        projectId: event.target.value,
+                        projectId,
                         threadId:
                           draft.targetKind === "persistent-thread"
                             ? `automation-thread:${randomIdSuffix()}`
@@ -701,20 +772,15 @@ export function AutomationsPage() {
                         model: project?.defaultModelSelection?.model ?? draft.model,
                       });
                     }}
-                  >
-                    {selectedProjects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.title}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </Row>
                 <Row label="Runs in">
-                  <select
-                    className={fieldClass}
+                  <AutomationSelect
+                    ariaLabel="Runs in"
                     value={draft.targetKind}
-                    onChange={(event) => {
-                      const targetKind = event.target.value as TargetKind;
+                    options={TARGET_OPTIONS}
+                    onValueChange={(value) => {
+                      const targetKind = value as TargetKind;
                       changeDraft({
                         ...draft,
                         targetKind,
@@ -726,75 +792,65 @@ export function AutomationsPage() {
                             : "",
                       });
                     }}
-                  >
-                    <option value="persistent-thread">One automation chat</option>
-                    <option value="fresh-thread">New chat each run</option>
-                    <option value="existing-thread">Existing chat</option>
-                  </select>
+                  />
                 </Row>
                 {draft.targetKind === "existing-thread" ? (
                   <Row label="Chat">
-                    <select
-                      className={fieldClass}
+                    <AutomationSelect
+                      ariaLabel="Chat"
                       value={draft.threadId}
-                      onChange={(event) => changeDraft({ ...draft, threadId: event.target.value })}
-                    >
-                      <option value="">Choose a chat…</option>
-                      {selectedThreads.map((thread) => (
-                        <option key={thread.id} value={thread.id}>
-                          {thread.title}
-                          {thread.archivedAt ? " (archived)" : ""}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="Choose a chat…"
+                      options={selectedThreads.map((thread) => ({
+                        value: thread.id,
+                        label: `${thread.title}${thread.archivedAt ? " (archived)" : ""}`,
+                      }))}
+                      onValueChange={(threadId) => changeDraft({ ...draft, threadId })}
+                    />
                   </Row>
                 ) : (
                   <>
                     <Row label="Provider">
-                      <select
-                        className={fieldClass}
+                      <AutomationSelect
+                        ariaLabel="Provider"
                         value={draft.instanceId}
-                        onChange={(event) => {
+                        placeholder="Choose a provider…"
+                        options={providers.map((provider) => ({
+                          value: provider.instanceId,
+                          label: provider.displayName ?? provider.instanceId,
+                        }))}
+                        onValueChange={(instanceId) => {
                           const provider = providers.find(
-                            (candidate) => candidate.instanceId === event.target.value,
+                            (candidate) => candidate.instanceId === instanceId,
                           );
                           changeDraft({
                             ...draft,
-                            instanceId: event.target.value,
+                            instanceId,
                             model: provider?.models[0]?.slug ?? "",
                           });
                         }}
-                      >
-                        <option value="">Choose a provider…</option>
-                        {providers.map((provider) => (
-                          <option key={provider.instanceId} value={provider.instanceId}>
-                            {provider.displayName ?? provider.instanceId}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </Row>
                     <Row label="Model">
-                      <select
-                        className={fieldClass}
+                      <AutomationSelect
+                        ariaLabel="Model"
                         value={draft.model}
-                        onChange={(event) => changeDraft({ ...draft, model: event.target.value })}
-                      >
-                        <option value="">Choose a model…</option>
-                        {(selectedProvider?.models ?? []).map((model) => (
-                          <option key={model.slug} value={model.slug}>
-                            {model.name}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder="Choose a model…"
+                        options={(selectedProvider?.models ?? []).map((model) => ({
+                          value: model.slug,
+                          label: model.name,
+                        }))}
+                        onValueChange={(model) => changeDraft({ ...draft, model })}
+                      />
                     </Row>
                   </>
                 )}
                 <Row label="Permissions">
-                  <select
-                    className={fieldClass}
+                  <AutomationSelect
+                    ariaLabel="Permissions"
                     value={draft.runtimeMode}
-                    onChange={(event) => {
-                      const runtimeMode = event.target.value as RuntimeMode;
+                    options={RUNTIME_MODE_OPTIONS}
+                    onValueChange={(value) => {
+                      const runtimeMode = value as RuntimeMode;
                       changeDraft({
                         ...draft,
                         runtimeMode,
@@ -802,11 +858,7 @@ export function AutomationsPage() {
                           runtimeMode === "full-access" ? false : draft.fullAccessAcknowledged,
                       });
                     }}
-                  >
-                    <option value="approval-required">Ask before changes</option>
-                    <option value="auto-accept-edits">Allow file edits</option>
-                    <option value="full-access">Full access</option>
-                  </select>
+                  />
                 </Row>
                 {draft.runtimeMode === "full-access" ? (
                   <Row label="Confirm">
@@ -828,75 +880,55 @@ export function AutomationsPage() {
               <div className="rounded-xl border border-border">
                 <SectionTitle>Frequency</SectionTitle>
                 <Row label="Repeat">
-                  <select
-                    className={fieldClass}
+                  <AutomationSelect
+                    ariaLabel="Repeat"
                     value={draft.scheduleKind}
-                    onChange={(event) =>
-                      changeDraft({ ...draft, scheduleKind: event.target.value as ScheduleKind })
+                    options={
+                      draft.scheduleKind === "custom"
+                        ? [...SCHEDULE_OPTIONS, { value: "custom", label: "Advanced schedule" }]
+                        : SCHEDULE_OPTIONS
                     }
-                  >
-                    <option value="once">Once</option>
-                    <option value="hourly">Every hour</option>
-                    <option value="daily">Every day</option>
-                    <option value="weekdays">Weekdays</option>
-                    <option value="weekly">Every week</option>
-                    {draft.scheduleKind === "custom" ? (
-                      <option value="custom">Advanced schedule</option>
-                    ) : null}
-                  </select>
+                    onValueChange={(scheduleKind) =>
+                      changeDraft({ ...draft, scheduleKind: scheduleKind as ScheduleKind })
+                    }
+                  />
                 </Row>
                 {draft.scheduleKind === "once" ? (
                   <Row label="At">
-                    <Input
-                      type="datetime-local"
+                    <DateTimePicker
                       value={draft.dateTime}
-                      onChange={(event) => changeDraft({ ...draft, dateTime: event.target.value })}
+                      onValueChange={(dateTime) => changeDraft({ ...draft, dateTime })}
                     />
                   </Row>
                 ) : null}
                 {draft.scheduleKind === "hourly" ? (
                   <Row label="At minute">
-                    <Input
-                      type="number"
-                      min="0"
-                      max="59"
-                      value={Number(draft.time.slice(3))}
-                      onChange={(event) => {
-                        const minute = Math.max(0, Math.min(59, event.target.valueAsNumber || 0));
+                    <AutomationSelect
+                      ariaLabel="Minute"
+                      value={String(Number(draft.time.slice(3)))}
+                      options={MINUTE_OPTIONS}
+                      onValueChange={(value) => {
+                        const minute = Math.max(0, Math.min(59, Number(value)));
                         changeDraft({ ...draft, time: `00:${String(minute).padStart(2, "0")}` });
                       }}
                     />
                   </Row>
                 ) : draft.scheduleKind !== "once" && draft.scheduleKind !== "custom" ? (
                   <Row label="At">
-                    <Input
-                      type="time"
+                    <TimePicker
                       value={draft.time}
-                      onChange={(event) => changeDraft({ ...draft, time: event.target.value })}
+                      onValueChange={(time) => changeDraft({ ...draft, time })}
                     />
                   </Row>
                 ) : null}
                 {draft.scheduleKind === "weekly" ? (
                   <Row label="Day">
-                    <select
-                      className={fieldClass}
+                    <AutomationSelect
+                      ariaLabel="Day"
                       value={draft.weekday}
-                      onChange={(event) => changeDraft({ ...draft, weekday: event.target.value })}
-                    >
-                      {[
-                        "Sunday",
-                        "Monday",
-                        "Tuesday",
-                        "Wednesday",
-                        "Thursday",
-                        "Friday",
-                        "Saturday",
-                      ].map((day, index) => (
-                        <option key={day} value={index}>
-                          {day}
-                        </option>
-                      ))}
-                    </select>
+                      options={WEEKDAY_OPTIONS}
+                      onValueChange={(weekday) => changeDraft({ ...draft, weekday })}
+                    />
                   </Row>
                 ) : null}
                 {draft.scheduleKind === "custom" ? (
@@ -910,9 +942,11 @@ export function AutomationsPage() {
                 ) : null}
                 {draft.scheduleKind !== "once" ? (
                   <Row label="Time zone">
-                    <Input
+                    <AutomationSelect
+                      ariaLabel="Time zone"
                       value={draft.timeZone}
-                      onChange={(event) => changeDraft({ ...draft, timeZone: event.target.value })}
+                      options={timeZoneOptions}
+                      onValueChange={(timeZone) => changeDraft({ ...draft, timeZone })}
                     />
                   </Row>
                 ) : null}
@@ -978,6 +1012,108 @@ export function AutomationsPage() {
   );
 }
 
+function AutomationSelect(props: {
+  readonly ariaLabel: string;
+  readonly value: string;
+  readonly options: ReadonlyArray<AutomationSelectOption>;
+  readonly placeholder?: string;
+  readonly disabled?: boolean;
+  readonly onValueChange: (value: string) => void;
+}) {
+  const selectedOption = props.options.find((option) => option.value === props.value);
+
+  return (
+    <Select
+      value={props.value || null}
+      disabled={props.disabled}
+      onValueChange={(value) => {
+        if (value !== null) props.onValueChange(value);
+      }}
+    >
+      <SelectTrigger aria-label={props.ariaLabel}>
+        <SelectValue>{selectedOption?.label ?? props.placeholder ?? "Choose…"}</SelectValue>
+      </SelectTrigger>
+      <SelectPopup align="end" alignItemWithTrigger={false}>
+        {props.options.map((option) => (
+          <SelectItem hideIndicator key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
+  );
+}
+
+function TimePicker(props: {
+  readonly value: string;
+  readonly onValueChange: (value: string) => void;
+}) {
+  return (
+    <InputGroup>
+      <InputGroupInput
+        type="time"
+        step="60"
+        aria-label="Time"
+        value={props.value}
+        onChange={(event) => props.onValueChange(event.target.value)}
+        className="[&_input]:appearance-none [&_input::-webkit-calendar-picker-indicator]:hidden [&_input::-webkit-calendar-picker-indicator]:appearance-none"
+      />
+      <InputGroupAddon align="inline-end">
+        <Clock3Icon className="text-muted-foreground" />
+      </InputGroupAddon>
+    </InputGroup>
+  );
+}
+
+function DateTimePicker(props: {
+  readonly value: string;
+  readonly onValueChange: (value: string) => void;
+}) {
+  const selectedDate = parseLocalDateTime(props.value);
+  const label = selectedDate
+    ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(selectedDate)
+    : "Choose date and time";
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button variant="outline" className="w-full justify-start px-3 font-normal">
+            <Clock3Icon />
+            <span className="truncate">{label}</span>
+          </Button>
+        }
+      />
+      <PopoverPopup align="end" viewportClassName="p-0">
+        <Calendar
+          mode="single"
+          selected={selectedDate ?? undefined}
+          onSelect={(date) => {
+            if (!date) return;
+            const time = selectedDate ?? new Date();
+            date.setHours(time.getHours(), time.getMinutes(), 0, 0);
+            props.onValueChange(formatLocalDateTime(date));
+          }}
+        />
+        <div className="border-t border-border p-3">
+          <TimePicker
+            value={selectedDate ? props.value.slice(11, 16) : "09:00"}
+            onValueChange={(time) => {
+              const date = selectedDate ?? new Date();
+              const [hour = "9", minute = "0"] = time.split(":");
+              date.setHours(Number(hour), Number(minute), 0, 0);
+              props.onValueChange(formatLocalDateTime(date));
+            }}
+          />
+        </div>
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
 function AutomationsLoadingState() {
   return (
     <div className="flex min-h-full items-center justify-center">
@@ -986,7 +1122,7 @@ function AutomationsLoadingState() {
   );
 }
 
-function Field(props: { readonly label: string; readonly children: React.ReactNode }) {
+function Field(props: { readonly label: string; readonly children: ReactNode }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-medium">{props.label}</span>
@@ -995,15 +1131,15 @@ function Field(props: { readonly label: string; readonly children: React.ReactNo
   );
 }
 
-function SectionTitle(props: { readonly children: React.ReactNode }) {
+function SectionTitle(props: { readonly children: ReactNode }) {
   return <h2 className="border-b border-border px-4 py-3 text-sm font-medium">{props.children}</h2>;
 }
 
-function Row(props: { readonly label: string; readonly children: React.ReactNode }) {
+function Row(props: { readonly label: string; readonly children: ReactNode }) {
   return (
-    <label className="flex min-h-12 items-center gap-4 border-b border-border px-4 py-2 last:border-b-0">
+    <div className="flex min-h-12 items-center gap-4 border-b border-border px-4 py-2 last:border-b-0">
       <span className="w-24 shrink-0 text-sm text-muted-foreground">{props.label}</span>
       <span className="min-w-0 flex-1">{props.children}</span>
-    </label>
+    </div>
   );
 }
