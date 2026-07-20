@@ -23,6 +23,12 @@ export interface AutomationSnapshotsState {
   readonly hasError: boolean;
 }
 
+export function isAutomationSnapshotLoading(
+  result: AsyncResult.AsyncResult<AutomationSnapshot, unknown>,
+): boolean {
+  return result.waiting && Option.isNone(AsyncResult.value(result));
+}
+
 const KEY_SEPARATOR = "\u001f";
 const environmentIdOrder = Order.String as Order.Order<EnvironmentId>;
 
@@ -55,9 +61,11 @@ export function createAutomationEnvironmentAtoms<R, E>(
       let hasError = false;
       for (const environmentId of parseEnvironmentKey(key)) {
         const result = get(snapshot({ environmentId, input: {} }));
-        isLoading ||= result.waiting;
         hasError ||= result._tag === "Failure";
         const value = Option.getOrNull(AsyncResult.value(result));
+        // Subscription atoms may remain in a waiting/refreshing state after yielding a value.
+        // Only block the page before the first snapshot so an empty snapshot can render.
+        isLoading ||= isAutomationSnapshotLoading(result);
         if (value !== null) {
           snapshots.push({ environmentId, snapshot: value });
         }

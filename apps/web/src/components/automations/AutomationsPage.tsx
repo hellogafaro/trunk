@@ -3,9 +3,9 @@ import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environ
 import { useNavigate } from "@tanstack/react-router";
 import {
   type Automation,
-  AutomationId,
   type AutomationSchedule,
   type AutomationTarget,
+  type AutomationUpdateInput,
   EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
@@ -15,13 +15,14 @@ import {
   isProviderAvailable,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { automationEnvironment } from "../../state/automations";
 import { useEnvironments } from "../../state/environments";
 import { useProjects, useServerConfigs, useThreadShells } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { Badge } from "../ui/badge";
@@ -37,6 +38,7 @@ import {
 import { Input } from "../ui/input";
 import { Clock3Icon, PlayIcon, PlusIcon, StopIcon, Trash2, XIcon } from "../ui/icons";
 import { Textarea } from "../ui/textarea";
+import { Spinner } from "../ui/spinner";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { DiffPanelShell } from "../DiffPanelShell";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
@@ -72,7 +74,7 @@ const fieldClass =
   "h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/24";
 
 const CREATE_AUTOMATION_PROMPT =
-  "Help me create an automation. Ask what it should do, when it should run, which time zone to use, and whether it should reuse this chat, use a dedicated chat, or start a new chat each run. Confirm the details with me before creating it.";
+  "Set up an automation with me. Interview me to produce the most accurate possible prompt: clarify the outcome, relevant project context, schedule and time zone, chat behavior, model, and permission level. Show me the complete routine and ask for confirmation before using the automation tools to create it. Prefer a dedicated chat and approval-required permissions unless I choose otherwise.";
 
 function localDateTimeInput(offsetMs = 60 * 60 * 1_000): string {
   const date = new Date(Date.now() + offsetMs);
@@ -116,11 +118,28 @@ function scheduleToDraft(
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     };
   }
+  const fields = schedule.expression.trim().split(/\s+/);
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = fields;
+  const validMinute = minute !== undefined && /^\d{1,2}$/.test(minute) && Number(minute) < 60;
+  const validHour = hour !== undefined && /^\d{1,2}$/.test(hour) && Number(hour) < 24;
+  const commonDateFields = fields.length === 5 && dayOfMonth === "*" && month === "*";
+  const time =
+    validHour && validMinute ? `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}` : "09:00";
+  const scheduleKind: ScheduleKind =
+    commonDateFields && hour === "*" && validMinute && dayOfWeek === "*"
+      ? "hourly"
+      : commonDateFields && validHour && validMinute && dayOfWeek === "*"
+        ? "daily"
+        : commonDateFields && validHour && validMinute && dayOfWeek === "1-5"
+          ? "weekdays"
+          : commonDateFields && validHour && validMinute && /^[0-6]$/.test(dayOfWeek ?? "")
+            ? "weekly"
+            : "custom";
   return {
-    scheduleKind: "custom",
+    scheduleKind,
     dateTime: localDateTimeInput(),
-    time: "09:00",
-    weekday: "1",
+    time: scheduleKind === "hourly" ? `00:${(minute ?? "0").padStart(2, "0")}` : time,
+    weekday: scheduleKind === "weekly" ? (dayOfWeek ?? "1") : "1",
     cron: schedule.expression,
     timeZone: schedule.timeZone,
   };
@@ -133,7 +152,21 @@ function formatSchedule(schedule: AutomationSchedule): string {
       timeStyle: "short",
     }).format(new Date(schedule.runAt))}`;
   }
-  return `${schedule.expression} · ${schedule.timeZone}`;
+  const draft = scheduleToDraft(schedule);
+  const time = draft.time;
+  const label =
+    draft.scheduleKind === "hourly"
+      ? time.endsWith(":00")
+        ? "Hourly"
+        : `Hourly at :${time.slice(3)}`
+      : draft.scheduleKind === "daily"
+        ? `Daily at ${time}`
+        : draft.scheduleKind === "weekdays"
+          ? `Weekdays at ${time}`
+          : draft.scheduleKind === "weekly"
+            ? `${["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"][Number(draft.weekday)]} at ${time}`
+            : "Advanced schedule";
+  return `${label} · ${schedule.timeZone}`;
 }
 
 function formatDate(value: string | null): string {
@@ -160,6 +193,54 @@ function draftSchedule(draft: Draft): AutomationSchedule {
             ? `${minute} ${hour} * * ${draft.weekday}`
             : draft.cron.trim();
   return { type: "cron", expression, timeZone: draft.timeZone.trim() };
+}
+
+function draftUpdateInput(
+  draft: Draft,
+  automationId: Automation["id"],
+): AutomationUpdateInput | null {
+  if (!draft.title.trim() || !draft.prompt.trim() || !draft.projectId) return null;
+  if (draft.runtimeMode === "full-access" && !draft.fullAccessAcknowledged) return null;
+
+  let schedule: AutomationSchedule;
+  try {
+    schedule = draftSchedule(draft);
+  } catch {
+    return null;
+  }
+
+  const modelSelection: ModelSelection | null =
+    draft.targetKind === "existing-thread"
+      ? null
+      : draft.instanceId && draft.model
+        ? { instanceId: ProviderInstanceId.make(draft.instanceId), model: draft.model }
+        : null;
+  if (draft.targetKind !== "existing-thread" && modelSelection === null) return null;
+  if (draft.targetKind !== "fresh-thread" && !draft.threadId) return null;
+
+  const target: AutomationTarget =
+    draft.targetKind === "fresh-thread"
+      ? { type: "fresh-thread" }
+      : {
+          type: draft.targetKind,
+          threadId: ThreadId.make(draft.threadId),
+        };
+
+  return {
+    automationId,
+    title: draft.title.trim(),
+    prompt: draft.prompt.trim(),
+    projectId: ProjectId.make(draft.projectId),
+    modelSelection,
+    runtimeMode: draft.runtimeMode,
+    fullAccessAcknowledged: draft.fullAccessAcknowledged,
+    schedule,
+    target,
+  };
+}
+
+function updateSignature(input: AutomationUpdateInput): string {
+  return JSON.stringify(input);
 }
 
 function mutationError(result: unknown): Error | null {
@@ -194,7 +275,6 @@ export function AutomationsPage() {
     [environments],
   );
   const state = useAtomValue(automationEnvironment.snapshots(environmentIds));
-  const createAutomation = useAtomCommand(automationEnvironment.create, { reportFailure: false });
   const updateAutomation = useAtomCommand(automationEnvironment.update, { reportFailure: false });
   const setStatus = useAtomCommand(automationEnvironment.setStatus, { reportFailure: false });
   const runNow = useAtomCommand(automationEnvironment.runNow, { reportFailure: false });
@@ -209,7 +289,6 @@ export function AutomationsPage() {
   );
   const handleNewThread = useNewThreadHandler();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const selected =
@@ -223,6 +302,12 @@ export function AutomationsPage() {
   const [draft, setDraft] = useState<Draft>(() =>
     emptyDraft(firstEnvironmentId ?? "", firstProject?.id ?? ""),
   );
+  const draftRef = useRef(draft);
+  const selectedRef = useRef<ScopedAutomation | null>(null);
+  const updateAutomationRef = useRef(updateAutomation);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPersistedSignatureRef = useRef<string | null>(null);
+  updateAutomationRef.current = updateAutomation;
 
   const selectedEnvironmentId = draft.environmentId
     ? EnvironmentId.make(draft.environmentId)
@@ -230,8 +315,6 @@ export function AutomationsPage() {
   const selectedProjects = projects.filter(
     (project) => selectedEnvironmentId !== null && project.environmentId === selectedEnvironmentId,
   );
-  const selectedProject =
-    selectedProjects.find((project) => project.id === draft.projectId) ?? null;
   const selectedThreads = threads.filter(
     (thread) =>
       selectedEnvironmentId !== null &&
@@ -251,10 +334,67 @@ export function AutomationsPage() {
   );
   const selectedProvider = providers.find((provider) => provider.instanceId === draft.instanceId);
 
+  const toastError = useCallback((title: string, error: Error) => {
+    toastManager.add(stackedThreadToast({ type: "error", title, description: error.message }));
+  }, []);
+
+  const persistDraft = useCallback(
+    async (nextDraft: Draft) => {
+      const current = selectedRef.current;
+      if (current === null) return;
+      const input = draftUpdateInput(nextDraft, current.automation.id);
+      if (input === null) return;
+      const signature = updateSignature(input);
+      if (signature === lastPersistedSignatureRef.current) return;
+
+      const result = await updateAutomation({ environmentId: current.environmentId, input });
+      const error = mutationError(result);
+      if (error) {
+        toastError("Could not update automation", error);
+      } else {
+        lastPersistedSignatureRef.current = signature;
+      }
+    },
+    [toastError, updateAutomation],
+  );
+
+  const flushAutosave = useCallback(() => {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    void persistDraft(draftRef.current);
+  }, [persistDraft]);
+
+  const changeDraft = useCallback(
+    (nextDraft: Draft) => {
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
+      if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        void persistDraft(draftRef.current);
+      }, 400);
+    },
+    [persistDraft],
+  );
+
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+      const current = selectedRef.current;
+      if (current === null) return;
+      const input = draftUpdateInput(draftRef.current, current.automation.id);
+      if (input === null || updateSignature(input) === lastPersistedSignatureRef.current) return;
+      void updateAutomationRef.current({ environmentId: current.environmentId, input });
+    },
+    [],
+  );
+
   const edit = (scoped: ScopedAutomation) => {
+    flushAutosave();
     const { automation, environmentId } = scoped;
-    setSelectedKey(`${environmentId}:${automation.id}`);
-    setDraft({
+    const nextDraft = {
       ...emptyDraft(environmentId, automation.projectId),
       ...scheduleToDraft(automation.schedule),
       title: automation.title,
@@ -265,8 +405,13 @@ export function AutomationsPage() {
       model: automation.modelSelection?.model ?? "",
       runtimeMode: automation.runtimeMode,
       fullAccessAcknowledged: automation.runtimeMode === "full-access",
-    });
-    setCreating(false);
+    } satisfies Draft;
+    selectedRef.current = scoped;
+    setSelectedKey(`${environmentId}:${automation.id}`);
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+    const input = draftUpdateInput(nextDraft, automation.id);
+    lastPersistedSignatureRef.current = input === null ? null : updateSignature(input);
   };
 
   const startCreate = () => {
@@ -274,90 +419,10 @@ export function AutomationsPage() {
       toastError("Could not start scheduled task setup", new Error("Add a project first."));
       return;
     }
-    setSelectedKey(null);
-    setCreating(true);
-    setDraft({
-      ...emptyDraft(firstProject.environmentId, firstProject.id),
-      instanceId: firstProject.defaultModelSelection?.instanceId ?? "",
-      model: firstProject.defaultModelSelection?.model ?? "",
-      threadId: `automation-thread:${randomIdSuffix()}`,
-    });
-  };
-
-  const startCreateInChat = () => {
-    if (!firstProject) return;
     void handleNewThread(scopeProjectRef(firstProject.environmentId, firstProject.id), {
       forceNew: true,
       initialPrompt: CREATE_AUTOMATION_PROMPT,
     });
-  };
-
-  const toastError = (title: string, error: Error) => {
-    toastManager.add(stackedThreadToast({ type: "error", title, description: error.message }));
-  };
-
-  const save = async () => {
-    if (!draft.title.trim() || !draft.prompt.trim() || !draft.projectId || !draft.environmentId) {
-      toastError("Automation is incomplete", new Error("Add a title, prompt, and project."));
-      return;
-    }
-    let schedule: AutomationSchedule;
-    try {
-      schedule = draftSchedule(draft);
-    } catch {
-      toastError("Invalid schedule", new Error("Choose a valid future date and time."));
-      return;
-    }
-    const modelSelection: ModelSelection | null =
-      draft.targetKind === "existing-thread"
-        ? null
-        : draft.instanceId && draft.model
-          ? { instanceId: ProviderInstanceId.make(draft.instanceId), model: draft.model }
-          : (selectedProject?.defaultModelSelection ?? null);
-    if (draft.targetKind !== "existing-thread" && modelSelection === null) {
-      toastError("Model required", new Error("Choose a provider and model."));
-      return;
-    }
-    if (draft.targetKind === "existing-thread" && !draft.threadId) {
-      toastError("Chat required", new Error("Choose the chat this automation should use."));
-      return;
-    }
-
-    const target: AutomationTarget =
-      draft.targetKind === "fresh-thread"
-        ? { type: "fresh-thread" }
-        : draft.targetKind === "existing-thread"
-          ? { type: "existing-thread", threadId: ThreadId.make(draft.threadId) }
-          : {
-              type: "persistent-thread",
-              threadId: ThreadId.make(draft.threadId),
-            };
-    const input = {
-      automationId: selected?.automation.id ?? AutomationId.make(`automation:${randomIdSuffix()}`),
-      title: draft.title.trim(),
-      prompt: draft.prompt.trim(),
-      projectId: ProjectId.make(draft.projectId),
-      modelSelection,
-      runtimeMode: draft.runtimeMode,
-      fullAccessAcknowledged: draft.fullAccessAcknowledged,
-      schedule,
-      target,
-    };
-    setBusy(true);
-    const environmentId = selected?.environmentId ?? EnvironmentId.make(draft.environmentId);
-    const result = selected
-      ? await updateAutomation({ environmentId, input })
-      : await createAutomation({ environmentId, input });
-    setBusy(false);
-    const error = mutationError(result);
-    if (error) {
-      toastError("Could not save automation", error);
-      return;
-    }
-    if (!selected) {
-      setCreating(false);
-      setSelectedKey(`${environmentId}:${input.automationId}`);
-    }
   };
 
   const perform = async (label: string, operation: () => Promise<unknown>) => {
@@ -383,20 +448,25 @@ export function AutomationsPage() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header
           className={cn(
-            "border-b border-border px-3 py-2 transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none sm:px-5",
+            "workspace-topbar border-b border-border px-3 transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none sm:px-5",
+            isElectron && "drag-region",
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
-          <div className="flex min-h-7 items-center gap-2 sm:min-h-6">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <h1 className="text-sm font-medium text-foreground">Automations</h1>
-            <Button size="xs" className="ml-auto" onClick={startCreate}>
+            <Button
+              size="xs"
+              className="ml-auto [-webkit-app-region:no-drag]"
+              onClick={startCreate}
+            >
               <PlusIcon />
               Create
             </Button>
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {state.hasError && scopedAutomations.length === 0 ? (
+          {state.hasError && state.snapshots.length === 0 ? (
             <Empty className="min-h-full">
               <EmptyMedia variant="icon">
                 <Clock3Icon />
@@ -406,10 +476,8 @@ export function AutomationsPage() {
                 <EmptyDescription>Reconnect the environment, then try again.</EmptyDescription>
               </EmptyHeader>
             </Empty>
-          ) : state.isLoading && scopedAutomations.length === 0 ? (
-            <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-              Loading automations…
-            </div>
+          ) : state.isLoading && state.snapshots.length === 0 ? (
+            <AutomationsLoadingState />
           ) : scopedAutomations.length === 0 ? (
             <Empty className="min-h-full">
               <EmptyMedia variant="icon">
@@ -425,9 +493,6 @@ export function AutomationsPage() {
                 <Button size="xs" onClick={startCreate}>
                   <PlusIcon />
                   Create automation
-                </Button>
-                <Button size="xs" variant="ghost" onClick={startCreateInChat}>
-                  Set up in chat
                 </Button>
               </EmptyContent>
             </Empty>
@@ -459,7 +524,7 @@ export function AutomationsPage() {
                         <span className="block truncate text-sm font-medium">
                           {scoped.automation.title}
                         </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                        <span className="mt-0.5 block truncate text-sm text-muted-foreground">
                           {formatSchedule(scoped.automation.schedule)} · Next{" "}
                           {formatDate(scoped.automation.nextRunAt)}
                         </span>
@@ -473,88 +538,86 @@ export function AutomationsPage() {
         </div>
       </main>
 
-      {selected || creating ? (
+      {selected ? (
         <DiffPanelShell
           mode="inline"
           className="max-sm:fixed max-sm:inset-0 max-sm:z-[100] max-sm:!w-full max-sm:!min-w-0 max-sm:!max-w-none max-sm:border-l-0"
           header={
             <>
               <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-sm font-medium">
-                  {selected?.automation.title ?? "New automation"}
-                </span>
+                <span className="truncate text-sm font-medium">{selected.automation.title}</span>
               </div>
               <div className="flex items-center gap-1">
-                {selected ? (
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() =>
-                      void perform("Could not run automation", () =>
-                        runNow({
-                          environmentId: selected.environmentId,
-                          input: { automationId: selected.automation.id },
-                        }),
-                      )
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    void perform("Could not run automation", () =>
+                      runNow({
+                        environmentId: selected.environmentId,
+                        input: { automationId: selected.automation.id },
+                      }),
+                    )
+                  }
+                >
+                  <PlayIcon /> Run now
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  disabled={busy}
+                  aria-label={
+                    selected.automation.status === "active" ? "Stop automation" : "Start automation"
+                  }
+                  onClick={() =>
+                    void perform("Could not change automation", () =>
+                      setStatus({
+                        environmentId: selected.environmentId,
+                        input: {
+                          automationId: selected.automation.id,
+                          status: selected.automation.status === "active" ? "stopped" : "active",
+                        },
+                      }),
+                    )
+                  }
+                >
+                  <StopIcon />
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  disabled={busy}
+                  aria-label="Delete automation"
+                  onClick={() => {
+                    if (!confirm(`Delete “${selected.automation.title}”?`)) return;
+                    if (saveTimerRef.current !== null) {
+                      clearTimeout(saveTimerRef.current);
+                      saveTimerRef.current = null;
                     }
-                  >
-                    <PlayIcon /> Run now
-                  </Button>
-                ) : null}
-                {selected ? (
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    disabled={busy}
-                    aria-label={
-                      selected.automation.status === "active"
-                        ? "Stop automation"
-                        : "Start automation"
-                    }
-                    onClick={() =>
-                      void perform("Could not change automation", () =>
-                        setStatus({
-                          environmentId: selected.environmentId,
-                          input: {
-                            automationId: selected.automation.id,
-                            status: selected.automation.status === "active" ? "stopped" : "active",
-                          },
-                        }),
-                      )
-                    }
-                  >
-                    <StopIcon />
-                  </Button>
-                ) : null}
-                {selected ? (
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    disabled={busy}
-                    aria-label="Delete automation"
-                    onClick={() => {
-                      if (!confirm(`Delete “${selected.automation.title}”?`)) return;
-                      void perform("Could not delete automation", () =>
-                        deleteAutomation({
-                          environmentId: selected.environmentId,
-                          input: { automationId: selected.automation.id },
-                        }),
-                      ).then((deleted) => {
-                        if (deleted) setSelectedKey(null);
-                      });
-                    }}
-                  >
-                    <Trash2 />
-                  </Button>
-                ) : null}
+                    void perform("Could not delete automation", () =>
+                      deleteAutomation({
+                        environmentId: selected.environmentId,
+                        input: { automationId: selected.automation.id },
+                      }),
+                    ).then((deleted) => {
+                      if (deleted) {
+                        selectedRef.current = null;
+                        setSelectedKey(null);
+                      }
+                    });
+                  }}
+                >
+                  <Trash2 />
+                </Button>
                 <Button
                   size="icon-xs"
                   variant="ghost"
                   aria-label="Close automation details"
                   onClick={() => {
+                    flushAutosave();
+                    selectedRef.current = null;
                     setSelectedKey(null);
-                    setCreating(false);
                   }}
                 >
                   <XIcon />
@@ -568,29 +631,27 @@ export function AutomationsPage() {
               <Field label="Name">
                 <Input
                   value={draft.title}
-                  onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                  onChange={(event) => changeDraft({ ...draft, title: event.target.value })}
                   placeholder="Daily brief"
                 />
               </Field>
               <Field label="Prompt">
                 <Textarea
                   value={draft.prompt}
-                  onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
+                  onChange={(event) => changeDraft({ ...draft, prompt: event.target.value })}
                   placeholder="What should the agent do?"
                   className="min-h-32"
                 />
               </Field>
               <div className="rounded-xl border border-border">
                 <SectionTitle>Details</SectionTitle>
-                {selected ? (
-                  <Row label="Status">
-                    <Badge
-                      variant={selected.automation.status === "active" ? "success" : "secondary"}
-                    >
-                      {selected.automation.status}
-                    </Badge>
-                  </Row>
-                ) : null}
+                <Row label="Status">
+                  <Badge
+                    variant={selected.automation.status === "active" ? "success" : "secondary"}
+                  >
+                    {selected.automation.status === "active" ? "Active" : "Stopped"}
+                  </Badge>
+                </Row>
                 <Row label="Environment">
                   <select
                     className={fieldClass}
@@ -601,7 +662,7 @@ export function AutomationsPage() {
                       const project = projects.find(
                         (candidate) => candidate.environmentId === environmentId,
                       );
-                      setDraft({
+                      changeDraft({
                         ...draft,
                         environmentId,
                         projectId: project?.id ?? "",
@@ -629,7 +690,7 @@ export function AutomationsPage() {
                       const project = selectedProjects.find(
                         (candidate) => candidate.id === event.target.value,
                       );
-                      setDraft({
+                      changeDraft({
                         ...draft,
                         projectId: event.target.value,
                         threadId:
@@ -654,7 +715,7 @@ export function AutomationsPage() {
                     value={draft.targetKind}
                     onChange={(event) => {
                       const targetKind = event.target.value as TargetKind;
-                      setDraft({
+                      changeDraft({
                         ...draft,
                         targetKind,
                         threadId:
@@ -676,7 +737,7 @@ export function AutomationsPage() {
                     <select
                       className={fieldClass}
                       value={draft.threadId}
-                      onChange={(event) => setDraft({ ...draft, threadId: event.target.value })}
+                      onChange={(event) => changeDraft({ ...draft, threadId: event.target.value })}
                     >
                       <option value="">Choose a chat…</option>
                       {selectedThreads.map((thread) => (
@@ -697,7 +758,7 @@ export function AutomationsPage() {
                           const provider = providers.find(
                             (candidate) => candidate.instanceId === event.target.value,
                           );
-                          setDraft({
+                          changeDraft({
                             ...draft,
                             instanceId: event.target.value,
                             model: provider?.models[0]?.slug ?? "",
@@ -716,7 +777,7 @@ export function AutomationsPage() {
                       <select
                         className={fieldClass}
                         value={draft.model}
-                        onChange={(event) => setDraft({ ...draft, model: event.target.value })}
+                        onChange={(event) => changeDraft({ ...draft, model: event.target.value })}
                       >
                         <option value="">Choose a model…</option>
                         {(selectedProvider?.models ?? []).map((model) => (
@@ -734,7 +795,7 @@ export function AutomationsPage() {
                     value={draft.runtimeMode}
                     onChange={(event) => {
                       const runtimeMode = event.target.value as RuntimeMode;
-                      setDraft({
+                      changeDraft({
                         ...draft,
                         runtimeMode,
                         fullAccessAcknowledged:
@@ -755,7 +816,7 @@ export function AutomationsPage() {
                         className="mt-0.5"
                         checked={draft.fullAccessAcknowledged}
                         onChange={(event) =>
-                          setDraft({ ...draft, fullAccessAcknowledged: event.target.checked })
+                          changeDraft({ ...draft, fullAccessAcknowledged: event.target.checked })
                         }
                       />
                       This routine may run commands and modify the project without asking.
@@ -771,15 +832,17 @@ export function AutomationsPage() {
                     className={fieldClass}
                     value={draft.scheduleKind}
                     onChange={(event) =>
-                      setDraft({ ...draft, scheduleKind: event.target.value as ScheduleKind })
+                      changeDraft({ ...draft, scheduleKind: event.target.value as ScheduleKind })
                     }
                   >
                     <option value="once">Once</option>
-                    <option value="hourly">Hourly</option>
-                    <option value="daily">Daily</option>
+                    <option value="hourly">Every hour</option>
+                    <option value="daily">Every day</option>
                     <option value="weekdays">Weekdays</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="custom">Custom cron</option>
+                    <option value="weekly">Every week</option>
+                    {draft.scheduleKind === "custom" ? (
+                      <option value="custom">Advanced schedule</option>
+                    ) : null}
                   </select>
                 </Row>
                 {draft.scheduleKind === "once" ? (
@@ -787,16 +850,29 @@ export function AutomationsPage() {
                     <Input
                       type="datetime-local"
                       value={draft.dateTime}
-                      onChange={(event) => setDraft({ ...draft, dateTime: event.target.value })}
+                      onChange={(event) => changeDraft({ ...draft, dateTime: event.target.value })}
                     />
                   </Row>
                 ) : null}
-                {draft.scheduleKind !== "once" && draft.scheduleKind !== "custom" ? (
+                {draft.scheduleKind === "hourly" ? (
+                  <Row label="At minute">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={Number(draft.time.slice(3))}
+                      onChange={(event) => {
+                        const minute = Math.max(0, Math.min(59, event.target.valueAsNumber || 0));
+                        changeDraft({ ...draft, time: `00:${String(minute).padStart(2, "0")}` });
+                      }}
+                    />
+                  </Row>
+                ) : draft.scheduleKind !== "once" && draft.scheduleKind !== "custom" ? (
                   <Row label="At">
                     <Input
                       type="time"
                       value={draft.time}
-                      onChange={(event) => setDraft({ ...draft, time: event.target.value })}
+                      onChange={(event) => changeDraft({ ...draft, time: event.target.value })}
                     />
                   </Row>
                 ) : null}
@@ -805,7 +881,7 @@ export function AutomationsPage() {
                     <select
                       className={fieldClass}
                       value={draft.weekday}
-                      onChange={(event) => setDraft({ ...draft, weekday: event.target.value })}
+                      onChange={(event) => changeDraft({ ...draft, weekday: event.target.value })}
                     >
                       {[
                         "Sunday",
@@ -824,10 +900,10 @@ export function AutomationsPage() {
                   </Row>
                 ) : null}
                 {draft.scheduleKind === "custom" ? (
-                  <Row label="Cron">
+                  <Row label="Expression">
                     <Input
                       value={draft.cron}
-                      onChange={(event) => setDraft({ ...draft, cron: event.target.value })}
+                      onChange={(event) => changeDraft({ ...draft, cron: event.target.value })}
                       placeholder="0 9 * * 1-5"
                     />
                   </Row>
@@ -836,20 +912,10 @@ export function AutomationsPage() {
                   <Row label="Time zone">
                     <Input
                       value={draft.timeZone}
-                      onChange={(event) => setDraft({ ...draft, timeZone: event.target.value })}
+                      onChange={(event) => changeDraft({ ...draft, timeZone: event.target.value })}
                     />
                   </Row>
                 ) : null}
-              </div>
-              <div className="flex justify-end gap-2">
-                {selected ? (
-                  <Button variant="ghost" size="sm" onClick={() => edit(selected)} disabled={busy}>
-                    Reset
-                  </Button>
-                ) : null}
-                <Button size="sm" onClick={() => void save()} disabled={busy}>
-                  {busy ? "Saving…" : selected ? "Save automation" : "Create automation"}
-                </Button>
               </div>
             </div>
 
@@ -908,6 +974,14 @@ export function AutomationsPage() {
           </div>
         </DiffPanelShell>
       ) : null}
+    </div>
+  );
+}
+
+function AutomationsLoadingState() {
+  return (
+    <div className="flex min-h-full items-center justify-center">
+      <Spinner className="size-4 text-muted-foreground" aria-label="Loading automations" />
     </div>
   );
 }
