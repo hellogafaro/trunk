@@ -43,9 +43,9 @@ export const AssistantAutomationUpdateInput = Schema.Struct({
 });
 export type AssistantAutomationUpdateInput = typeof AssistantAutomationUpdateInput.Type;
 
-export const AutomationCreateTool = Tool.make("automation_create", {
+export const AutomationCreateTool = Tool.make("routine_create", {
   description:
-    "Create a scheduled task after interviewing the user and confirming the task, schedule, time zone, chat behavior, and permissions. Use a five-field cron expression for recurring schedules or an ISO-8601 timestamp for a one-time schedule. target defaults to dedicated-chat. runtimeMode defaults to approval-required; full-access requires acknowledgeFullAccess=true after explicit user confirmation.",
+    "Create a routine after interviewing the user and confirming its task, schedule, time zone, chat behavior, and permissions. Use a five-field cron expression for recurring routines or an ISO-8601 timestamp for a one-time routine. target defaults to dedicated-chat. runtimeMode defaults to approval-required; full-access requires acknowledgeFullAccess=true after explicit user confirmation.",
   parameters: AssistantAutomationCreateInput,
   success: Automation,
   failure: AutomationOperationError,
@@ -56,14 +56,14 @@ export const AutomationCreateTool = Tool.make("automation_create", {
     Crypto.Crypto,
   ],
 })
-  .annotate(Tool.Title, "Create scheduled task")
+  .annotate(Tool.Title, "Create routine")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
-export const AutomationListTool = Tool.make("automation_list", {
-  description: "List scheduled tasks and their recent runs in this environment.",
+export const AutomationListTool = Tool.make("routine_list", {
+  description: "List routines and their recent runs in this environment.",
   parameters: Schema.Struct({}),
   success: AutomationSnapshot,
   failure: AutomationOperationError,
@@ -72,8 +72,8 @@ export const AutomationListTool = Tool.make("automation_list", {
   .annotate(Tool.Readonly, true)
   .annotate(Tool.OpenWorld, false);
 
-export const AutomationUpdateTool = Tool.make("automation_update", {
-  description: "Update the name, prompt, schedule, or permissions of a scheduled task.",
+export const AutomationUpdateTool = Tool.make("routine_update", {
+  description: "Update the name, prompt, schedule, or permissions of a routine.",
   parameters: AssistantAutomationUpdateInput,
   success: Automation,
   failure: AutomationOperationError,
@@ -83,9 +83,9 @@ export const AutomationUpdateTool = Tool.make("automation_update", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false);
 
-export const AutomationSetStatusTool = Tool.make("automation_set_status", {
+export const AutomationSetStatusTool = Tool.make("routine_set_status", {
   description:
-    "Enable or disable a scheduled task. Disabling cancels queued work; a current run may finish.",
+    "Enable or disable a routine. Disabling cancels queued work; a current run may finish.",
   parameters: Schema.Struct({
     automationId: AutomationId,
     status: Schema.Literals(["enabled", "disabled"]),
@@ -98,8 +98,8 @@ export const AutomationSetStatusTool = Tool.make("automation_set_status", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false);
 
-export const AutomationRunNowTool = Tool.make("automation_run_now", {
-  description: "Queue a scheduled task immediately through the same durable run queue.",
+export const AutomationRunNowTool = Tool.make("routine_run_now", {
+  description: "Queue a routine immediately through the same durable run queue.",
   parameters: Schema.Struct({ automationId: AutomationId }),
   success: AutomationRun,
   failure: AutomationOperationError,
@@ -109,8 +109,8 @@ export const AutomationRunNowTool = Tool.make("automation_run_now", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false);
 
-export const AutomationDeleteTool = Tool.make("automation_delete", {
-  description: "Permanently delete a scheduled task and cancel its queued or running work.",
+export const AutomationDeleteTool = Tool.make("routine_delete", {
+  description: "Permanently delete a routine and cancel its queued or running work.",
   parameters: Schema.Struct({ automationId: AutomationId }),
   success: Schema.Struct({ deleted: Schema.Boolean }),
   failure: AutomationOperationError,

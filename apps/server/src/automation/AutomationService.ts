@@ -104,9 +104,7 @@ export const make = Effect.gen(function* () {
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const uuid = crypto.randomUUIDv4.pipe(
-    Effect.mapError((cause) =>
-      operationError("Failed to generate an automation identifier.", cause),
-    ),
+    Effect.mapError((cause) => operationError("Failed to generate a routine identifier.", cause)),
   );
   const schedulerOwnerId = `automation-scheduler:${yield* uuid}`;
 
@@ -138,7 +136,7 @@ export const make = Effect.gen(function* () {
   ) {
     const option = yield* repository.getById(automationId);
     if (Option.isNone(option) || option.value.deletedAt !== null) {
-      return yield* operationError(`Automation '${automationId}' was not found.`);
+      return yield* operationError(`Routine '${automationId}' was not found.`);
     }
     return option.value;
   });
@@ -159,7 +157,7 @@ export const make = Effect.gen(function* () {
       .getCommandReadModel()
       .pipe(
         Effect.mapError((cause) =>
-          operationError("Failed to validate the automation project.", cause),
+          operationError("Failed to validate the routine project.", cause),
         ),
       );
     const project = readModel.projects.find(
@@ -169,7 +167,7 @@ export const make = Effect.gen(function* () {
       return yield* operationError(`Project '${input.projectId}' was not found.`);
     }
     if (input.target.type !== "existing-thread" && input.modelSelection === null) {
-      return yield* operationError("A provider and model are required for a new automation chat.");
+      return yield* operationError("A provider and model are required for a new routine chat.");
     }
     const target = input.target;
     if (target.type === "existing-thread") {
@@ -249,7 +247,7 @@ export const make = Effect.gen(function* () {
       yield* repository.upsertRun({
         ...run,
         status: "failed",
-        error: "Automation project was deleted.",
+        error: "Routine project was deleted.",
         finishedAt: now,
       });
       return;
@@ -313,7 +311,7 @@ export const make = Effect.gen(function* () {
       yield* repository.upsertRun({
         ...run,
         status: "failed",
-        error: "No model is configured for this automation.",
+        error: "No model is configured for this routine.",
         finishedAt: now,
       });
       return;
@@ -402,7 +400,7 @@ export const make = Effect.gen(function* () {
     yield* repository.upsertRun({
       ...run,
       status: succeeded ? "succeeded" : "failed",
-      error: succeeded ? null : `Automation turn ended with ${turnState.value.state}.`,
+      error: succeeded ? null : `Routine turn ended with ${turnState.value.state}.`,
       finishedAt,
     });
     if (automation.schedule.type === "once") {
@@ -546,7 +544,7 @@ export const make = Effect.gen(function* () {
           Effect.gen(function* () {
             const existing = yield* repository.getById(input.automationId);
             if (Option.isSome(existing)) {
-              return yield* operationError(`Automation '${input.automationId}' already exists.`);
+              return yield* operationError(`Routine '${input.automationId}' already exists.`);
             }
             const nowEpochMillis = yield* Clock.currentTimeMillis;
             const now = DateTime.formatIso(DateTime.makeUnsafe(nowEpochMillis));
@@ -572,7 +570,7 @@ export const make = Effect.gen(function* () {
             return automation;
           }),
         )
-        .pipe(Effect.mapError(preserveOperationError("Failed to create automation.")));
+        .pipe(Effect.mapError(preserveOperationError("Failed to create routine.")));
     },
   );
 
@@ -613,7 +611,7 @@ export const make = Effect.gen(function* () {
             return result;
           }),
         )
-        .pipe(Effect.mapError(preserveOperationError("Failed to update automation.")));
+        .pipe(Effect.mapError(preserveOperationError("Failed to update routine.")));
     },
   );
 
@@ -654,7 +652,7 @@ export const make = Effect.gen(function* () {
               yield* repository.stopAndCancelQueued({
                 automation,
                 finishedAt: now,
-                error: "Automation was disabled before this run started.",
+                error: "Routine was disabled before this run started.",
               });
             } else {
               yield* repository.upsert(automation);
@@ -665,7 +663,7 @@ export const make = Effect.gen(function* () {
             return result;
           }),
         )
-        .pipe(Effect.mapError(preserveOperationError("Failed to change automation status.")));
+        .pipe(Effect.mapError(preserveOperationError("Failed to change routine status.")));
     },
   );
 
@@ -677,7 +675,7 @@ export const make = Effect.gen(function* () {
             const automation = yield* requireAutomation(input.automationId);
             if (automation.disableReason === "target-deleted") {
               return yield* operationError(
-                "Choose another target chat before running this automation.",
+                "Choose another target chat before running this routine.",
               );
             }
             const scheduledFor = yield* nowIso;
@@ -692,7 +690,7 @@ export const make = Effect.gen(function* () {
             return run;
           }),
         )
-        .pipe(Effect.mapError(preserveOperationError("Failed to queue automation run.")));
+        .pipe(Effect.mapError(preserveOperationError("Failed to queue routine run.")));
     },
   );
 
@@ -721,7 +719,7 @@ export const make = Effect.gen(function* () {
             yield* wake;
           }),
         )
-        .pipe(Effect.mapError(preserveOperationError("Failed to delete automation.")));
+        .pipe(Effect.mapError(preserveOperationError("Failed to delete routine.")));
     },
   );
 
@@ -739,7 +737,7 @@ export const make = Effect.gen(function* () {
             yield* repository.upsertRun({
               ...run,
               status: "failed",
-              error: "The interrupted automation run could not be reconciled.",
+              error: "The interrupted routine run could not be reconciled.",
               finishedAt: recoveredAt,
             });
             continue;
@@ -754,7 +752,7 @@ export const make = Effect.gen(function* () {
             yield* repository.upsertRun({
               ...run,
               status: "failed",
-              error: "The server restarted before the automation turn was recorded.",
+              error: "The server restarted before the routine turn was recorded.",
               finishedAt: recoveredAt,
             });
           }
@@ -774,7 +772,7 @@ export const make = Effect.gen(function* () {
   return AutomationService.of({
     snapshots: SubscriptionRef.changes(snapshotRef),
     getSnapshot: SubscriptionRef.get(snapshotRef).pipe(
-      Effect.mapError(preserveOperationError("Failed to read automations.")),
+      Effect.mapError(preserveOperationError("Failed to read routines.")),
     ),
     create,
     update,

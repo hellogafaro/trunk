@@ -65,7 +65,6 @@ interface Draft {
   readonly instanceId: string;
   readonly model: string;
   readonly runtimeMode: RuntimeMode;
-  readonly fullAccessAcknowledged: boolean;
   readonly scheduleKind: ScheduleKind;
   readonly dateTime: string;
   readonly time: string;
@@ -74,8 +73,8 @@ interface Draft {
   readonly timeZone: string;
 }
 
-const CREATE_AUTOMATION_PROMPT =
-  "Set up an automation with me. Interview me to produce the most accurate possible prompt: clarify the outcome, relevant project context, schedule and time zone, chat behavior, model, and permission level. Show me the complete routine and ask for confirmation before using the automation tools to create it. Prefer a dedicated chat and approval-required permissions unless I choose otherwise.";
+const CREATE_ROUTINE_PROMPT =
+  "Set up a routine with me. Interview me to produce the most accurate possible prompt: clarify the outcome, relevant project context, schedule and time zone, chat behavior, model, and permission level. Show me the complete routine and ask for confirmation before using the routine tools to create it. Prefer a dedicated chat and approval-required permissions unless I choose otherwise.";
 
 function localDateTimeInput(offsetMs = 60 * 60 * 1_000): string {
   const date = new Date(Date.now() + offsetMs);
@@ -106,7 +105,7 @@ interface AutomationSelectOption {
 }
 
 const TARGET_OPTIONS: ReadonlyArray<AutomationSelectOption> = [
-  { value: "persistent-thread", label: "One automation chat" },
+  { value: "persistent-thread", label: "One routine chat" },
   { value: "fresh-thread", label: "New chat each run" },
   { value: "existing-thread", label: "Existing chat" },
 ];
@@ -154,7 +153,6 @@ function emptyDraft(environmentId = "", projectId = ""): Draft {
     instanceId: "",
     model: "",
     runtimeMode: "approval-required",
-    fullAccessAcknowledged: false,
     scheduleKind: "daily",
     dateTime: localDateTimeInput(),
     time: "09:00",
@@ -261,8 +259,6 @@ function draftUpdateInput(
   automationId: Automation["id"],
 ): AutomationUpdateInput | null {
   if (!draft.title.trim() || !draft.prompt.trim() || !draft.projectId) return null;
-  if (draft.runtimeMode === "full-access" && !draft.fullAccessAcknowledged) return null;
-
   let schedule: AutomationSchedule;
   try {
     schedule = draftSchedule(draft);
@@ -294,7 +290,7 @@ function draftUpdateInput(
     projectId: ProjectId.make(draft.projectId),
     modelSelection,
     runtimeMode: draft.runtimeMode,
-    fullAccessAcknowledged: draft.fullAccessAcknowledged,
+    fullAccessAcknowledged: draft.runtimeMode === "full-access",
     schedule,
     target,
   };
@@ -325,7 +321,7 @@ function randomIdSuffix(): string {
   ).join("");
 }
 
-export function AutomationsPage() {
+export function RoutinesPage() {
   const navigate = useNavigate();
   const { environments } = useEnvironments();
   const projects = useProjects();
@@ -418,7 +414,7 @@ export function AutomationsPage() {
       const result = await updateAutomation({ environmentId: current.environmentId, input });
       const error = mutationError(result);
       if (error) {
-        toastError("Could not update automation", error);
+        toastError("Could not update routine", error);
       } else {
         lastPersistedSignatureRef.current = signature;
       }
@@ -472,7 +468,6 @@ export function AutomationsPage() {
       instanceId: automation.modelSelection?.instanceId ?? "",
       model: automation.modelSelection?.model ?? "",
       runtimeMode: automation.runtimeMode,
-      fullAccessAcknowledged: automation.runtimeMode === "full-access",
     } satisfies Draft;
     selectedRef.current = scoped;
     setSelectedKey(`${environmentId}:${automation.id}`);
@@ -484,12 +479,12 @@ export function AutomationsPage() {
 
   const startCreate = () => {
     if (!firstProject) {
-      toastError("Could not start scheduled task setup", new Error("Add a project first."));
+      toastError("Could not start routine setup", new Error("Add a project first."));
       return;
     }
     void handleNewThread(scopeProjectRef(firstProject.environmentId, firstProject.id), {
       forceNew: true,
-      initialPrompt: CREATE_AUTOMATION_PROMPT,
+      initialPrompt: CREATE_ROUTINE_PROMPT,
     });
   };
 
@@ -522,7 +517,7 @@ export function AutomationsPage() {
           )}
         >
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <h1 className="text-sm font-medium text-foreground">Automations</h1>
+            <h1 className="text-sm font-medium text-foreground">Routines</h1>
             <Button
               size="xs"
               className="ml-auto [-webkit-app-region:no-drag]"
@@ -540,19 +535,19 @@ export function AutomationsPage() {
                 <Clock3Icon />
               </EmptyMedia>
               <EmptyHeader>
-                <EmptyTitle>Automations unavailable</EmptyTitle>
+                <EmptyTitle>Routines unavailable</EmptyTitle>
                 <EmptyDescription>Reconnect the environment, then try again.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : state.isLoading && state.snapshots.length === 0 ? (
-            <AutomationsLoadingState />
+            <RoutinesLoadingState />
           ) : scopedAutomations.length === 0 ? (
             <Empty className="min-h-full">
               <EmptyMedia variant="icon">
                 <Clock3Icon />
               </EmptyMedia>
               <EmptyHeader>
-                <EmptyTitle>No automations yet</EmptyTitle>
+                <EmptyTitle>No routines yet</EmptyTitle>
                 <EmptyDescription>
                   Have an agent run a prompt once or on a recurring schedule.
                 </EmptyDescription>
@@ -560,7 +555,7 @@ export function AutomationsPage() {
               <EmptyContent>
                 <Button size="xs" onClick={startCreate}>
                   <PlusIcon />
-                  Create automation
+                  Create routine
                 </Button>
               </EmptyContent>
             </Empty>
@@ -621,7 +616,7 @@ export function AutomationsPage() {
                   variant="ghost"
                   disabled={busy}
                   onClick={() =>
-                    void perform("Could not run automation", () =>
+                    void perform("Could not run routine", () =>
                       runNow({
                         environmentId: selected.environmentId,
                         input: { automationId: selected.automation.id },
@@ -636,12 +631,10 @@ export function AutomationsPage() {
                   variant="ghost"
                   disabled={busy}
                   aria-label={
-                    selected.automation.status === "enabled"
-                      ? "Disable automation"
-                      : "Enable automation"
+                    selected.automation.status === "enabled" ? "Disable routine" : "Enable routine"
                   }
                   onClick={() =>
-                    void perform("Could not change automation", () =>
+                    void perform("Could not change routine", () =>
                       setStatus({
                         environmentId: selected.environmentId,
                         input: {
@@ -656,16 +649,16 @@ export function AutomationsPage() {
                 </Button>
                 <Button
                   size="icon-xs"
-                  variant="ghost"
+                  variant="destructive"
                   disabled={busy}
-                  aria-label="Delete automation"
+                  aria-label="Delete routine"
                   onClick={() => {
                     if (!confirm(`Delete “${selected.automation.title}”?`)) return;
                     if (saveTimerRef.current !== null) {
                       clearTimeout(saveTimerRef.current);
                       saveTimerRef.current = null;
                     }
-                    void perform("Could not delete automation", () =>
+                    void perform("Could not delete routine", () =>
                       deleteAutomation({
                         environmentId: selected.environmentId,
                         input: { automationId: selected.automation.id },
@@ -683,7 +676,7 @@ export function AutomationsPage() {
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  aria-label="Close automation details"
+                  aria-label="Close routine details"
                   onClick={() => {
                     flushAutosave();
                     selectedRef.current = null;
@@ -849,32 +842,11 @@ export function AutomationsPage() {
                     ariaLabel="Permissions"
                     value={draft.runtimeMode}
                     options={RUNTIME_MODE_OPTIONS}
-                    onValueChange={(value) => {
-                      const runtimeMode = value as RuntimeMode;
-                      changeDraft({
-                        ...draft,
-                        runtimeMode,
-                        fullAccessAcknowledged:
-                          runtimeMode === "full-access" ? false : draft.fullAccessAcknowledged,
-                      });
-                    }}
+                    onValueChange={(value) =>
+                      changeDraft({ ...draft, runtimeMode: value as RuntimeMode })
+                    }
                   />
                 </Row>
-                {draft.runtimeMode === "full-access" ? (
-                  <Row label="Confirm">
-                    <label className="flex items-start gap-2 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5"
-                        checked={draft.fullAccessAcknowledged}
-                        onChange={(event) =>
-                          changeDraft({ ...draft, fullAccessAcknowledged: event.target.checked })
-                        }
-                      />
-                      This routine may run commands and modify the project without asking.
-                    </label>
-                  </Row>
-                ) : null}
               </div>
 
               <div className="rounded-xl border border-border">
@@ -1114,10 +1086,10 @@ function DateTimePicker(props: {
   );
 }
 
-function AutomationsLoadingState() {
+function RoutinesLoadingState() {
   return (
     <div className="flex min-h-full items-center justify-center">
-      <Spinner className="size-4 text-muted-foreground" aria-label="Loading automations" />
+      <Spinner className="size-4 text-muted-foreground" aria-label="Loading routines" />
     </div>
   );
 }

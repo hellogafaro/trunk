@@ -408,7 +408,7 @@ const makeWsRpcLayer = (
       const currentSessionId = currentSession.sessionId;
       const automations = yield* Effect.serviceOption(AutomationService.AutomationService);
       const automationUnavailable = new AutomationOperationError({
-        message: "Automations are unavailable in this server runtime.",
+        message: "Routines are unavailable in this server runtime.",
       });
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;

@@ -15,7 +15,7 @@ const operationError = (message: string, cause?: unknown) =>
 const requireCapability = Effect.fn("automation.requireCapability")(function* () {
   const invocation = yield* McpInvocationContext.McpInvocationContext;
   if (!invocation.capabilities.has("automations")) {
-    return yield* operationError("This chat does not have permission to manage scheduled tasks.");
+    return yield* operationError("This chat does not have permission to manage routines.");
   }
   return invocation;
 });
@@ -31,24 +31,24 @@ export const createAutomationFromChat = Effect.fn("automation.createFromChat")(f
     .getCommandReadModel()
     .pipe(
       Effect.mapError((cause) =>
-        operationError("Could not read the current chat before creating the schedule.", cause),
+        operationError("Could not read the current chat before creating the routine.", cause),
       ),
     );
   const thread = readModel.threads.find(
     (candidate) => candidate.id === invocation.threadId && candidate.deletedAt === null,
   );
   if (!thread) {
-    return yield* operationError("The current chat is unavailable for scheduled tasks.");
+    return yield* operationError("The current chat is unavailable for routines.");
   }
 
   const targetKind = input.target ?? "dedicated-chat";
   if (targetKind !== "current-chat" && thread.modelSelection === null) {
     return yield* operationError(
-      "Choose a provider and model in this chat before creating a new automation chat.",
+      "Choose a provider and model in this chat before creating a new routine chat.",
     );
   }
   const uuid = yield* crypto.randomUUIDv4.pipe(
-    Effect.mapError((cause) => operationError("Could not create an automation identifier.", cause)),
+    Effect.mapError((cause) => operationError("Could not create a routine identifier.", cause)),
   );
   const target =
     targetKind === "current-chat"
@@ -86,7 +86,7 @@ const updateAutomation = Effect.fn("automation.update")(function* (
   const snapshot = yield* automations.getSnapshot;
   const current = snapshot.automations.find((automation) => automation.id === input.automationId);
   if (current === undefined) {
-    return yield* operationError(`Automation '${input.automationId}' was not found.`);
+    return yield* operationError(`Routine '${input.automationId}' was not found.`);
   }
   return yield* automations.update({
     automationId: current.id,
@@ -127,12 +127,12 @@ const deleteAutomation = Effect.fn("automation.delete")(function* (input: {
 });
 
 const handlers = {
-  automation_create: createAutomationFromChat,
-  automation_list: listAutomations,
-  automation_update: updateAutomation,
-  automation_set_status: setAutomationStatus,
-  automation_run_now: runAutomationNow,
-  automation_delete: deleteAutomation,
+  routine_create: createAutomationFromChat,
+  routine_list: listAutomations,
+  routine_update: updateAutomation,
+  routine_set_status: setAutomationStatus,
+  routine_run_now: runAutomationNow,
+  routine_delete: deleteAutomation,
 } satisfies Parameters<typeof AutomationToolkit.toLayer>[0];
 
 export const AutomationToolkitHandlersLive = AutomationToolkit.toLayer(handlers);
