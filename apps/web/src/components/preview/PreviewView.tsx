@@ -113,7 +113,6 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const isUnreachable = navStatus._tag === "LoadFailed";
   const showEmptyState = shouldShowPreviewEmptyState(snapshot);
   const controller = desktopOverlay?.controller ?? "none";
-  const verification = snapshot?.verification ?? null;
   const loadProgress = useLoadingProgress(loading);
   const displayUrl =
     url && environment && environmentHttpBaseUrl
@@ -682,17 +681,6 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         {controller !== "none" ? (
           <div className="pointer-events-none absolute left-3 top-3 z-40 rounded-full border border-border/70 bg-background/90 px-2.5 py-1 text-[11px] font-medium shadow-sm backdrop-blur">
             {controller === "agent" ? "Agent controlling browser" : "Human control"}
-          </div>
-        ) : null}
-        {verification ? (
-          <div
-            className="pointer-events-none absolute left-1/2 top-3 z-40 w-[min(34rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-lg border border-amber-500/40 bg-background/95 px-3 py-2 text-center text-xs shadow-lg backdrop-blur"
-            role="status"
-          >
-            <div className="font-medium text-foreground">Manual verification required</div>
-            <div className="mt-0.5 text-muted-foreground">
-              {verification.reason} Agent actions are paused until verification is complete.
-            </div>
           </div>
         ) : null}
         {navStatus._tag === "LoadFailed" ? (

@@ -237,33 +237,6 @@ it.layer(PreviewManager.layer)("PreviewManager", (it) => {
     }),
   );
 
-  it.effect("reportStatus preserves manual verification state", () =>
-    Effect.gen(function* () {
-      const threadId = freshThreadId();
-      const manager = yield* PreviewManager.PreviewManager;
-      const opened = yield* manager.open({ threadId, url: "https://example.com/login" });
-
-      yield* manager.reportStatus({
-        threadId,
-        tabId: opened.tabId,
-        navStatus: {
-          _tag: "Success",
-          url: "https://example.com/login",
-          title: "Login",
-        },
-        canGoBack: false,
-        canGoForward: false,
-        verification: {
-          provider: "authentication",
-          reason: "Authentication requires manual control.",
-        },
-      });
-
-      const listed = yield* manager.list({ threadId });
-      expect(listed.sessions[0]?.verification?.provider).toBe("authentication");
-    }),
-  );
-
   it.effect("close removes the session and emits closed", () =>
     Effect.gen(function* () {
       const threadId = freshThreadId();

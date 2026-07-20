@@ -19,7 +19,6 @@ import {
   type PreviewBrowserInspectInput,
   type PreviewBrowserInspectResult,
   type PreviewBrowserInput,
-  type PreviewBrowserVerification,
   PreviewBrowserOperationError,
   type PreviewBrowserViewportInput,
   type PreviewReportStatusInput,
@@ -41,11 +40,8 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeTimersPromises from "node:timers/promises";
 import type { BrowserContext, CDPSession, ConsoleMessage, Page, Request } from "playwright-core";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
-import { selectBrowserLaunch } from "./BrowserLaunch.ts";
 import { browserElementsAtPointExpression } from "./BrowserElementInspection.ts";
-import { detectBrowserVerification } from "./BrowserVerification.ts";
 
 type ServerBrowserError = PreviewBrowserUnavailableError | PreviewBrowserOperationError;
 
@@ -72,7 +68,6 @@ interface BrowserTab {
   firstFramePublished: boolean;
   screencastStartedAt: number;
   droppedFrames: number;
-  verification: PreviewBrowserVerification | null;
 }
 
 interface ActiveRecording {
@@ -115,7 +110,9 @@ const pathExists = async (path: string): Promise<boolean> => {
   }
 };
 
-const resolveManagedChromiumExecutablePath = async (defaultPath: string): Promise<string> => {
+const resolveChromiumExecutablePath = async (defaultPath: string): Promise<string> => {
+  const configuredPath = process.env["T3CODE_BROWSER_EXECUTABLE_PATH"]?.trim();
+  if (configuredPath) return configuredPath;
   if (await pathExists(defaultPath)) return defaultPath;
 
   const browsersPath =
@@ -167,28 +164,6 @@ const initialViewport = (snapshot: PreviewSessionSnapshot) => {
   return viewport && viewport._tag !== "fill"
     ? { width: viewport.width, height: viewport.height }
     : DEFAULT_VIEWPORT;
-};
-
-const readPageVerification = async (page: Page): Promise<PreviewBrowserVerification | null> => {
-  const [title, bodyText, hasSensitiveInput] = await Promise.all([
-    page.title().catch(() => ""),
-    page
-      .locator("body")
-      .innerText({ timeout: 500 })
-      .catch(() => ""),
-    page
-      .locator('input[type="password"], input[autocomplete="one-time-code"]')
-      .count()
-      .then((count) => count > 0)
-      .catch(() => false),
-  ]);
-  return detectBrowserVerification({
-    url: page.url(),
-    title,
-    bodyText: bodyText.slice(0, 8_000),
-    frameUrls: page.frames().map((frame) => frame.url()),
-    hasSensitiveInput,
-  });
 };
 
 export class ServerBrowser extends Context.Service<
@@ -279,7 +254,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
   const context = yield* Effect.context<never>();
   const runFork = Effect.runForkWith(context);
   const clock = yield* Clock.Clock;
-  const hostPlatform = yield* HostProcessPlatform;
   const nowMillis = () => clock.currentTimeMillisUnsafe();
   const nowIso = () => DateTime.formatIso(DateTime.makeUnsafe(nowMillis()));
   const tabs = new Map<string, BrowserTab>();
@@ -299,43 +273,16 @@ export const make = Effect.gen(function* ServerBrowserMake() {
           process.env["T3CODE_HOME"]?.trim() || NodePath.join(NodeOS.homedir(), ".t3");
         const userDataDir = NodePath.join(baseDir, "browser");
         await NodeFSP.mkdir(userDataDir, { recursive: true });
-        const managedExecutablePath = await resolveManagedChromiumExecutablePath(
-          chromium.executablePath(),
-        );
-        const launch = await selectBrowserLaunch({
-          defaultExecutablePath: managedExecutablePath,
-          env: process.env,
-          pathExists,
-          platform: hostPlatform,
-        });
-        const launchContext = (selection: typeof launch) =>
-          chromium.launchPersistentContext(userDataDir, {
-            headless: selection.headless,
-            viewport: DEFAULT_VIEWPORT,
-            executablePath: selection.executablePath,
-            args: ["--disable-dev-shm-usage"],
-          });
-        let activeLaunch = launch;
-        const context = await launchContext(launch).catch(async (cause) => {
-          if (launch.kind !== "trusted-chrome") throw cause;
-          runFork(
-            Effect.logWarning("headed stable Chrome failed; falling back to managed Chromium", {
-              cause: cause instanceof Error ? cause.message : String(cause),
-            }),
-          );
-          activeLaunch = {
-            executablePath: managedExecutablePath,
-            headless: true,
-            kind: "managed-chromium" as const,
-          };
-          return await launchContext(activeLaunch);
+        const executablePath = await resolveChromiumExecutablePath(chromium.executablePath());
+        const context = await chromium.launchPersistentContext(userDataDir, {
+          headless: true,
+          viewport: DEFAULT_VIEWPORT,
+          executablePath,
+          args: ["--disable-dev-shm-usage"],
         });
         runFork(
           Effect.logInfo("hosted browser chromium launched", {
             durationMs: nowMillis() - startedAt,
-            executablePath: activeLaunch.executablePath,
-            headless: activeLaunch.headless,
-            kind: activeLaunch.kind,
           }),
         );
         return context;
@@ -362,9 +309,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       .catch(() => ({ currentIndex: 0, entries: [{}] }));
     const currentIndex = Number(history.currentIndex ?? 0);
     const entries = Array.isArray(history.entries) ? history.entries : [];
-    if (kind === "Success") {
-      tab.verification = await readPageVerification(tab.page);
-    }
     const navStatus =
       kind === "LoadFailed"
         ? {
@@ -381,7 +325,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
       navStatus,
       canGoBack: currentIndex > 0,
       canGoForward: currentIndex < entries.length - 1,
-      ...(tab.verification ? { verification: tab.verification } : {}),
     });
   };
 
@@ -563,30 +506,12 @@ export const make = Effect.gen(function* ServerBrowserMake() {
             firstFramePublished: false,
             screencastStartedAt: 0,
             droppedFrames: 0,
-            verification: null,
           };
           tabs.set(key, created);
-
-          let verificationRefreshPending = false;
-          const scheduleVerificationRefresh = (): void => {
-            if (verificationRefreshPending || page.isClosed()) return;
-            verificationRefreshPending = true;
-            void page
-              .waitForTimeout(250)
-              .then(async () => {
-                verificationRefreshPending = false;
-                if (!page.isClosed()) await publishStatus(created, "Success");
-              })
-              .catch(() => {
-                verificationRefreshPending = false;
-              });
-          };
 
           page.on("load", () => {
             void publishStatus(created, "Success");
           });
-          page.on("frameattached", scheduleVerificationRefresh);
-          page.on("framenavigated", scheduleVerificationRefresh);
           page.on("console", (message: ConsoleMessage) => {
             const location = message.location();
             appendBounded(created.consoleEntries, {
@@ -659,15 +584,6 @@ export const make = Effect.gen(function* ServerBrowserMake() {
     action: string,
     run: () => Promise<A>,
   ): Promise<A> => {
-    if (!["snapshot", "waitFor"].includes(action)) {
-      const previousVerification = tab.verification;
-      tab.verification = await readPageVerification(tab.page);
-      if (tab.verification) {
-        await publishStatus(tab, "Success");
-        throw operationError("automation-verification-required", tab.verification.reason);
-      }
-      if (previousVerification) await publishStatus(tab, "Success");
-    }
     const startedAt = nowIso();
     const event: PreviewAutomationActionEvent = {
       id: `browser-action-${nowMillis().toString(36)}-${tab.actionTimeline.length.toString(36)}`,

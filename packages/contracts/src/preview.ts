@@ -130,12 +130,6 @@ export const PreviewNavStatus = Schema.Union([
 ]);
 export type PreviewNavStatus = typeof PreviewNavStatus.Type;
 
-export const PreviewBrowserVerification = Schema.Struct({
-  provider: Schema.Literals(["authentication", "captcha", "cloudflare"]),
-  reason: Schema.String,
-});
-export type PreviewBrowserVerification = typeof PreviewBrowserVerification.Type;
-
 export const PreviewSessionSnapshot = Schema.Struct({
   threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
@@ -144,8 +138,6 @@ export const PreviewSessionSnapshot = Schema.Struct({
   canGoForward: Schema.Boolean,
   /** Missing snapshots from older servers are treated as fill-panel mode. */
   viewport: Schema.optional(PreviewViewportSetting),
-  /** Present while the user must complete an authentication or anti-bot challenge manually. */
-  verification: Schema.optional(PreviewBrowserVerification),
   updatedAt: Schema.String,
 });
 export type PreviewSessionSnapshot = typeof PreviewSessionSnapshot.Type;
@@ -171,7 +163,6 @@ export const PreviewReportStatusInput = Schema.Struct({
   navStatus: PreviewNavStatus,
   canGoBack: Schema.Boolean,
   canGoForward: Schema.Boolean,
-  verification: Schema.optional(PreviewBrowserVerification),
 });
 export type PreviewReportStatusInput = typeof PreviewReportStatusInput.Type;
 
