@@ -107,6 +107,7 @@ function withTestServices<A, E>(
 ) {
   const service = AutomationService.of({
     snapshots: Stream.empty,
+    getSnapshot: Effect.die("unused"),
     create: (input) =>
       Ref.update(created, (inputs) => [...inputs, input]).pipe(
         Effect.as({
@@ -115,6 +116,7 @@ function withTestServices<A, E>(
           prompt: input.prompt,
           projectId: input.projectId,
           modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
           schedule: input.schedule,
           target: input.target,
           status: "active",

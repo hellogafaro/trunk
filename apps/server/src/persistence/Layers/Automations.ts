@@ -34,6 +34,11 @@ const PersistedAutomationDbRow = PersistedAutomation.mapFields(
 const RunLimitInput = Schema.Struct({ limit: Schema.Int });
 const AutomationRunLimitInput = Schema.Struct({ automationId: AutomationId, limit: Schema.Int });
 const TurnStateInput = Schema.Struct({ threadId: ThreadId, messageId: MessageId });
+const SchedulerLeaseInput = Schema.Struct({
+  ownerId: Schema.String,
+  now: Schema.String,
+  expiresAt: Schema.String,
+});
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -48,6 +53,7 @@ const make = Effect.gen(function* () {
         prompt,
         project_id AS "projectId",
         model_selection_json AS "modelSelection",
+        runtime_mode AS "runtimeMode",
         schedule_json AS "schedule",
         target_json AS "target",
         status,
@@ -71,6 +77,7 @@ const make = Effect.gen(function* () {
         prompt,
         project_id AS "projectId",
         model_selection_json AS "modelSelection",
+        runtime_mode AS "runtimeMode",
         schedule_json AS "schedule",
         target_json AS "target",
         status,
@@ -88,13 +95,13 @@ const make = Effect.gen(function* () {
     Request: PersistedAutomation,
     execute: (row) => sql`
       INSERT INTO automations (
-        automation_id, title, prompt, project_id, model_selection_json,
+        automation_id, title, prompt, project_id, model_selection_json, runtime_mode,
         schedule_json, target_json, status, stop_reason, next_run_at,
         created_at, updated_at, deleted_at
       ) VALUES (
         ${row.id}, ${row.title}, ${row.prompt}, ${row.projectId},
         ${row.modelSelection === null ? null : JSON.stringify(row.modelSelection)},
-        ${JSON.stringify(row.schedule)}, ${JSON.stringify(row.target)}, ${row.status},
+        ${row.runtimeMode}, ${JSON.stringify(row.schedule)}, ${JSON.stringify(row.target)}, ${row.status},
         ${row.stopReason}, ${row.nextRunAt}, ${row.createdAt}, ${row.updatedAt}, ${row.deletedAt}
       )
       ON CONFLICT (automation_id) DO UPDATE SET
@@ -102,6 +109,7 @@ const make = Effect.gen(function* () {
         prompt = excluded.prompt,
         project_id = excluded.project_id,
         model_selection_json = excluded.model_selection_json,
+        runtime_mode = excluded.runtime_mode,
         schedule_json = excluded.schedule_json,
         target_json = excluded.target_json,
         status = excluded.status,
@@ -218,6 +226,31 @@ const make = Effect.gen(function* () {
     `,
   });
 
+  const acquireLease = SqlSchema.findOne({
+    Request: SchedulerLeaseInput,
+    Result: Schema.Struct({ ownerId: Schema.String }),
+    execute: ({ ownerId, now, expiresAt }) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`
+          INSERT INTO automation_scheduler_leases (lease_name, owner_id, expires_at, updated_at)
+          VALUES ('scheduler', ${ownerId}, ${expiresAt}, ${now})
+          ON CONFLICT (lease_name) DO UPDATE SET
+            owner_id = excluded.owner_id,
+            expires_at = excluded.expires_at,
+            updated_at = excluded.updated_at
+          WHERE automation_scheduler_leases.owner_id = excluded.owner_id
+             OR automation_scheduler_leases.expires_at <= excluded.updated_at
+        `;
+          return yield* sql`
+          SELECT owner_id AS "ownerId"
+          FROM automation_scheduler_leases
+          WHERE lease_name = 'scheduler'
+        `;
+        }),
+      ),
+  });
+
   const mapError = (operation: string) =>
     Effect.mapError(toPersistenceSqlError(`AutomationRepository.${operation}:query`));
 
@@ -233,6 +266,60 @@ const make = Effect.gen(function* () {
       listAutomationRunRows({ automationId, limit }).pipe(mapError("listRunsByAutomation")),
     getRunById: (runId) => getRunRow(runId).pipe(mapError("getRunById")),
     upsertRun: (run) => upsertRunRow(run).pipe(mapError("upsertRun")),
+    enqueueRun: ({ run, automation }) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const queuedRuns = yield* listAutomationRunRows({
+              automationId: run.automationId,
+              limit: 10,
+            });
+            const queued = queuedRuns.find((candidate) => candidate.status === "queued");
+            const result =
+              queued === undefined
+                ? run
+                : {
+                    ...queued,
+                    latestScheduledFor: run.latestScheduledFor,
+                    coalescedCount: queued.coalescedCount + 1,
+                  };
+            yield* upsertRunRow(result);
+            if (automation !== null) yield* upsertRow(automation);
+            return result;
+          }),
+        )
+        .pipe(mapError("enqueueRun")),
+    stopAndCancelQueued: ({ automation, finishedAt, error }) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* upsertRow(automation);
+            yield* sql`
+            UPDATE automation_runs
+            SET status = 'cancelled', error = ${error}, finished_at = ${finishedAt}
+            WHERE automation_id = ${automation.id} AND status = 'queued'
+          `;
+          }),
+        )
+        .pipe(mapError("stopAndCancelQueued")),
+    deleteAndCancelActionable: ({ automationId, deletedAt }) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* softDeleteRow({ automationId, deletedAt });
+            yield* sql`
+            UPDATE automation_runs
+            SET status = 'cancelled', error = 'Automation deleted.', finished_at = ${deletedAt}
+            WHERE automation_id = ${automationId} AND status IN ('queued', 'running')
+          `;
+          }),
+        )
+        .pipe(mapError("deleteAndCancelActionable")),
+    acquireSchedulerLease: (input) =>
+      acquireLease(input).pipe(
+        Effect.map((lease) => lease.ownerId === input.ownerId),
+        mapError("acquireSchedulerLease"),
+      ),
     getTurnState: (input) => getTurnStateRow(input).pipe(mapError("getTurnState")),
   } satisfies AutomationRepositoryShape);
 });

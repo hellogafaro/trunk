@@ -173,6 +173,8 @@ it.effect("coalesces repeated due/manual ticks while an existing target chat is 
           prompt: "Continue the task.",
           projectId,
           modelSelection: null,
+          runtimeMode: "approval-required",
+          fullAccessAcknowledged: false,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "existing-thread", threadId },
         });
@@ -191,7 +193,7 @@ it.effect("coalesces repeated due/manual ticks while an existing target chat is 
 );
 
 it.effect(
-  "unarchives a target and restores full-access/default mode before starting its turn",
+  "unarchives a target and restores its configured/default modes before starting its turn",
   () =>
     Effect.gen(function* () {
       const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
@@ -212,6 +214,8 @@ it.effect(
             prompt: "Resume the task.",
             projectId,
             modelSelection: null,
+            runtimeMode: "auto-accept-edits",
+            fullAccessAcknowledged: false,
             schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
             target: { type: "existing-thread", threadId },
           });
@@ -247,6 +251,8 @@ it.effect("revalidates a stopped automation before resuming it", () =>
           prompt: "Run the task.",
           projectId,
           modelSelection,
+          runtimeMode: "approval-required",
+          fullAccessAcknowledged: false,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "fresh-thread" },
         });
@@ -257,6 +263,8 @@ it.effect("revalidates a stopped automation before resuming it", () =>
           prompt: "Run the task.",
           projectId,
           modelSelection: null,
+          runtimeMode: "approval-required",
+          fullAccessAcknowledged: false,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "fresh-thread" },
         });
@@ -284,6 +292,8 @@ it.effect("creates a persistent automation chat before starting its first turn",
           prompt: "Start the task.",
           projectId,
           modelSelection,
+          runtimeMode: "approval-required",
+          fullAccessAcknowledged: false,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "persistent-thread", threadId: targetThreadId },
         });
@@ -304,6 +314,54 @@ it.effect("creates a persistent automation chat before starting its first turn",
         }
         assert.equal(createCommand.threadId, targetThreadId);
         assert.equal(startCommand.threadId, targetThreadId);
+      }),
+    );
+  }),
+);
+
+it.effect("requires acknowledgement for full access and interrupts a run when deleted", () =>
+  Effect.gen(function* () {
+    const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+    yield* withAutomationRuntime(
+      thread(),
+      commands,
+      Effect.gen(function* () {
+        const service = yield* AutomationService;
+        const repository = yield* AutomationRepository;
+        const automationId = AutomationId.make("automation:delete-running");
+        const rejected = yield* Effect.exit(
+          service.create({
+            automationId,
+            title: "Unsafe routine",
+            prompt: "Run the task.",
+            projectId,
+            modelSelection: null,
+            runtimeMode: "full-access",
+            fullAccessAcknowledged: false,
+            schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
+            target: { type: "existing-thread", threadId },
+          }),
+        );
+        assert.equal(rejected._tag, "Failure");
+
+        yield* service.create({
+          automationId,
+          title: "Confirmed routine",
+          prompt: "Run the task.",
+          projectId,
+          modelSelection: null,
+          runtimeMode: "full-access",
+          fullAccessAcknowledged: true,
+          schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
+          target: { type: "existing-thread", threadId },
+        });
+        yield* service.runNow({ automationId });
+        for (let index = 0; index < 10; index += 1) yield* Effect.yieldNow;
+        yield* service.delete(automationId);
+        const commandTypes = (yield* Ref.get(commands)).map((command) => command.type);
+        assert.include(commandTypes, "thread.turn.interrupt");
+        const runs = yield* repository.listRunsByAutomation(automationId, 10);
+        assert.equal(runs[0]?.status, "cancelled");
       }),
     );
   }),

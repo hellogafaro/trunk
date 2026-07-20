@@ -36,9 +36,11 @@ import { calculateNextRunAt, validateFutureSchedule } from "./schedule.ts";
 const SNAPSHOT_RUN_LIMIT = 250;
 const ACTIVE_POLL_INTERVAL = Duration.millis(500);
 const IDLE_POLL_INTERVAL = Duration.seconds(30);
+const SCHEDULER_LEASE_DURATION = Duration.minutes(2);
 
 export interface AutomationServiceShape {
   readonly snapshots: Stream.Stream<AutomationSnapshot>;
+  readonly getSnapshot: Effect.Effect<AutomationSnapshot, AutomationOperationError>;
   readonly create: (
     input: AutomationCreateInput,
   ) => Effect.Effect<Automation, AutomationOperationError>;
@@ -64,6 +66,16 @@ function operationError(message: string, cause?: unknown): AutomationOperationEr
 
 function failureMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+function preserveOperationError(message: string) {
+  return (cause: unknown) =>
+    typeof cause === "object" &&
+    cause !== null &&
+    "_tag" in cause &&
+    cause._tag === "AutomationOperationError"
+      ? (cause as AutomationOperationError)
+      : operationError(message, cause);
 }
 
 function isThreadBusy(thread: {
@@ -96,6 +108,7 @@ export const make = Effect.gen(function* () {
       operationError("Failed to generate an automation identifier.", cause),
     ),
   );
+  const schedulerOwnerId = `automation-scheduler:${yield* uuid}`;
 
   const loadSnapshot = Effect.fn("AutomationService.loadSnapshot")(function* () {
     const [automationRows, runs] = yield* Effect.all([
@@ -134,6 +147,11 @@ export const make = Effect.gen(function* () {
     input: AutomationCreateInput | AutomationUpdateInput,
     nowEpochMillis: number,
   ) {
+    if (input.runtimeMode === "full-access" && !input.fullAccessAcknowledged) {
+      return yield* operationError(
+        "Full access must be explicitly acknowledged because the routine can run commands without approval.",
+      );
+    }
     const nextRunAt = yield* Effect.fromResult(
       validateFutureSchedule(input.schedule, nowEpochMillis),
     ).pipe(Effect.mapError((cause) => operationError(cause.message, cause)));
@@ -166,40 +184,12 @@ export const make = Effect.gen(function* () {
     return nextRunAt;
   });
 
-  const cancelQueuedRuns = Effect.fn("AutomationService.cancelQueuedRuns")(function* (
-    automationId: AutomationId,
-    finishedAt: string,
-  ) {
-    const runs = yield* repository.listRunsByAutomation(automationId, 10);
-    for (const run of runs) {
-      if (run.status === "queued") {
-        yield* repository.upsertRun({
-          ...run,
-          status: "cancelled",
-          error: "Automation stopped before this run started.",
-          finishedAt,
-        });
-      }
-    }
-  });
-
   const enqueueRun = Effect.fn("AutomationService.enqueueRun")(function* (input: {
     readonly automation: Automation;
     readonly trigger: "scheduled" | "manual";
     readonly scheduledFor: string;
+    readonly updatedAutomation?: Automation;
   }) {
-    const runs = yield* repository.listRunsByAutomation(input.automation.id, 10);
-    const queued = runs.find((run) => run.status === "queued");
-    if (queued) {
-      const next = {
-        ...queued,
-        latestScheduledFor: input.scheduledFor,
-        coalescedCount: queued.coalescedCount + 1,
-      } satisfies AutomationRun;
-      yield* repository.upsertRun(next);
-      return next;
-    }
-
     const createdAt = yield* nowIso;
     const run = {
       id: AutomationRunId.make(`automation-run:${yield* uuid}`),
@@ -216,8 +206,13 @@ export const make = Effect.gen(function* () {
       startedAt: null,
       finishedAt: null,
     } satisfies AutomationRun;
-    yield* repository.upsertRun(run);
-    return run;
+    return yield* repository.enqueueRun({
+      run,
+      automation:
+        input.updatedAutomation === undefined
+          ? null
+          : { ...input.updatedAutomation, deletedAt: null },
+    });
   });
 
   const stopForDeletedTarget = Effect.fn("AutomationService.stopForDeletedTarget")(function* (
@@ -289,12 +284,12 @@ export const make = Effect.gen(function* () {
       });
     }
 
-    if (existingThread !== null && existingThread.runtimeMode !== "full-access") {
+    if (existingThread !== null && existingThread.runtimeMode !== automation.runtimeMode) {
       yield* orchestration.dispatch({
         type: "thread.runtime-mode.set",
         commandId: CommandId.make(`automation:${run.id}:runtime-mode`),
         threadId: targetThreadId,
-        runtimeMode: "full-access",
+        runtimeMode: automation.runtimeMode,
         createdAt: now,
       });
     }
@@ -333,7 +328,7 @@ export const make = Effect.gen(function* () {
         projectId: automation.projectId,
         title: automation.title,
         modelSelection,
-        runtimeMode: "full-access",
+        runtimeMode: automation.runtimeMode,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         branch: null,
         worktreePath: null,
@@ -355,7 +350,7 @@ export const make = Effect.gen(function* () {
         },
         ...(existingThread === null ? { modelSelection } : {}),
         titleSeed: automation.title,
-        runtimeMode: "full-access",
+        runtimeMode: automation.runtimeMode,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         createdAt: now,
       })
@@ -425,6 +420,18 @@ export const make = Effect.gen(function* () {
   const schedulerPass = Effect.fn("AutomationService.schedulerPass")(function* () {
     const nowEpochMillis = yield* Clock.currentTimeMillis;
     const nowString = DateTime.formatIso(DateTime.makeUnsafe(nowEpochMillis));
+    const leaseExpiresAt = DateTime.formatIso(
+      DateTime.makeUnsafe(nowEpochMillis + Duration.toMillis(SCHEDULER_LEASE_DURATION)),
+    );
+    if (
+      !(yield* repository.acquireSchedulerLease({
+        ownerId: schedulerOwnerId,
+        now: nowString,
+        expiresAt: leaseExpiresAt,
+      }))
+    ) {
+      return;
+    }
     const rows = yield* repository.list();
     const automations = rows.filter((row) => row.deletedAt === null);
     const automationById = new Map(automations.map((automation) => [automation.id, automation]));
@@ -444,16 +451,19 @@ export const make = Effect.gen(function* () {
           : yield* Effect.fromResult(calculateNextRunAt(automation.schedule, nowEpochMillis));
       const updated = {
         ...automation,
+        status: automation.schedule.type === "once" ? ("stopped" as const) : automation.status,
+        stopReason:
+          automation.schedule.type === "once" ? ("once-completed" as const) : automation.stopReason,
         nextRunAt,
         updatedAt: nowString,
         deletedAt: null,
       };
-      yield* repository.upsert(updated);
       automationById.set(updated.id, updated);
       yield* enqueueRun({
-        automation: updated,
+        automation,
         trigger: "scheduled",
         scheduledFor,
+        updatedAutomation: updated,
       });
     }
 
@@ -486,6 +496,16 @@ export const make = Effect.gen(function* () {
                 error: failureMessage(error),
                 finishedAt,
               });
+              if (automation.schedule.type === "once" && automation.status !== "stopped") {
+                yield* repository.upsert({
+                  ...automation,
+                  status: "stopped",
+                  stopReason: "once-completed",
+                  nextRunAt: null,
+                  updatedAt: finishedAt,
+                  deletedAt: null,
+                });
+              }
               yield* Effect.logError("automation run dispatch failed", {
                 automationId: automation.id,
                 runId: run.id,
@@ -535,6 +555,7 @@ export const make = Effect.gen(function* () {
               prompt: input.prompt,
               projectId: input.projectId,
               modelSelection: input.modelSelection,
+              runtimeMode: input.runtimeMode,
               schedule: input.schedule,
               target: input.target,
               status: "active",
@@ -549,7 +570,7 @@ export const make = Effect.gen(function* () {
             return automation;
           }),
         )
-        .pipe(Effect.mapError((cause) => operationError("Failed to create automation.", cause)));
+        .pipe(Effect.mapError(preserveOperationError("Failed to create automation.")));
     },
   );
 
@@ -559,6 +580,11 @@ export const make = Effect.gen(function* () {
         .withPermits(1)(
           Effect.gen(function* () {
             const existing = yield* requireAutomation(input.automationId);
+            if (input.runtimeMode === "full-access" && !input.fullAccessAcknowledged) {
+              return yield* operationError(
+                "Full access must be explicitly acknowledged because the routine can run commands without approval.",
+              );
+            }
             const nowEpochMillis = yield* Clock.currentTimeMillis;
             const now = DateTime.formatIso(DateTime.makeUnsafe(nowEpochMillis));
             const nextRunAt =
@@ -571,6 +597,7 @@ export const make = Effect.gen(function* () {
               prompt: input.prompt,
               projectId: input.projectId,
               modelSelection: input.modelSelection,
+              runtimeMode: input.runtimeMode,
               schedule: input.schedule,
               target: input.target,
               nextRunAt,
@@ -584,7 +611,7 @@ export const make = Effect.gen(function* () {
             return result;
           }),
         )
-        .pipe(Effect.mapError((cause) => operationError("Failed to update automation.", cause)));
+        .pipe(Effect.mapError(preserveOperationError("Failed to update automation.")));
     },
   );
 
@@ -605,6 +632,8 @@ export const make = Effect.gen(function* () {
                       prompt: existing.prompt,
                       projectId: existing.projectId,
                       modelSelection: existing.modelSelection,
+                      runtimeMode: existing.runtimeMode,
+                      fullAccessAcknowledged: existing.runtimeMode === "full-access",
                       schedule: existing.schedule,
                       target: existing.target,
                     },
@@ -619,9 +648,14 @@ export const make = Effect.gen(function* () {
               updatedAt: now,
               deletedAt: null,
             };
-            yield* repository.upsert(automation);
             if (input.status === "stopped") {
-              yield* cancelQueuedRuns(existing.id, now);
+              yield* repository.stopAndCancelQueued({
+                automation,
+                finishedAt: now,
+                error: "Automation paused before this run started.",
+              });
+            } else {
+              yield* repository.upsert(automation);
             }
             yield* publishSnapshot();
             yield* wake;
@@ -629,9 +663,7 @@ export const make = Effect.gen(function* () {
             return result;
           }),
         )
-        .pipe(
-          Effect.mapError((cause) => operationError("Failed to change automation status.", cause)),
-        );
+        .pipe(Effect.mapError(preserveOperationError("Failed to change automation status.")));
     },
   );
 
@@ -658,7 +690,7 @@ export const make = Effect.gen(function* () {
             return run;
           }),
         )
-        .pipe(Effect.mapError((cause) => operationError("Failed to queue automation run.", cause)));
+        .pipe(Effect.mapError(preserveOperationError("Failed to queue automation run.")));
     },
   );
 
@@ -669,27 +701,61 @@ export const make = Effect.gen(function* () {
           Effect.gen(function* () {
             yield* requireAutomation(automationId);
             const deletedAt = yield* nowIso;
-            yield* cancelQueuedRuns(automationId, deletedAt);
-            yield* repository.softDelete(automationId, deletedAt);
+            const actionable = (yield* repository.listRunsByAutomation(automationId, 100)).filter(
+              (run) => run.status === "running" && run.threadId !== null,
+            );
+            for (const run of actionable) {
+              yield* orchestration
+                .dispatch({
+                  type: "thread.turn.interrupt",
+                  commandId: CommandId.make(`automation:${run.id}:delete-interrupt`),
+                  threadId: run.threadId!,
+                  createdAt: deletedAt,
+                })
+                .pipe(Effect.ignoreCause({ log: true }));
+            }
+            yield* repository.deleteAndCancelActionable({ automationId, deletedAt });
             yield* publishSnapshot();
             yield* wake;
           }),
         )
-        .pipe(Effect.mapError((cause) => operationError("Failed to delete automation.", cause)));
+        .pipe(Effect.mapError(preserveOperationError("Failed to delete automation.")));
     },
   );
 
   const recoverInterruptedRuns = Effect.fn("AutomationService.recoverInterruptedRuns")(
     function* () {
       const recoveredAt = yield* nowIso;
+      const automationRows = yield* repository.list();
+      const automationById = new Map(
+        automationRows.map((automation) => [automation.id, automation]),
+      );
       for (const run of yield* repository.listActionableRuns()) {
         if (run.status === "running") {
-          yield* repository.upsertRun({
-            ...run,
-            status: "failed",
-            error: "Server stopped while this automation was running.",
-            finishedAt: recoveredAt,
+          const automation = automationById.get(run.automationId);
+          if (automation === undefined || run.threadId === null || run.messageId === null) {
+            yield* repository.upsertRun({
+              ...run,
+              status: "failed",
+              error: "The interrupted automation run could not be reconciled.",
+              finishedAt: recoveredAt,
+            });
+            continue;
+          }
+          const turnState = yield* repository.getTurnState({
+            threadId: run.threadId,
+            messageId: run.messageId,
           });
+          if (Option.isSome(turnState)) {
+            yield* settleRunningRun(automation, run);
+          } else {
+            yield* repository.upsertRun({
+              ...run,
+              status: "failed",
+              error: "The server restarted before the automation turn was recorded.",
+              finishedAt: recoveredAt,
+            });
+          }
         }
       }
       yield* publishSnapshot();
@@ -705,6 +771,9 @@ export const make = Effect.gen(function* () {
 
   return AutomationService.of({
     snapshots: SubscriptionRef.changes(snapshotRef),
+    getSnapshot: SubscriptionRef.get(snapshotRef).pipe(
+      Effect.mapError(preserveOperationError("Failed to read automations.")),
+    ),
     create,
     update,
     setStatus,

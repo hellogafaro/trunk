@@ -10,7 +10,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { ModelSelection } from "./orchestration.ts";
+import { ModelSelection, RuntimeMode } from "./orchestration.ts";
 
 export const AUTOMATION_WS_METHODS = {
   subscribe: "automations.subscribe",
@@ -71,6 +71,7 @@ export const Automation = Schema.Struct({
   prompt: TrimmedNonEmptyString,
   projectId: ProjectId,
   modelSelection: Schema.NullOr(ModelSelection),
+  runtimeMode: RuntimeMode,
   schedule: AutomationSchedule,
   target: AutomationTarget,
   status: AutomationStatus,
@@ -110,6 +111,8 @@ const AutomationWriteFields = {
   prompt: TrimmedNonEmptyString,
   projectId: ProjectId,
   modelSelection: Schema.NullOr(ModelSelection),
+  runtimeMode: RuntimeMode,
+  fullAccessAcknowledged: Schema.Boolean,
   schedule: AutomationSchedule,
   target: AutomationTarget,
 } as const;

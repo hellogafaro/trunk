@@ -31,6 +31,7 @@ layer("AutomationRepository", (it) => {
           instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.4",
         },
+        runtimeMode: "approval-required",
         schedule: { type: "cron", expression: "0 9 * * 1-5", timeZone: "Europe/Berlin" },
         target: {
           type: "persistent-thread",
@@ -95,6 +96,7 @@ layer("AutomationRepository", (it) => {
         prompt: "Run once.",
         projectId: ProjectId.make("project:test"),
         modelSelection: null,
+        runtimeMode: "approval-required",
         schedule: { type: "once", runAt: "2026-07-20T07:00:00.000Z" },
         target: { type: "fresh-thread" },
         status: "active",
@@ -142,5 +144,80 @@ layer("AutomationRepository", (it) => {
       });
       assert.isTrue(Option.isNone(missing));
     }),
+  );
+
+  it.effect(
+    "atomically advances a definition while coalescing queued work and leases scheduling",
+    () =>
+      Effect.gen(function* () {
+        const repository = yield* AutomationRepository;
+        const automationId = AutomationId.make("automation:atomic-enqueue");
+        const automation = {
+          id: automationId,
+          title: "Atomic routine",
+          prompt: "Inspect the project.",
+          projectId: ProjectId.make("project:test"),
+          modelSelection: null,
+          runtimeMode: "approval-required" as const,
+          schedule: { type: "cron" as const, expression: "0 9 * * *", timeZone: "UTC" },
+          target: { type: "existing-thread" as const, threadId: ThreadId.make("thread:test") },
+          status: "active" as const,
+          stopReason: null,
+          nextRunAt: "2026-07-21T09:00:00.000Z",
+          createdAt: "2026-07-18T12:00:00.000Z",
+          updatedAt: "2026-07-18T12:00:00.000Z",
+          deletedAt: null,
+        };
+        yield* repository.upsert(automation);
+        const makeRun = (id: string, scheduledFor: string) => ({
+          id: AutomationRunId.make(id),
+          automationId,
+          trigger: "scheduled" as const,
+          status: "queued" as const,
+          scheduledFor,
+          latestScheduledFor: scheduledFor,
+          coalescedCount: 0,
+          threadId: null,
+          messageId: null,
+          error: null,
+          createdAt: scheduledFor,
+          startedAt: null,
+          finishedAt: null,
+        });
+        yield* repository.enqueueRun({
+          run: makeRun("automation-run:atomic-1", "2026-07-20T09:00:00.000Z"),
+          automation: { ...automation, nextRunAt: "2026-07-22T09:00:00.000Z" },
+        });
+        const coalesced = yield* repository.enqueueRun({
+          run: makeRun("automation-run:atomic-2", "2026-07-21T09:00:00.000Z"),
+          automation: null,
+        });
+        assert.equal(coalesced.coalescedCount, 1);
+        assert.equal((yield* repository.listRunsByAutomation(automationId, 10)).length, 1);
+        const stored = yield* repository.getById(automationId);
+        assert.equal(Option.getOrThrow(stored).nextRunAt, "2026-07-22T09:00:00.000Z");
+
+        assert.isTrue(
+          yield* repository.acquireSchedulerLease({
+            ownerId: "owner-a",
+            now: "2026-07-20T09:00:00.000Z",
+            expiresAt: "2026-07-20T09:00:10.000Z",
+          }),
+        );
+        assert.isFalse(
+          yield* repository.acquireSchedulerLease({
+            ownerId: "owner-b",
+            now: "2026-07-20T09:00:01.000Z",
+            expiresAt: "2026-07-20T09:00:11.000Z",
+          }),
+        );
+        assert.isTrue(
+          yield* repository.acquireSchedulerLease({
+            ownerId: "owner-b",
+            now: "2026-07-20T09:00:10.000Z",
+            expiresAt: "2026-07-20T09:00:20.000Z",
+          }),
+        );
+      }),
   );
 });

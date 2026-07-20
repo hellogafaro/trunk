@@ -54,6 +54,24 @@ export interface AutomationRepositoryShape {
     runId: AutomationRunId,
   ) => Effect.Effect<Option.Option<AutomationRun>, AutomationRepositoryError>;
   readonly upsertRun: (run: AutomationRun) => Effect.Effect<void, AutomationRepositoryError>;
+  readonly enqueueRun: (input: {
+    readonly run: AutomationRun;
+    readonly automation: PersistedAutomation | null;
+  }) => Effect.Effect<AutomationRun, AutomationRepositoryError>;
+  readonly stopAndCancelQueued: (input: {
+    readonly automation: PersistedAutomation;
+    readonly finishedAt: string;
+    readonly error: string;
+  }) => Effect.Effect<void, AutomationRepositoryError>;
+  readonly deleteAndCancelActionable: (input: {
+    readonly automationId: AutomationId;
+    readonly deletedAt: string;
+  }) => Effect.Effect<void, AutomationRepositoryError>;
+  readonly acquireSchedulerLease: (input: {
+    readonly ownerId: string;
+    readonly now: string;
+    readonly expiresAt: string;
+  }) => Effect.Effect<boolean, AutomationRepositoryError>;
   readonly getTurnState: (input: {
     readonly threadId: ThreadId;
     readonly messageId: MessageId;
