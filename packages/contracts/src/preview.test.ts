@@ -156,6 +156,23 @@ describe("PreviewNavStatus", () => {
 });
 
 describe("PreviewSessionSnapshot", () => {
+  it("decodes an optional manual verification state", () => {
+    const snapshot = decodeSnapshot({
+      threadId: "thread-1",
+      tabId: "preview-1",
+      navStatus: { _tag: "Success", url: "https://example.com/login", title: "Login" },
+      canGoBack: false,
+      canGoForward: false,
+      verification: {
+        provider: "authentication",
+        reason: "Authentication requires manual control.",
+      },
+      updatedAt: "2026-07-20T12:00:00.000Z",
+    });
+
+    expect(snapshot.verification?.provider).toBe("authentication");
+  });
+
   it("round-trips a Success snapshot", () => {
     const snapshot = decodeSnapshot({
       threadId: "thread-1",

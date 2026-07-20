@@ -8,4 +8,4 @@
 - [Operations](./operations/ci.md)
 - [Providers](./providers/codex.md)
 - [Reference](./reference/encyclopedia.md)
-- [User guides](./user/keybindings.md)
+- User guides: [keybindings](./user/keybindings.md), [trusted preview browser](./user/trusted-browser.md)

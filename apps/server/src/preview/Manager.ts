@@ -369,6 +369,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           canGoBack: input.canGoBack,
           canGoForward: input.canGoForward,
           viewport: session.snapshot.viewport ?? FILL_PREVIEW_VIEWPORT,
+          ...(input.verification ? { verification: input.verification } : {}),
           updatedAt,
         };
         const emit: PreviewEvent =
