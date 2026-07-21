@@ -47,6 +47,7 @@ import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
 import { projectFileCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
 import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import { nextFilePreviewRefreshTarget } from "./filePreviewRefresh";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -64,6 +65,8 @@ interface FilePreviewPanelProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
   revealLine: number | null;
   revealRequestId: number;
+  fileRefreshKey: string | null;
+  hasPendingChange: boolean;
   onOpenFile: (relativePath: string) => void;
   onPendingChange: (relativePath: string, pending: boolean) => void;
 }
@@ -607,6 +610,8 @@ export default function FilePreviewPanel({
   composerDraftTarget,
   revealLine,
   revealRequestId,
+  fileRefreshKey,
+  hasPendingChange,
   onOpenFile,
   onPendingChange,
 }: FilePreviewPanelProps) {
@@ -620,6 +625,7 @@ export default function FilePreviewPanel({
     reportFailure: false,
   });
   const file = useProjectFileQuery(environmentId, cwd, relativePath);
+  const lastRefreshTargetRef = useRef<string | null>(null);
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   const [markdownView, setMarkdownView] = useState<{
     path: string | null;
@@ -639,6 +645,19 @@ export default function FilePreviewPanel({
     [projectName, relativePath],
   );
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
+
+  useEffect(() => {
+    const nextTarget = nextFilePreviewRefreshTarget({
+      lastTarget: lastRefreshTargetRef.current,
+      relativePath,
+      refreshKey: fileRefreshKey,
+      hasPendingChange,
+    });
+    if (nextTarget === null) return;
+
+    lastRefreshTargetRef.current = nextTarget;
+    file.refresh();
+  }, [file.refresh, fileRefreshKey, hasPendingChange, relativePath]);
 
   useEffect(() => {
     const currentCrumb = breadcrumbRef.current?.querySelector<HTMLElement>(

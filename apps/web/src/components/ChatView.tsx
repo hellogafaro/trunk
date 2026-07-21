@@ -1381,6 +1381,10 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, [activeThreadKey, existingOpenTerminalThreadKeys, terminalUiState.terminalOpen]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
+  const fileRefreshKey =
+    latestTurnSettled && activeLatestTurn?.completedAt
+      ? `${activeLatestTurn.turnId}:${activeLatestTurn.completedAt}`
+      : null;
   const activeProjectRef = activeThread
     ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
     : null;
@@ -1408,6 +1412,9 @@ function ChatViewContent(props: ChatViewProps) {
   const pendingFileSurfaceIds = activeProjectKey
     ? (pendingFileSurfaceIdsByProject.get(activeProjectKey) ?? EMPTY_PENDING_FILE_SURFACE_IDS)
     : EMPTY_PENDING_FILE_SURFACE_IDS;
+  const activeFileHasPendingChange = activeFileSurface
+    ? pendingFileSurfaceIds.has(`file:${activeFileSurface.relativePath}`)
+    : false;
   const handleFilePendingChange = useCallback(
     (relativePath: string, pending: boolean) => {
       if (!activeProjectKey) return;
@@ -5012,6 +5019,8 @@ function ChatViewContent(props: ChatViewProps) {
           }
           revealLine={activeFileSurface?.revealLine ?? null}
           revealRequestId={activeFileSurface?.revealRequestId ?? 0}
+          fileRefreshKey={fileRefreshKey}
+          hasPendingChange={activeFileHasPendingChange}
           onOpenFile={openFileSurface}
           onPendingChange={handleFilePendingChange}
         />
