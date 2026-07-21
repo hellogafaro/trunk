@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  attachmentRelativePath,
   createAttachmentId,
   parseThreadSegmentFromAttachmentId,
   resolveAttachmentPathById,
@@ -76,5 +77,17 @@ describe("attachmentStore", () => {
     } finally {
       NodeFS.rmSync(attachmentsDir, { recursive: true, force: true });
     }
+  });
+
+  it("keeps a safe extension for generic file attachments", () => {
+    expect(
+      attachmentRelativePath({
+        type: "file",
+        id: "thread-1-00000000-0000-4000-8000-000000000001",
+        name: "research archive.ZIP",
+        mimeType: "application/zip",
+        sizeBytes: 42,
+      }),
+    ).toBe("thread-1-00000000-0000-4000-8000-000000000001.zip");
   });
 });

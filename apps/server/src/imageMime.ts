@@ -80,3 +80,18 @@ export function inferImageExtension(input: { mimeType: string; fileName?: string
 
   return ".bin";
 }
+
+export function inferAttachmentExtension(input: { mimeType: string; fileName?: string }): string {
+  const fileName = input.fileName?.trim() ?? "";
+  const extensionMatch = /\.([a-z0-9]{1,16})$/i.exec(fileName);
+  if (extensionMatch?.[1]) {
+    return `.${extensionMatch[1].toLowerCase()}`;
+  }
+
+  const fromMimeExtension = Mime.getExtension(input.mimeType);
+  if (fromMimeExtension && /^[a-z0-9]{1,16}$/i.test(fromMimeExtension)) {
+    return `.${fromMimeExtension.toLowerCase()}`;
+  }
+
+  return ".bin";
+}

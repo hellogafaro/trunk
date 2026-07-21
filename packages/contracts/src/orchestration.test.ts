@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  ChatAttachment,
   ModelSelection,
   OrchestrationCommand,
   OrchestrationEvent,
@@ -15,6 +16,7 @@ import {
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
   OrchestrationSession,
+  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   ProjectCreateCommand,
   ThreadMetaUpdatedPayload,
   ThreadTurnStartCommand,
@@ -49,6 +51,31 @@ const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPaylo
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+const decodeChatAttachment = Schema.decodeUnknownEffect(ChatAttachment);
+
+it.effect("parses generic file attachments", () =>
+  Effect.gen(function* () {
+    const attachment = yield* decodeChatAttachment({
+      type: "file",
+      id: "thread-1-file",
+      name: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+    });
+    assert.strictEqual(attachment.type, "file");
+    assert.strictEqual(attachment.name, "report.pdf");
+  }),
+);
+
+it.effect("rejects oversized generic file attachments", () =>
+  decodeChatAttachment({
+    type: "file",
+    id: "thread-1-file",
+    name: "archive.zip",
+    mimeType: "application/zip",
+    sizeBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES + 1,
+  }).pipe(Effect.flip, Effect.asVoid),
+);
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {
