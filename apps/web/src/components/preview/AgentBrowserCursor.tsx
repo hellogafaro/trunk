@@ -45,19 +45,22 @@ function AgentBrowserCursorEvent(props: {
       data-agent-browser-cursor
     >
       <svg
-        viewBox="0 0 24 25"
-        className="relative size-6.5 -translate-x-[3px] -translate-y-[3px] fill-blue-600 text-blue-600"
+        viewBox="-0.5 -0.5 16 16"
+        className="relative size-5 -translate-x-[2px] -translate-y-[2px] fill-blue-600 text-blue-600"
         style={{
-          filter: "drop-shadow(0 2px 2px rgb(107 114 128))",
+          filter: "drop-shadow(0 0 4.5px rgb(107 114 128 / 55%))",
         }}
         aria-hidden="true"
       >
         <path
-          d="M3.6 2.7 21 16.25c.75.58.33 1.78-.62 1.78h-8.1a1 1 0 0 0-.75.34l-5.15 5.78c-.64.72-1.83.27-1.83-.7V3.52c0-.78.89-1.22 1.5-.74Z"
-          stroke="currentColor"
-          strokeWidth="1.35"
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M13.2403125 5.168375c.9875625.401125.9121875 1.82375-.11225 2.1181875L7.958875 8.7725l-2.3609375 4.8326875c-.4679375.9576875-1.8820625.784875-2.1055625-.25725L1.0856875 2.1243125C.8968125 1.2435 1.7705.510375 2.6051875.8493125L13.2403125 5.168375Z"
+          stroke="white"
+          strokeWidth="2"
           strokeLinejoin="round"
           strokeLinecap="round"
+          paintOrder="stroke fill"
         />
       </svg>
     </div>
