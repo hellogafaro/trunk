@@ -8,11 +8,13 @@ import {
   FolderPlusIcon,
   Globe2Icon,
   LoaderIcon,
+  PinIcon,
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
+  UnpinIcon,
 } from "~/components/ui/icons";
 import {
   ChangeRequestStatusIcon,
@@ -397,6 +399,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
+  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
   const environment = useEnvironment(thread.environmentId);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const isRemoteThread =
@@ -471,9 +476,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const isConfirmingArchive = confirmingArchiveThreadKey === threadKey && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive
     ? "pointer-events-none opacity-0"
-    : !isThreadRunning
-      ? "pointer-events-none transition-opacity duration-150 max-sm:pr-6 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
-      : "pointer-events-none";
+    : "pointer-events-none transition-opacity duration-150 max-sm:pr-6 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0";
   const clearConfirmingArchive = useCallback(() => {
     setConfirmingArchiveThreadKey((current) => (current === threadKey ? null : current));
   }, [setConfirmingArchiveThreadKey, threadKey]);
@@ -667,6 +670,29 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     },
     [attemptArchiveThread, threadRef],
   );
+  const handleTogglePinClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void (async () => {
+        const result = await updateThreadMetadata({
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id, pinned: thread.pinned !== true },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: thread.pinned === true ? "Failed to unpin thread" : "Failed to pin thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [thread.environmentId, thread.id, thread.pinned, updateThreadMetadata],
+  );
   const rowButtonRender = useMemo(() => <div role="button" tabIndex={0} />, []);
 
   return (
@@ -794,9 +820,31 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               >
                 Confirm
               </button>
-            ) : !isThreadRunning ? (
-              appSettingsConfirmThreadArchive ? (
-                <div className="pointer-events-none absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+            ) : (
+              <div className="pointer-events-none absolute top-1/2 right-0.5 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        data-thread-selection-safe
+                        data-testid={`thread-pin-${thread.id}`}
+                        aria-label={`${thread.pinned === true ? "Unpin" : "Pin"} ${thread.title}`}
+                        className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                        onPointerDown={stopPropagationOnPointerDown}
+                        onClick={handleTogglePinClick}
+                      />
+                    }
+                  >
+                    {thread.pinned === true ? (
+                      <UnpinIcon className="size-3.5" />
+                    ) : (
+                      <PinIcon className="size-3.5" />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">{thread.pinned === true ? "Unpin" : "Pin"}</TooltipPopup>
+                </Tooltip>
+                {!isThreadRunning && appSettingsConfirmThreadArchive ? (
                   <button
                     type="button"
                     data-thread-selection-safe
@@ -808,12 +856,10 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                   >
                     <ArchiveIcon className="size-3.5" />
                   </button>
-                </div>
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <div className="pointer-events-none absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+                ) : !isThreadRunning ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
                         <button
                           type="button"
                           data-thread-selection-safe
@@ -822,16 +868,16 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                           className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
                           onPointerDown={stopPropagationOnPointerDown}
                           onClick={handleArchiveImmediateClick}
-                        >
-                          <ArchiveIcon className="size-3.5" />
-                        </button>
-                      </div>
-                    }
-                  />
-                  <TooltipPopup side="top">Archive</TooltipPopup>
-                </Tooltip>
-              )
-            ) : null}
+                        />
+                      }
+                    >
+                      <ArchiveIcon className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">Archive</TooltipPopup>
+                  </Tooltip>
+                ) : null}
+              </div>
+            )}
             <span className={threadMetaClassName}>
               <span className="inline-flex items-center gap-1">
                 {isRemoteThread && !isDesktopLocalThread && (
@@ -865,7 +911,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                   </Tooltip>
                 ) : (
                   <span
-                    className={`text-[10px] tabular-nums ${
+                    className={`tabular-nums ${
                       isHighlighted
                         ? "text-foreground/72 dark:text-foreground/82"
                         : "text-muted-foreground/40"
@@ -2831,11 +2877,18 @@ interface SidebarPinnedThreadsProps {
   routeThreadKey: string | null;
   threadJumpLabelByKey: ReadonlyMap<string, string>;
   navigateToThread: (threadRef: ScopedThreadRef) => void;
+  attemptArchiveThread: (threadRef: ScopedThreadRef) => Promise<void>;
 }
 
 const SidebarPinnedThreads = memo(function SidebarPinnedThreads(props: SidebarPinnedThreadsProps) {
-  const { threads, projectLabelByRef, routeThreadKey, threadJumpLabelByKey, navigateToThread } =
-    props;
+  const {
+    threads,
+    projectLabelByRef,
+    routeThreadKey,
+    threadJumpLabelByKey,
+    navigateToThread,
+    attemptArchiveThread,
+  } = props;
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -2863,8 +2916,8 @@ const SidebarPinnedThreads = memo(function SidebarPinnedThreads(props: SidebarPi
   if (threads.length === 0) return null;
 
   return (
-    <SidebarGroup className="px-2 pt-2 pb-0">
-      <div className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground/60">
+    <SidebarGroup className="px-2 pt-2 pb-2">
+      <div className="mb-1 flex h-6 items-center px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground/60">
         Pinned
       </div>
       <SidebarMenu>
@@ -2877,12 +2930,12 @@ const SidebarPinnedThreads = memo(function SidebarPinnedThreads(props: SidebarPi
             ) ?? "Project";
           const jumpLabel = threadJumpLabelByKey.get(threadKey) ?? null;
           return (
-            <SidebarMenuItem key={threadKey}>
+            <SidebarMenuItem key={threadKey} className="group/pinned-thread">
               <SidebarMenuButton
                 size="sm"
                 isActive={routeThreadKey === threadKey}
                 data-testid={`pinned-thread-row-${thread.id}`}
-                className="gap-2 px-2 py-1.5"
+                className="relative gap-1.5 px-2 py-1.5 data-[active=true]:font-normal"
                 onClick={() => navigateToThread(threadRef)}
                 onContextMenu={(event) => {
                   event.preventDefault();
@@ -2890,22 +2943,26 @@ const SidebarPinnedThreads = memo(function SidebarPinnedThreads(props: SidebarPi
                     const api = readLocalApi();
                     if (!api) return;
                     const clicked = await api.contextMenu.show(
-                      [{ id: "unpin", label: "Unpin thread" }],
+                      [
+                        { id: "unpin", label: "Unpin thread" },
+                        { id: "archive", label: "Archive thread" },
+                      ],
                       { x: event.clientX, y: event.clientY },
                     );
                     if (clicked === "unpin") await unpinThread(thread);
+                    if (clicked === "archive") await attemptArchiveThread(threadRef);
                   })();
                 }}
               >
-                <SquarePenIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <ThreadStatusLabel status={resolveThreadStatusPill({ thread })} />
                 <span className="min-w-0 flex-1 truncate text-left">{thread.title}</span>
                 {jumpLabel ? (
-                  <span className="shrink-0 text-[10px] text-muted-foreground/50">{jumpLabel}</span>
+                  <span className="shrink-0 text-muted-foreground/50">{jumpLabel}</span>
                 ) : null}
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <span className="max-w-[40%] shrink truncate text-right text-[10px] text-muted-foreground/45" />
+                      <span className="max-w-[40%] shrink truncate text-right text-muted-foreground/45 transition-opacity group-hover/pinned-thread:opacity-0 group-focus-within/pinned-thread:opacity-0" />
                     }
                   >
                     {projectLabel}
@@ -2913,6 +2970,48 @@ const SidebarPinnedThreads = memo(function SidebarPinnedThreads(props: SidebarPi
                   <TooltipPopup side="top">{projectLabel}</TooltipPopup>
                 </Tooltip>
               </SidebarMenuButton>
+              <div className="pointer-events-none absolute top-1/2 right-0.5 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 group-hover/pinned-thread:pointer-events-auto group-hover/pinned-thread:opacity-100 group-focus-within/pinned-thread:pointer-events-auto group-focus-within/pinned-thread:opacity-100">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        data-testid={`pinned-thread-unpin-${thread.id}`}
+                        aria-label={`Unpin ${thread.title}`}
+                        className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void unpinThread(thread);
+                        }}
+                      />
+                    }
+                  >
+                    <UnpinIcon className="size-3.5" />
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">Unpin</TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        data-testid={`pinned-thread-archive-${thread.id}`}
+                        aria-label={`Archive ${thread.title}`}
+                        className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void attemptArchiveThread(threadRef);
+                        }}
+                      />
+                    }
+                  >
+                    <ArchiveIcon className="size-3.5" />
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">Archive</TooltipPopup>
+                </Tooltip>
+              </div>
             </SidebarMenuItem>
           );
         })}
@@ -3012,6 +3111,22 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     },
     [updateSettings],
   );
+  const attemptPinnedThreadArchive = useCallback(
+    async (threadRef: ScopedThreadRef) => {
+      const result = await archiveThread(threadRef);
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to archive thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    },
+    [archiveThread],
+  );
   const handleThreadSortOrderChange = useCallback(
     (sortOrder: SidebarThreadSortOrder) => {
       updateSettings({ sidebarThreadSortOrder: sortOrder });
@@ -3033,7 +3148,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
   return (
     <SidebarContent className="gap-0">
-      <SidebarGroup className="px-2 pt-2 pb-1">
+      <SidebarGroup className="px-2 pt-2 pb-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <CommandDialogTrigger
@@ -3094,6 +3209,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         routeThreadKey={routeThreadKey}
         threadJumpLabelByKey={threadJumpLabelByKey}
         navigateToThread={navigateToThread}
+        attemptArchiveThread={attemptPinnedThreadArchive}
       />
       <SidebarGroup className="px-2 py-2">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">

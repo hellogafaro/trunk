@@ -52,6 +52,7 @@ import {
   RiPaintBrushLine,
   RiPencilRuler2Line,
   RiPlayLine,
+  RiPushpinLine,
   RiQrCodeLine,
   RiQuillPenLine,
   RiRefreshLine,
@@ -75,6 +76,7 @@ import {
   RiTextWrap,
   RiTimeLine,
   RiToolsLine,
+  RiUnpinLine,
 } from "@remixicon/react";
 import type { RemixiconComponentType } from "@remixicon/react";
 
@@ -182,6 +184,7 @@ export const PenLineIcon = createIcon(RiQuillPenLine);
 export const PaintbrushIcon = createIcon(RiPaintBrushLine);
 export const PencilRulerIcon = createIcon(RiPencilRuler2Line);
 export const PlayIcon = createIcon(RiPlayLine);
+export const PinIcon = createIcon(RiPushpinLine);
 export const Plus = createIcon(RiAddLine);
 export const PlusIcon = createIcon(RiAddLine);
 export const QrCodeIcon = createIcon(RiQrCodeLine);
@@ -204,6 +207,7 @@ export const TerminalSquareIcon = createIcon(RiTerminalBoxLine);
 export const TextWrapIcon = createIcon(RiTextWrap);
 export const Trash2 = createIcon(RiDeleteBinLine);
 export const TriangleAlertIcon = createIcon(RiErrorWarningLine);
+export const UnpinIcon = createIcon(RiUnpinLine);
 export const Undo2Icon = createIcon(RiArrowGoBackLine);
 export const WrenchIcon = createIcon(RiToolsLine);
 export const XIcon = createIcon(RiCloseLine);
