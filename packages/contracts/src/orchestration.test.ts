@@ -320,9 +320,11 @@ it.effect("decodes thread.meta-updated payloads with explicit provider", () =>
         provider: "claudeAgent",
         model: "claude-opus-4-6",
       },
+      pinned: true,
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.modelSelection?.instanceId, "claudeAgent");
+    assert.strictEqual(parsed.pinned, true);
   }),
 );
 

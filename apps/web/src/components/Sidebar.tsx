@@ -893,6 +893,7 @@ interface SidebarProjectThreadListProps {
   orderedProjectThreadKeys: readonly string[];
   renderedThreads: readonly SidebarThreadSummary[];
   showEmptyThreadState: boolean;
+  emptyThreadStateLabel: string;
   shouldShowThreadPanel: boolean;
   isThreadListExpanded: boolean;
   projectCwd: string;
@@ -944,6 +945,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     orderedProjectThreadKeys,
     renderedThreads,
     showEmptyThreadState,
+    emptyThreadStateLabel,
     shouldShowThreadPanel,
     isThreadListExpanded,
     projectCwd,
@@ -986,7 +988,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             data-thread-selection-safe
             className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-sm text-muted-foreground/60"
           >
-            <span>No threads yet</span>
+            <span>{emptyThreadStateLabel}</span>
           </div>
         </SidebarMenuSubItem>
       ) : null}
@@ -1189,7 +1191,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   // thread-list change).
   const sidebarThreadByKeyRef = useRef(sidebarThreadByKey);
   sidebarThreadByKeyRef.current = sidebarThreadByKey;
-  const projectThreads = sidebarThreads;
+  const projectThreads = useMemo(
+    () => sidebarThreads.filter((thread) => thread.pinned !== true),
+    [sidebarThreads],
+  );
+  const pinnedActiveThreadCount = useMemo(
+    () =>
+      sidebarThreads.filter((thread) => thread.archivedAt === null && thread.pinned === true)
+        .length,
+    [sidebarThreads],
+  );
   const projectPreferenceKeys = useMemo(() => projectExpansionPreferenceKeys(project), [project]);
   const projectExpanded = useUiStateStore((state) =>
     resolveProjectExpanded(state.projectExpandedById, projectPreferenceKeys),
@@ -1233,7 +1244,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     const counts = new Map<string, number>(
       project.memberProjects.map((member) => [member.physicalProjectKey, 0] as const),
     );
-    for (const thread of projectThreads) {
+    for (const thread of sidebarThreads) {
       const member = memberProjectByScopedKey.get(
         scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
       );
@@ -1243,7 +1254,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       counts.set(member.physicalProjectKey, (counts.get(member.physicalProjectKey) ?? 0) + 1);
     }
     return counts;
-  }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
+  }, [memberProjectByScopedKey, project.memberProjects, sidebarThreads]);
 
   const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
     const lastVisitedAtByThreadKey = new Map(
@@ -2126,6 +2137,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
+          { id: "toggle-pin", label: thread.pinned === true ? "Unpin thread" : "Pin thread" },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -2136,6 +2148,24 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
       if (clicked === "rename") {
         startThreadRename(threadKey, thread.title);
+        return;
+      }
+
+      if (clicked === "toggle-pin") {
+        const result = await updateThreadMetadata({
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id, pinned: thread.pinned !== true },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: thread.pinned === true ? "Failed to unpin thread" : "Failed to pin thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
         return;
       }
 
@@ -2194,6 +2224,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       memberProjectByScopedKey,
       project.workspaceRoot,
       startThreadRename,
+      updateThreadMetadata,
     ],
   );
 
@@ -2311,6 +2342,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         orderedProjectThreadKeys={orderedProjectThreadKeys}
         renderedThreads={renderedThreads}
         showEmptyThreadState={showEmptyThreadState}
+        emptyThreadStateLabel={
+          pinnedActiveThreadCount > 0
+            ? `${pinnedActiveThreadCount} thread${pinnedActiveThreadCount === 1 ? "" : "s"} in Pinned`
+            : "No threads yet"
+        }
         shouldShowThreadPanel={shouldShowThreadPanel}
         isThreadListExpanded={isThreadListExpanded}
         projectCwd={project.workspaceRoot}
@@ -2789,6 +2825,102 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   );
 });
 
+interface SidebarPinnedThreadsProps {
+  threads: readonly SidebarThreadSummary[];
+  projectLabelByRef: ReadonlyMap<string, string>;
+  routeThreadKey: string | null;
+  threadJumpLabelByKey: ReadonlyMap<string, string>;
+  navigateToThread: (threadRef: ScopedThreadRef) => void;
+}
+
+const SidebarPinnedThreads = memo(function SidebarPinnedThreads(props: SidebarPinnedThreadsProps) {
+  const { threads, projectLabelByRef, routeThreadKey, threadJumpLabelByKey, navigateToThread } =
+    props;
+  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
+
+  const unpinThread = useCallback(
+    async (thread: SidebarThreadSummary) => {
+      const result = await updateThreadMetadata({
+        environmentId: thread.environmentId,
+        input: { threadId: thread.id, pinned: false },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to unpin thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    },
+    [updateThreadMetadata],
+  );
+
+  if (threads.length === 0) return null;
+
+  return (
+    <SidebarGroup className="px-2 pt-2 pb-0">
+      <div className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground/60">
+        Pinned
+      </div>
+      <SidebarMenu>
+        {threads.map((thread) => {
+          const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+          const threadKey = scopedThreadKey(threadRef);
+          const projectLabel =
+            projectLabelByRef.get(
+              scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
+            ) ?? "Project";
+          const jumpLabel = threadJumpLabelByKey.get(threadKey) ?? null;
+          return (
+            <SidebarMenuItem key={threadKey}>
+              <SidebarMenuButton
+                size="sm"
+                isActive={routeThreadKey === threadKey}
+                data-testid={`pinned-thread-row-${thread.id}`}
+                className="gap-2 px-2 py-1.5"
+                onClick={() => navigateToThread(threadRef)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  void (async () => {
+                    const api = readLocalApi();
+                    if (!api) return;
+                    const clicked = await api.contextMenu.show(
+                      [{ id: "unpin", label: "Unpin thread" }],
+                      { x: event.clientX, y: event.clientY },
+                    );
+                    if (clicked === "unpin") await unpinThread(thread);
+                  })();
+                }}
+              >
+                <SquarePenIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <span className="min-w-0 flex-1 truncate text-left">{thread.title}</span>
+                {jumpLabel ? (
+                  <span className="shrink-0 text-[10px] text-muted-foreground/50">{jumpLabel}</span>
+                ) : null}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span className="max-w-[40%] shrink truncate text-right text-[10px] text-muted-foreground/45" />
+                    }
+                  >
+                    {projectLabel}
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">{projectLabel}</TooltipPopup>
+                </Tooltip>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          );
+        })}
+      </SidebarMenu>
+    </SidebarGroup>
+  );
+});
+
 interface SidebarProjectsContentProps {
   showArm64IntelBuildWarning: boolean;
   arm64IntelBuildWarningDescription: string | null;
@@ -2825,6 +2957,9 @@ interface SidebarProjectsContentProps {
   suppressProjectClickForContextMenuRef: React.RefObject<boolean>;
   attachProjectListAutoAnimateRef: (node: HTMLElement | null) => void;
   projectsLength: number;
+  pinnedThreads: readonly SidebarThreadSummary[];
+  projectLabelByRef: ReadonlyMap<string, string>;
+  navigateToThread: (threadRef: ScopedThreadRef) => void;
 }
 
 const SidebarProjectsContent = memo(function SidebarProjectsContent(
@@ -2866,6 +3001,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     suppressProjectClickForContextMenuRef,
     attachProjectListAutoAnimateRef,
     projectsLength,
+    pinnedThreads,
+    projectLabelByRef,
+    navigateToThread,
   } = props;
 
   const handleProjectSortOrderChange = useCallback(
@@ -2950,6 +3088,13 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         </SidebarGroup>
       ) : null}
       <LocalSecondaryStatus />
+      <SidebarPinnedThreads
+        threads={pinnedThreads}
+        projectLabelByRef={projectLabelByRef}
+        routeThreadKey={routeThreadKey}
+        threadJumpLabelByKey={threadJumpLabelByKey}
+        navigateToThread={navigateToThread}
+      />
       <SidebarGroup className="px-2 py-2">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground/60">
@@ -3180,6 +3325,21 @@ export default function Sidebar() {
     () => new Map(sidebarProjects.map((project) => [project.projectKey, project] as const)),
     [sidebarProjects],
   );
+  const projectLabelByRef = useMemo(
+    () =>
+      new Map(
+        sidebarProjects.flatMap((project) =>
+          project.memberProjects.map(
+            (member) =>
+              [
+                scopedProjectKey(scopeProjectRef(member.environmentId, member.id)),
+                project.displayName,
+              ] as const,
+          ),
+        ),
+      ),
+    [sidebarProjects],
+  );
   const sidebarThreadByKey = useMemo(
     () =>
       new Map(
@@ -3210,6 +3370,7 @@ export default function Sidebar() {
   const threadsByProjectKey = useMemo(() => {
     const next = new Map<string, SidebarThreadSummary[]>();
     for (const thread of sidebarThreads) {
+      if (thread.pinned === true) continue;
       const physicalKey =
         projectPhysicalKeyByScopedRef.get(
           scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
@@ -3335,6 +3496,14 @@ export default function Sidebar() {
     () => sidebarThreads.filter((thread) => thread.archivedAt === null),
     [sidebarThreads],
   );
+  const pinnedThreads = useMemo(
+    () =>
+      sortThreads(
+        sidebarThreads.filter((thread) => thread.archivedAt === null && thread.pinned === true),
+        sidebarThreadSortOrder,
+      ),
+    [sidebarThreadSortOrder, sidebarThreads],
+  );
   const sortedProjects = useMemo(() => {
     const sortableProjects = sidebarProjects.map((project) => ({
       ...project,
@@ -3368,8 +3537,11 @@ export default function Sidebar() {
   ]);
   const isManualProjectSorting = sidebarProjectSortOrder === "manual";
   const visibleSidebarThreadKeys = useMemo(
-    () =>
-      sortedProjects.flatMap((project) => {
+    () => [
+      ...pinnedThreads.map((thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      ),
+      ...sortedProjects.flatMap((project) => {
         const projectThreads = sortThreads(
           (threadsByProjectKey.get(project.projectKey) ?? []).filter(
             (thread) => thread.archivedAt === null,
@@ -3404,11 +3576,13 @@ export default function Sidebar() {
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         );
       }),
+    ],
     [
       sidebarThreadSortOrder,
       sidebarThreadPreviewCount,
       expandedThreadListsByProject,
       projectExpandedById,
+      pinnedThreads,
       routeThreadKey,
       sortedProjects,
       threadsByProjectKey,
@@ -3706,6 +3880,9 @@ export default function Sidebar() {
             suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
             attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
             projectsLength={projects.length}
+            pinnedThreads={pinnedThreads}
+            projectLabelByRef={projectLabelByRef}
+            navigateToThread={navigateToThread}
           />
 
           <SidebarChromeFooter />

@@ -49,6 +49,7 @@ import Migration0033 from "./Migrations/033_Automations.ts";
 import Migration0034 from "./Migrations/034_AutomationReliability.ts";
 import Migration0035 from "./Migrations/035_AutomationEnabledStatus.ts";
 import Migration0036 from "./Migrations/036_AutomationsFullAccess.ts";
+import Migration0037 from "./Migrations/037_ProjectionThreadsPinned.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -97,6 +98,7 @@ export const migrationEntries = [
   [34, "AutomationReliability", Migration0034],
   [35, "AutomationEnabledStatus", Migration0035],
   [36, "AutomationsFullAccess", Migration0036],
+  [37, "ProjectionThreadsPinned", Migration0037],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

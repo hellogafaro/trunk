@@ -72,6 +72,7 @@ export function applyThreadDetailEvent(
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
           archivedAt: null,
+          pinned: false,
           deletedAt: null,
           messages: [],
           proposedPlans: [],
@@ -114,6 +115,7 @@ export function applyThreadDetailEvent(
           ...(event.payload.worktreePath !== undefined
             ? { worktreePath: event.payload.worktreePath }
             : {}),
+          ...(event.payload.pinned !== undefined ? { pinned: event.payload.pinned } : {}),
           updatedAt: event.payload.updatedAt,
         },
       };

@@ -285,10 +285,19 @@ describe("OrchestrationEngine", () => {
         createdAt,
       }),
     );
+    await system.run(
+      engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-1-pin"),
+        threadId: ThreadId.make("thread-1"),
+        pinned: true,
+      }),
+    );
 
     const readModelA = await system.readModel();
     const readModelB = await system.readModel();
     expect(readModelB).toEqual(readModelA);
+    expect(readModelA.threads.find((thread) => thread.id === "thread-1")?.pinned).toBe(true);
     await system.dispose();
   });
 
