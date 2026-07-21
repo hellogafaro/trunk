@@ -197,34 +197,17 @@ function SelectItem({
       data-slot="select-item"
       {...props}
     >
-      {hideIndicator ? null : (
-        <SelectPrimitive.ItemIndicator className="col-start-1" data-slot="select-item-indicator">
-          <svg
-            fill="none"
-            height="24"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
-            width="24"
-            xmlns="http://www.w3.org/1500/svg"
-          >
-            <path d="M5.252 12.7 10.2 18.63 18.748 5.37" />
-          </svg>
-        </SelectPrimitive.ItemIndicator>
-      )}
       <SelectPrimitive.ItemText
-        className={cn(
-          "min-w-0 [&_svg:not([class*='text-'])]:text-muted-foreground",
-          hideIndicator ? "col-start-1" : "col-start-2",
-        )}
+        className="col-start-1 min-w-0 [&_svg:not([class*='text-'])]:text-muted-foreground"
         data-slot="select-item-text"
       >
         {children}
       </SelectPrimitive.ItemText>
       {hideIndicator ? null : (
-        <SelectPrimitive.ItemIndicator className="col-start-2" data-slot="select-item-indicator">
+        <SelectPrimitive.ItemIndicator
+          className="col-start-2 justify-self-end"
+          data-slot="select-item-indicator"
+        >
           <CheckIcon />
         </SelectPrimitive.ItemIndicator>
       )}
