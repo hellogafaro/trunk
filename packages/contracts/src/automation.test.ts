@@ -16,8 +16,6 @@ describe("automation contracts", () => {
         prompt: "Summarize the repository.",
         projectId: "project:test",
         modelSelection: { instanceId: "codex", model: "gpt-5.4" },
-        runtimeMode: "approval-required",
-        fullAccessAcknowledged: false,
         schedule: { type: "cron", expression: "0 9 * * 1-5", timeZone: "Europe/Berlin" },
         target: { type: "persistent-thread", threadId: "thread:automation" },
       });

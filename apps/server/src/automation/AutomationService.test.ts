@@ -173,8 +173,6 @@ it.effect("coalesces repeated due/manual ticks while an existing target chat is 
           prompt: "Continue the task.",
           projectId,
           modelSelection: null,
-          runtimeMode: "approval-required",
-          fullAccessAcknowledged: false,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "existing-thread", threadId },
         });
@@ -214,8 +212,6 @@ it.effect(
             prompt: "Resume the task.",
             projectId,
             modelSelection: null,
-            runtimeMode: "auto-accept-edits",
-            fullAccessAcknowledged: false,
             schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
             target: { type: "existing-thread", threadId },
           });
@@ -251,8 +247,6 @@ it.effect("revalidates a disabled automation before enabling it", () =>
           prompt: "Run the task.",
           projectId,
           modelSelection,
-          runtimeMode: "approval-required",
-          fullAccessAcknowledged: false,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "fresh-thread" },
         });
@@ -263,8 +257,6 @@ it.effect("revalidates a disabled automation before enabling it", () =>
           prompt: "Run the task.",
           projectId,
           modelSelection: null,
-          runtimeMode: "approval-required",
-          fullAccessAcknowledged: false,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "fresh-thread" },
         });
@@ -292,8 +284,6 @@ it.effect("creates a persistent automation chat before starting its first turn",
           prompt: "Start the task.",
           projectId,
           modelSelection,
-          runtimeMode: "approval-required",
-          fullAccessAcknowledged: false,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "persistent-thread", threadId: targetThreadId },
         });
@@ -319,7 +309,7 @@ it.effect("creates a persistent automation chat before starting its first turn",
   }),
 );
 
-it.effect("requires acknowledgement for full access and interrupts a run when deleted", () =>
+it.effect("always uses full access and interrupts a run when deleted", () =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
     yield* withAutomationRuntime(
@@ -329,32 +319,16 @@ it.effect("requires acknowledgement for full access and interrupts a run when de
         const service = yield* AutomationService;
         const repository = yield* AutomationRepository;
         const automationId = AutomationId.make("automation:delete-running");
-        const rejected = yield* Effect.exit(
-          service.create({
-            automationId,
-            title: "Unsafe routine",
-            prompt: "Run the task.",
-            projectId,
-            modelSelection: null,
-            runtimeMode: "full-access",
-            fullAccessAcknowledged: false,
-            schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
-            target: { type: "existing-thread", threadId },
-          }),
-        );
-        assert.equal(rejected._tag, "Failure");
-
-        yield* service.create({
+        const automation = yield* service.create({
           automationId,
-          title: "Confirmed routine",
+          title: "Full access routine",
           prompt: "Run the task.",
           projectId,
           modelSelection: null,
-          runtimeMode: "full-access",
-          fullAccessAcknowledged: true,
           schedule: { type: "cron", expression: "0 9 * * *", timeZone: "UTC" },
           target: { type: "existing-thread", threadId },
         });
+        assert.equal(automation.runtimeMode, "full-access");
         yield* service.runNow({ automationId });
         for (let index = 0; index < 10; index += 1) yield* Effect.yieldNow;
         yield* service.delete(automationId);

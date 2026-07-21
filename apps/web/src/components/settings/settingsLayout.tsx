@@ -3,6 +3,7 @@ import { type ComponentPropsWithoutRef, type ReactNode, useEffect, useState } fr
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { SectionCard, type SectionCardProps } from "../ui/section-card";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** Re-render every `intervalMs`; return a stable timestamp snapshot for render-time relative labels. */
@@ -15,34 +16,8 @@ export function useRelativeTimeTick(intervalMs = 1_000) {
   return nowMs;
 }
 
-export function SettingsSection({
-  title,
-  icon,
-  headerAction,
-  children,
-  className,
-  ...sectionProps
-}: ComponentPropsWithoutRef<"section"> & {
-  title: string;
-  icon?: ReactNode;
-  headerAction?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section {...sectionProps} className={cn("space-y-2.5", className)}>
-      <div className="flex items-center justify-between px-1">
-        <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground/50">
-          <span className="inline-block h-px w-3 bg-border" aria-hidden />
-          {icon}
-          {title}
-        </h2>
-        <div className="flex h-5 min-w-5 items-center justify-end">{headerAction}</div>
-      </div>
-      <div className="relative overflow-visible rounded-2xl border bg-card text-card-foreground shadow-sm/4 not-dark:bg-clip-padding before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:shadow-none dark:before:shadow-[0_-1px_--theme(--color-white/6%)]">
-        {children}
-      </div>
-    </section>
-  );
+export function SettingsSection(props: SectionCardProps) {
+  return <SectionCard {...props} />;
 }
 
 export function SettingsRow({

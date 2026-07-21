@@ -116,7 +116,7 @@ function withTestServices<A, E>(
           prompt: input.prompt,
           projectId: input.projectId,
           modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
+          runtimeMode: "full-access",
           schedule: input.schedule,
           target: input.target,
           status: "enabled",

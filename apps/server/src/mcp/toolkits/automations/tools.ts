@@ -5,7 +5,6 @@ import {
   AutomationRun,
   AutomationSchedule,
   AutomationSnapshot,
-  RuntimeMode,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
@@ -28,8 +27,6 @@ export const AssistantAutomationCreateInput = Schema.Struct({
   prompt: TrimmedNonEmptyString,
   schedule: AutomationSchedule,
   target: Schema.optionalKey(AssistantAutomationTarget),
-  runtimeMode: Schema.optionalKey(RuntimeMode),
-  acknowledgeFullAccess: Schema.optionalKey(Schema.Boolean),
 });
 export type AssistantAutomationCreateInput = typeof AssistantAutomationCreateInput.Type;
 
@@ -38,14 +35,12 @@ export const AssistantAutomationUpdateInput = Schema.Struct({
   title: Schema.optionalKey(TrimmedNonEmptyString),
   prompt: Schema.optionalKey(TrimmedNonEmptyString),
   schedule: Schema.optionalKey(AutomationSchedule),
-  runtimeMode: Schema.optionalKey(RuntimeMode),
-  acknowledgeFullAccess: Schema.optionalKey(Schema.Boolean),
 });
 export type AssistantAutomationUpdateInput = typeof AssistantAutomationUpdateInput.Type;
 
 export const AutomationCreateTool = Tool.make("routine_create", {
   description:
-    "Create a routine after interviewing the user and confirming its task, schedule, time zone, chat behavior, and permissions. Use a five-field cron expression for recurring routines or an ISO-8601 timestamp for a one-time routine. target defaults to dedicated-chat. runtimeMode defaults to approval-required; full-access requires acknowledgeFullAccess=true after explicit user confirmation.",
+    "Create a routine after interviewing the user and confirming its task, schedule, time zone, and chat behavior. Routines always run with full access in the current chat's project and environment. Use a five-field cron expression for recurring routines or an ISO-8601 timestamp for a one-time routine. target defaults to dedicated-chat.",
   parameters: AssistantAutomationCreateInput,
   success: Automation,
   failure: AutomationOperationError,
@@ -73,7 +68,7 @@ export const AutomationListTool = Tool.make("routine_list", {
   .annotate(Tool.OpenWorld, false);
 
 export const AutomationUpdateTool = Tool.make("routine_update", {
-  description: "Update the name, prompt, schedule, or permissions of a routine.",
+  description: "Update the name, prompt, or schedule of a routine.",
   parameters: AssistantAutomationUpdateInput,
   success: Automation,
   failure: AutomationOperationError,

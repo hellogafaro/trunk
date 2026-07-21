@@ -145,11 +145,6 @@ export const make = Effect.gen(function* () {
     input: AutomationCreateInput | AutomationUpdateInput,
     nowEpochMillis: number,
   ) {
-    if (input.runtimeMode === "full-access" && !input.fullAccessAcknowledged) {
-      return yield* operationError(
-        "Full access must be explicitly acknowledged because the routine can run commands without approval.",
-      );
-    }
     const nextRunAt = yield* Effect.fromResult(
       validateFutureSchedule(input.schedule, nowEpochMillis),
     ).pipe(Effect.mapError((cause) => operationError(cause.message, cause)));
@@ -555,7 +550,7 @@ export const make = Effect.gen(function* () {
               prompt: input.prompt,
               projectId: input.projectId,
               modelSelection: input.modelSelection,
-              runtimeMode: input.runtimeMode,
+              runtimeMode: "full-access" as const,
               schedule: input.schedule,
               target: input.target,
               status: "enabled",
@@ -580,11 +575,6 @@ export const make = Effect.gen(function* () {
         .withPermits(1)(
           Effect.gen(function* () {
             const existing = yield* requireAutomation(input.automationId);
-            if (input.runtimeMode === "full-access" && !input.fullAccessAcknowledged) {
-              return yield* operationError(
-                "Full access must be explicitly acknowledged because the routine can run commands without approval.",
-              );
-            }
             const nowEpochMillis = yield* Clock.currentTimeMillis;
             const now = DateTime.formatIso(DateTime.makeUnsafe(nowEpochMillis));
             const nextRunAt =
@@ -597,7 +587,7 @@ export const make = Effect.gen(function* () {
               prompt: input.prompt,
               projectId: input.projectId,
               modelSelection: input.modelSelection,
-              runtimeMode: input.runtimeMode,
+              runtimeMode: "full-access" as const,
               schedule: input.schedule,
               target: input.target,
               nextRunAt,
@@ -632,8 +622,6 @@ export const make = Effect.gen(function* () {
                       prompt: existing.prompt,
                       projectId: existing.projectId,
                       modelSelection: existing.modelSelection,
-                      runtimeMode: existing.runtimeMode,
-                      fullAccessAcknowledged: existing.runtimeMode === "full-access",
                       schedule: existing.schedule,
                       target: existing.target,
                     },

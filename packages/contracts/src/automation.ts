@@ -115,8 +115,6 @@ const AutomationWriteFields = {
   prompt: TrimmedNonEmptyString,
   projectId: ProjectId,
   modelSelection: Schema.NullOr(ModelSelection),
-  runtimeMode: RuntimeMode,
-  fullAccessAcknowledged: Schema.Boolean,
   schedule: AutomationSchedule,
   target: AutomationTarget,
 } as const;

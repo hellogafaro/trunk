@@ -3,6 +3,7 @@ import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environ
 import { useNavigate } from "@tanstack/react-router";
 import {
   type Automation,
+  type AutomationRunStatus,
   type AutomationSchedule,
   type AutomationTarget,
   type AutomationUpdateInput,
@@ -10,7 +11,6 @@ import {
   type ModelSelection,
   ProviderInstanceId,
   ProjectId,
-  type RuntimeMode,
   ThreadId,
   isProviderAvailable,
 } from "@t3tools/contracts";
@@ -43,6 +43,7 @@ import { Calendar } from "../ui/calendar";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { SectionCard } from "../ui/section-card";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { DiffPanelShell } from "../DiffPanelShell";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
@@ -58,13 +59,11 @@ interface ScopedAutomation {
 interface Draft {
   readonly title: string;
   readonly prompt: string;
-  readonly environmentId: string;
   readonly projectId: string;
   readonly targetKind: TargetKind;
   readonly threadId: string;
   readonly instanceId: string;
   readonly model: string;
-  readonly runtimeMode: RuntimeMode;
   readonly scheduleKind: ScheduleKind;
   readonly dateTime: string;
   readonly time: string;
@@ -74,7 +73,7 @@ interface Draft {
 }
 
 const CREATE_ROUTINE_PROMPT =
-  "Set up a routine with me. Interview me to produce the most accurate possible prompt: clarify the outcome, relevant project context, schedule and time zone, chat behavior, model, and permission level. Show me the complete routine and ask for confirmation before using the routine tools to create it. Prefer a dedicated chat and approval-required permissions unless I choose otherwise.";
+  "Set up a routine with me. Interview me to produce the most accurate possible prompt: clarify the outcome, relevant project context, schedule and time zone, chat behavior, and model. Explain that routines always run with full access. Show me the complete routine and ask for confirmation before using the routine tools to create it. Prefer a dedicated chat unless I choose otherwise.";
 
 function localDateTimeInput(offsetMs = 60 * 60 * 1_000): string {
   const date = new Date(Date.now() + offsetMs);
@@ -110,12 +109,6 @@ const TARGET_OPTIONS: ReadonlyArray<AutomationSelectOption> = [
   { value: "existing-thread", label: "Existing chat" },
 ];
 
-const RUNTIME_MODE_OPTIONS: ReadonlyArray<AutomationSelectOption> = [
-  { value: "approval-required", label: "Ask before changes" },
-  { value: "auto-accept-edits", label: "Allow file edits" },
-  { value: "full-access", label: "Full access" },
-];
-
 const SCHEDULE_OPTIONS: ReadonlyArray<AutomationSelectOption> = [
   { value: "once", label: "Once" },
   { value: "hourly", label: "Every hour" },
@@ -142,17 +135,15 @@ const MINUTE_OPTIONS: ReadonlyArray<AutomationSelectOption> = Array.from(
   }),
 );
 
-function emptyDraft(environmentId = "", projectId = ""): Draft {
+function emptyDraft(projectId = ""): Draft {
   return {
     title: "",
     prompt: "",
-    environmentId,
     projectId,
     targetKind: "persistent-thread",
     threadId: "",
     instanceId: "",
     model: "",
-    runtimeMode: "approval-required",
     scheduleKind: "daily",
     dateTime: localDateTimeInput(),
     time: "09:00",
@@ -236,6 +227,18 @@ function formatDate(value: string | null): string {
   }).format(new Date(value));
 }
 
+const RUN_STATUS_LABELS: Record<AutomationRunStatus, string> = {
+  queued: "Queued",
+  running: "Running",
+  succeeded: "Succeeded",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+function formatRunStatus(status: AutomationRunStatus): string {
+  return RUN_STATUS_LABELS[status];
+}
+
 function draftSchedule(draft: Draft): AutomationSchedule {
   if (draft.scheduleKind === "once") {
     return { type: "once", runAt: new Date(draft.dateTime).toISOString() };
@@ -289,8 +292,6 @@ function draftUpdateInput(
     prompt: draft.prompt.trim(),
     projectId: ProjectId.make(draft.projectId),
     modelSelection,
-    runtimeMode: draft.runtimeMode,
-    fullAccessAcknowledged: draft.runtimeMode === "full-access",
     schedule,
     target,
   };
@@ -356,9 +357,7 @@ export function RoutinesPage() {
   const firstProject = projects.find(
     (project) => firstEnvironmentId !== null && project.environmentId === firstEnvironmentId,
   );
-  const [draft, setDraft] = useState<Draft>(() =>
-    emptyDraft(firstEnvironmentId ?? "", firstProject?.id ?? ""),
-  );
+  const [draft, setDraft] = useState<Draft>(() => emptyDraft(firstProject?.id ?? ""));
   const draftRef = useRef(draft);
   const selectedRef = useRef<ScopedAutomation | null>(null);
   const updateAutomationRef = useRef(updateAutomation);
@@ -366,9 +365,7 @@ export function RoutinesPage() {
   const lastPersistedSignatureRef = useRef<string | null>(null);
   updateAutomationRef.current = updateAutomation;
 
-  const selectedEnvironmentId = draft.environmentId
-    ? EnvironmentId.make(draft.environmentId)
-    : firstEnvironmentId;
+  const selectedEnvironmentId = selected?.environmentId ?? firstEnvironmentId;
   const selectedProjects = projects.filter(
     (project) => selectedEnvironmentId !== null && project.environmentId === selectedEnvironmentId,
   );
@@ -459,7 +456,7 @@ export function RoutinesPage() {
     flushAutosave();
     const { automation, environmentId } = scoped;
     const nextDraft = {
-      ...emptyDraft(environmentId, automation.projectId),
+      ...emptyDraft(automation.projectId),
       ...scheduleToDraft(automation.schedule),
       title: automation.title,
       prompt: automation.prompt,
@@ -467,7 +464,6 @@ export function RoutinesPage() {
       threadId: automation.target.type === "fresh-thread" ? "" : automation.target.threadId,
       instanceId: automation.modelSelection?.instanceId ?? "",
       model: automation.modelSelection?.model ?? "",
-      runtimeMode: automation.runtimeMode,
     } satisfies Draft;
     selectedRef.current = scoped;
     setSelectedKey(`${environmentId}:${automation.id}`);
@@ -706,41 +702,13 @@ export function RoutinesPage() {
                   className="min-h-32"
                 />
               </Field>
-              <div className="rounded-xl border border-border">
-                <SectionTitle>Details</SectionTitle>
+              <SectionCard title="Details">
                 <Row label="Status">
                   <Badge
                     variant={selected.automation.status === "enabled" ? "success" : "secondary"}
                   >
                     {selected.automation.status === "enabled" ? "Enabled" : "Disabled"}
                   </Badge>
-                </Row>
-                <Row label="Environment">
-                  <AutomationSelect
-                    ariaLabel="Environment"
-                    value={draft.environmentId}
-                    disabled={selected !== null}
-                    options={environments.map((environment) => ({
-                      value: environment.environmentId,
-                      label: environment.label,
-                    }))}
-                    onValueChange={(environmentId) => {
-                      const project = projects.find(
-                        (candidate) => candidate.environmentId === environmentId,
-                      );
-                      changeDraft({
-                        ...draft,
-                        environmentId,
-                        projectId: project?.id ?? "",
-                        threadId:
-                          draft.targetKind === "persistent-thread"
-                            ? `automation-thread:${randomIdSuffix()}`
-                            : "",
-                        instanceId: project?.defaultModelSelection?.instanceId ?? "",
-                        model: project?.defaultModelSelection?.model ?? "",
-                      });
-                    }}
-                  />
                 </Row>
                 <Row label="Project">
                   <AutomationSelect
@@ -837,20 +805,9 @@ export function RoutinesPage() {
                     </Row>
                   </>
                 )}
-                <Row label="Permissions">
-                  <AutomationSelect
-                    ariaLabel="Permissions"
-                    value={draft.runtimeMode}
-                    options={RUNTIME_MODE_OPTIONS}
-                    onValueChange={(value) =>
-                      changeDraft({ ...draft, runtimeMode: value as RuntimeMode })
-                    }
-                  />
-                </Row>
-              </div>
+              </SectionCard>
 
-              <div className="rounded-xl border border-border">
-                <SectionTitle>Frequency</SectionTitle>
+              <SectionCard title="Frequency">
                 <Row label="Repeat">
                   <AutomationSelect
                     ariaLabel="Repeat"
@@ -922,40 +879,44 @@ export function RoutinesPage() {
                     />
                   </Row>
                 ) : null}
-              </div>
+              </SectionCard>
             </div>
 
             {selectedRuns.length > 0 ? (
-              <div className="mt-8 border-t border-border pt-5">
-                <h2 className="mb-3 text-sm font-medium">Previous runs</h2>
-                <div className="space-y-1">
+              <SectionCard title="History" className="mt-8">
+                <div className="divide-y divide-border/60">
                   {selectedRuns.slice(0, 20).map((run) => (
                     <div
                       key={run.id}
-                      className="flex items-start justify-between gap-4 rounded-lg px-2 py-2 text-sm hover:bg-muted/40"
+                      className="flex min-h-12 items-center gap-4 px-4 py-2.5 text-sm transition-colors hover:bg-muted/40"
                     >
-                      <div>
-                        <span className="capitalize">{run.status}</span>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(run.startedAt ?? run.createdAt)}
-                          {run.coalescedCount > 0 ? ` · ${run.coalescedCount} coalesced` : ""}
-                        </p>
-                        {run.error ? (
-                          <p className="mt-1 text-xs text-destructive">{run.error}</p>
-                        ) : null}
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            {formatDate(run.startedAt ?? run.createdAt)}
+                          </p>
+                          {run.coalescedCount > 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              {run.coalescedCount} coalesced
+                            </p>
+                          ) : null}
+                          {run.error ? (
+                            <p className="mt-1 text-xs text-destructive">{run.error}</p>
+                          ) : null}
+                        </div>
+                        <Badge
+                          size="sm"
+                          variant={
+                            run.status === "succeeded"
+                              ? "success"
+                              : run.status === "failed"
+                                ? "error"
+                                : "secondary"
+                          }
+                        >
+                          {formatRunStatus(run.status)}
+                        </Badge>
                       </div>
-                      <Badge
-                        size="sm"
-                        variant={
-                          run.status === "succeeded"
-                            ? "success"
-                            : run.status === "failed"
-                              ? "error"
-                              : "secondary"
-                        }
-                      >
-                        {run.trigger}
-                      </Badge>
                       {run.threadId && selected ? (
                         <Button
                           size="xs"
@@ -975,7 +936,7 @@ export function RoutinesPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </SectionCard>
             ) : null}
           </div>
         </DiffPanelShell>
@@ -1101,10 +1062,6 @@ function Field(props: { readonly label: string; readonly children: ReactNode }) 
       {props.children}
     </label>
   );
-}
-
-function SectionTitle(props: { readonly children: ReactNode }) {
-  return <h2 className="border-b border-border px-4 py-3 text-sm font-medium">{props.children}</h2>;
 }
 
 function Row(props: { readonly label: string; readonly children: ReactNode }) {

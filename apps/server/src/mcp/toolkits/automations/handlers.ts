@@ -66,8 +66,6 @@ export const createAutomationFromChat = Effect.fn("automation.createFromChat")(f
     prompt: input.prompt,
     projectId: thread.projectId,
     modelSelection: targetKind === "current-chat" ? null : thread.modelSelection,
-    runtimeMode: input.runtimeMode ?? "approval-required",
-    fullAccessAcknowledged: input.acknowledgeFullAccess ?? false,
     schedule: input.schedule,
     target,
   });
@@ -94,10 +92,6 @@ const updateAutomation = Effect.fn("automation.update")(function* (
     prompt: input.prompt ?? current.prompt,
     projectId: current.projectId,
     modelSelection: current.modelSelection,
-    runtimeMode: input.runtimeMode ?? current.runtimeMode,
-    fullAccessAcknowledged:
-      input.acknowledgeFullAccess ??
-      (current.runtimeMode === "full-access" && input.runtimeMode === undefined),
     schedule: input.schedule ?? current.schedule,
     target: current.target,
   });
