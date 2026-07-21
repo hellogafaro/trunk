@@ -2949,20 +2949,20 @@ const SidebarPinnedThreads = memo(function SidebarPinnedThreads(props: SidebarPi
               >
                 <ThreadStatusLabel status={resolveThreadStatusPill({ thread })} />
                 <span className="min-w-0 flex-1 truncate text-left">{thread.title}</span>
-                {jumpLabel ? (
-                  <Kbd aria-label={jumpLabel}>{jumpLabel}</Kbd>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span className="max-w-[40%] shrink truncate text-right text-muted-foreground/45 transition-opacity group-hover/pinned-thread:opacity-0 group-focus-within/pinned-thread:opacity-0" />
-                      }
-                    >
-                      {projectLabel}
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">{projectLabel}</TooltipPopup>
-                  </Tooltip>
-                )}
+                <span className="flex max-w-[40%] shrink-0 transition-opacity duration-150 group-hover/pinned-thread:opacity-0 group-focus-within/pinned-thread:opacity-0">
+                  {jumpLabel ? (
+                    <Kbd aria-label={jumpLabel}>{jumpLabel}</Kbd>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<span className="truncate text-right text-muted-foreground/45" />}
+                      >
+                        {projectLabel}
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">{projectLabel}</TooltipPopup>
+                    </Tooltip>
+                  )}
+                </span>
               </SidebarMenuButton>
               <div className="pointer-events-none absolute top-1/2 right-0.5 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 group-hover/pinned-thread:pointer-events-auto group-hover/pinned-thread:opacity-100 group-focus-within/pinned-thread:pointer-events-auto group-focus-within/pinned-thread:opacity-100">
                 <Tooltip>
