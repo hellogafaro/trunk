@@ -765,7 +765,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {discoveredPorts.length > 0 && (
+          {!jumpLabel && discoveredPorts.length > 0 && (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -785,8 +785,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               </TooltipPopup>
             </Tooltip>
           )}
-          <ThreadWorktreeIndicator thread={thread} />
-          {terminalStatus && (
+          {!jumpLabel ? <ThreadWorktreeIndicator thread={thread} /> : null}
+          {!jumpLabel && terminalStatus && (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -880,7 +880,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             )}
             <span className={threadMetaClassName}>
               <span className="inline-flex items-center gap-1">
-                {isRemoteThread && !isDesktopLocalThread && (
+                {!jumpLabel && isRemoteThread && !isDesktopLocalThread && (
                   <Tooltip>
                     <TooltipTrigger
                       render={
@@ -897,14 +897,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                 )}
                 {jumpLabel ? (
                   <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span
-                          aria-label={jumpLabel}
-                          className="inline-flex h-5 items-center rounded-full border border-border/80 bg-background/90 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
-                        />
-                      }
-                    >
+                    <TooltipTrigger render={<Kbd aria-label={jumpLabel} />}>
                       {jumpLabel}
                     </TooltipTrigger>
                     <TooltipPopup side="top">{jumpLabel}</TooltipPopup>
@@ -2957,18 +2950,19 @@ const SidebarPinnedThreads = memo(function SidebarPinnedThreads(props: SidebarPi
                 <ThreadStatusLabel status={resolveThreadStatusPill({ thread })} />
                 <span className="min-w-0 flex-1 truncate text-left">{thread.title}</span>
                 {jumpLabel ? (
-                  <span className="shrink-0 text-muted-foreground/50">{jumpLabel}</span>
-                ) : null}
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span className="max-w-[40%] shrink truncate text-right text-muted-foreground/45 transition-opacity group-hover/pinned-thread:opacity-0 group-focus-within/pinned-thread:opacity-0" />
-                    }
-                  >
-                    {projectLabel}
-                  </TooltipTrigger>
-                  <TooltipPopup side="top">{projectLabel}</TooltipPopup>
-                </Tooltip>
+                  <Kbd aria-label={jumpLabel}>{jumpLabel}</Kbd>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span className="max-w-[40%] shrink truncate text-right text-muted-foreground/45 transition-opacity group-hover/pinned-thread:opacity-0 group-focus-within/pinned-thread:opacity-0" />
+                      }
+                    >
+                      {projectLabel}
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">{projectLabel}</TooltipPopup>
+                  </Tooltip>
+                )}
               </SidebarMenuButton>
               <div className="pointer-events-none absolute top-1/2 right-0.5 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 group-hover/pinned-thread:pointer-events-auto group-hover/pinned-thread:opacity-100 group-focus-within/pinned-thread:pointer-events-auto group-focus-within/pinned-thread:opacity-100">
                 <Tooltip>
@@ -3047,6 +3041,7 @@ interface SidebarProjectsContentProps {
   routeThreadKey: string | null;
   newThreadShortcutLabel: string | null;
   commandPaletteShortcutLabel: string | null;
+  isRoutinesActive: boolean;
   threadJumpLabelByKey: ReadonlyMap<string, string>;
   attachThreadListAutoAnimateRef: (node: HTMLElement | null) => void;
   expandThreadListForProject: (projectKey: string) => void;
@@ -3091,6 +3086,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     routeThreadKey,
     newThreadShortcutLabel,
     commandPaletteShortcutLabel,
+    isRoutinesActive,
     threadJumpLabelByKey,
     attachThreadListAutoAnimateRef,
     expandThreadListForProject,
@@ -3162,14 +3158,13 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             >
               <SearchIcon className="size-3.5 text-muted-foreground/70" />
               <span className="flex-1 truncate text-left">Search</span>
-              {commandPaletteShortcutLabel ? (
-                <Kbd className="h-5 min-w-0 px-1.5 text-xs">{commandPaletteShortcutLabel}</Kbd>
-              ) : null}
+              {commandPaletteShortcutLabel ? <Kbd>{commandPaletteShortcutLabel}</Kbd> : null}
             </CommandDialogTrigger>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
+              isActive={isRoutinesActive}
               className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground focus-visible:ring-0"
               render={<Link to="/routines" />}
             >
@@ -3338,6 +3333,7 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const isOnSettings = pathname.startsWith("/settings");
+  const isOnRoutines = pathname === "/routines";
   const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const sidebarProjectGroupingMode = useClientSettings((s) => s.sidebarProjectGroupingMode);
@@ -3987,6 +3983,7 @@ export default function Sidebar() {
             routeThreadKey={routeThreadKey}
             newThreadShortcutLabel={newThreadShortcutLabel}
             commandPaletteShortcutLabel={commandPaletteShortcutLabel}
+            isRoutinesActive={isOnRoutines}
             threadJumpLabelByKey={visibleThreadJumpLabelByKey}
             attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
             expandThreadListForProject={expandThreadListForProject}
