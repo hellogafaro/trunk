@@ -38,6 +38,8 @@ export const AssistantAutomationUpdateInput = Schema.Struct({
 });
 export type AssistantAutomationUpdateInput = typeof AssistantAutomationUpdateInput.Type;
 
+const NoParameters = Schema.Record(Schema.String, Schema.Never);
+
 export const AutomationCreateTool = Tool.make("routine_create", {
   description:
     "Create a routine after interviewing the user and confirming its task, schedule, time zone, and chat behavior. Routines always run with full access in the current chat's project and environment. Use a five-field cron expression for recurring routines or an ISO-8601 timestamp for a one-time routine. target defaults to dedicated-chat.",
@@ -59,7 +61,7 @@ export const AutomationCreateTool = Tool.make("routine_create", {
 
 export const AutomationListTool = Tool.make("routine_list", {
   description: "List routines and their recent runs in this environment.",
-  parameters: Schema.Struct({}),
+  parameters: NoParameters,
   success: AutomationSnapshot,
   failure: AutomationOperationError,
   dependencies: [McpInvocationContext.McpInvocationContext, AutomationService],
