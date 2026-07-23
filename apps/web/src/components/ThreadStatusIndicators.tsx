@@ -167,7 +167,7 @@ export function ThreadStatusLabel({
     return (
       <span
         aria-hidden="true"
-        className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground"
       >
         <span className="h-1.5 w-1.5 rounded-full bg-border" />
       </span>
@@ -177,7 +177,7 @@ export function ThreadStatusLabel({
   return (
     <span
       title={status.label}
-      className={`inline-flex items-center gap-1 text-[10px] ${status.colorClass}`}
+      className={`inline-flex items-center gap-1 text-xs ${status.colorClass}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full border border-border/80 ${status.dotClass} ${

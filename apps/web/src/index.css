@@ -69,9 +69,10 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  /* Keep primary app copy and controls readable; reserve xs for metadata. */
   --diff-font-size: var(--text-sm);
-  --text-xs: 0.625rem;
-  --text-sm: 0.75rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
   --text-base: 0.875rem;
   --text-lg: 1rem;
   --text-xl: 1.125rem;
@@ -306,6 +307,8 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.5;
   margin: 0;
   padding: 0;
 }
@@ -579,7 +582,7 @@ label:has(> select#reasoning-effort) select {
   justify-content: center;
   border-radius: 0.25rem;
   text-decoration: none;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -589,7 +592,7 @@ label:has(> select#reasoning-effort) select {
   background: var(--muted);
   padding: 0.1rem 0.35rem;
   color: var(--foreground);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .chat-markdown a.chat-markdown-file-link {
@@ -620,7 +623,7 @@ label:has(> select#reasoning-effort) select {
   border: none;
   background: transparent;
   padding: 0;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .chat-markdown pre {
@@ -684,7 +687,7 @@ label:has(> select#reasoning-effort) select {
   align-items: center;
   gap: 0.4rem;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .chat-markdown .chat-markdown-chrome-action {
@@ -727,7 +730,7 @@ label:has(> select#reasoning-effort) select {
   border-collapse: collapse;
   overflow-wrap: normal;
   word-break: normal;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .chat-markdown th,

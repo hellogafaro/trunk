@@ -20,7 +20,7 @@ export function PairingPendingSurface() {
     <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12 font-sans text-foreground">
       <section className="w-full max-w-sm">
         <Logo className="mb-6 size-6" />
-        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           {APP_DISPLAY_NAME}
         </p>
         <h1 className="mt-2 text-lg font-semibold tracking-tight">Pairing with this environment</h1>
@@ -94,7 +94,7 @@ export function PairingRouteSurface({
     <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12 font-sans text-foreground">
       <section className="w-full max-w-sm">
         <Logo className="mb-6 size-6" />
-        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           {APP_DISPLAY_NAME}
         </p>
         <h1 className="mt-2 text-lg font-semibold tracking-tight">Pairing required</h1>
@@ -221,7 +221,7 @@ export function HostedPairingRouteSurface() {
     <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12 font-sans text-foreground">
       <section className="w-full max-w-sm">
         <Logo className="mb-6 size-6" />
-        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           {APP_DISPLAY_NAME}
         </p>
         <h1 className="mt-2 text-lg font-semibold tracking-tight">

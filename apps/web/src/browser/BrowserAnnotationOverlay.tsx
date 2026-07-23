@@ -520,7 +520,7 @@ export function BrowserAnnotationOverlay(props: {
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="min-w-0">
               <p className="truncate text-xs font-medium">Describe the change</p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {marks.length} {marks.length === 1 ? "annotation" : "annotations"}
               </p>
             </div>
@@ -602,7 +602,7 @@ function AnnotationRect(props: {
       data-browser-annotation-target
     >
       {label ? (
-        <span className="absolute -left-2 -top-2 flex size-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-semibold text-white shadow-sm">
+        <span className="absolute -left-2 -top-2 flex size-5 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white shadow-sm">
           {label}
         </span>
       ) : null}

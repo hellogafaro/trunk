@@ -23,7 +23,7 @@ const TREE_UNSAFE_CSS = `
     --trees-hover-bg-override: color-mix(in srgb, currentColor 7%, transparent);
     --trees-border-color-override: color-mix(in srgb, currentColor 14%, transparent);
     --trees-font-family-override: var(--font-sans);
-    --trees-font-size-override: 12px;
+    --trees-font-size-override: 14px;
   }
   button[data-type='item'] { border-radius: 5px; }
 `;
@@ -86,7 +86,7 @@ export default function FileBrowserPanel({
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-3">
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-medium text-foreground">{projectName}</div>
-          <div className="truncate text-[10px] leading-none text-muted-foreground">
+          <div className="truncate text-xs leading-none text-muted-foreground">
             {entriesQuery.isPending && entriesQuery.data === null
               ? "Indexing…"
               : `${fileCount.toLocaleString()} files`}
