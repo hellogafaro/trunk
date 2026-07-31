@@ -16,6 +16,7 @@ import type { RightPanelSurface } from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { Button } from "~/components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { faviconUrlForOrigin } from "~/lib/favicon";
@@ -139,7 +140,7 @@ function RightPanelEmptyState(props: {
             Choose what to show in the right panel.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {actions.map((action) => {
             const Icon = action.icon;
             const content = (
@@ -157,7 +158,7 @@ function RightPanelEmptyState(props: {
                   key={action.label}
                   type="button"
                   onClick={action.onClick}
-                  className="flex min-h-28 w-full flex-col items-start rounded-lg border border-border/80 bg-card/40 p-4 text-left transition hover:border-border hover:bg-accent/60"
+                  className="flex min-h-24 w-full flex-col items-start rounded-lg border border-border/80 bg-card/40 p-4 text-left transition hover:border-border hover:bg-accent/60 sm:min-h-28"
                 >
                   {content}
                 </button>
@@ -166,7 +167,7 @@ function RightPanelEmptyState(props: {
             const disabledCard = (
               <button
                 type="button"
-                className="flex min-h-28 w-full cursor-not-allowed flex-col items-start rounded-lg border border-border/80 bg-card/40 p-4 text-left opacity-40"
+                className="flex min-h-24 w-full cursor-not-allowed flex-col items-start rounded-lg border border-border/80 bg-card/40 p-4 text-left opacity-40 sm:min-h-28"
                 aria-disabled="true"
               >
                 {content}
@@ -369,7 +370,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   data-active-tab={active}
                   onContextMenu={(event) => void handleTabContextMenu(event, surface)}
                   className={cn(
-                    "group flex h-7 min-w-25 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm",
+                    "group flex h-11 min-w-25 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm md:h-7",
                     active
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -397,8 +398,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   <button
                     type="button"
                     className={cn(
-                      "relative flex size-4 shrink-0 items-center justify-center rounded hover:bg-muted focus:opacity-100",
-                      pending ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                      "relative flex size-11 shrink-0 items-center justify-center rounded hover:bg-muted focus:opacity-100 md:size-4",
+                      pending ? "opacity-100" : "md:opacity-0 md:group-hover:opacity-100",
                     )}
                     aria-label={`Close ${title}`}
                     onClick={() => props.onCloseSurface(surface)}
@@ -421,8 +422,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             {props.surfaces.length > 0 ? (
               <Menu>
                 <MenuTrigger
-                  className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                  aria-label="Add panel surface"
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Add panel surface"
+                      className="text-muted-foreground hover:text-foreground"
+                    />
+                  }
                 >
                   <Plus className="size-4" />
                 </MenuTrigger>

@@ -5,6 +5,7 @@ import {
   Clock3Icon,
   CloudIcon,
   ContainerIcon,
+  DownloadIcon,
   FolderPlusIcon,
   Globe2Icon,
   LoaderIcon,
@@ -223,6 +224,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { SidebarProviderUpdatePill } from "./sidebar/SidebarProviderUpdatePill";
+import { requestPwaInstall, usePwaSnapshot } from "../pwa";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -724,7 +726,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                   <button
                     type="button"
                     aria-label={prStatus.tooltip}
-                    className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
+                    className={`inline-flex size-11 items-center justify-center md:size-auto ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
                     onClick={handlePrClick}
                   >
                     <ChangeRequestStatusIcon className="size-3" />
@@ -2662,7 +2664,7 @@ function ProjectSortMenu({
       <Tooltip>
         <TooltipTrigger
           render={
-            <MenuTrigger className="inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
+            <MenuTrigger className="inline-flex h-11 min-w-11 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground md:h-6 md:min-w-6" />
           }
         >
           <ArrowUpDownIcon className="size-3.5" />
@@ -2824,31 +2826,57 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
 
 function SidebarBrand() {
   return (
-    <Link
-      aria-label="Trunk — go to threads"
-      className="sidebar-brand ml-[var(--workspace-titlebar-content-left)] size-7 shrink-0 items-center justify-center rounded-md text-foreground outline-hidden ring-ring focus-visible:ring-2"
-      to="/"
-    >
-      <Logo className="size-4" />
-    </Link>
+    <div className="sidebar-brand ml-0 md:ml-[var(--workspace-titlebar-content-left)]">
+      <Button
+        render={<Link aria-label="Trunk — go to threads" to="/" />}
+        size="icon-sm"
+        variant="ghost"
+      >
+        <Logo className="size-4" />
+      </Button>
+    </div>
   );
 }
 
 const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
+  const pwa = usePwaSnapshot();
   const handleSettingsClick = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
     }
     void navigate({ to: "/settings" });
   }, [isMobile, navigate, setOpenMobile]);
+  const handleInstallClick = useCallback(() => {
+    if (pwa.installMethod === "ios-instructions") {
+      toastManager.add({
+        type: "info",
+        title: "Install Trunk",
+        description: "Open the browser Share menu, then choose Add to Home Screen.",
+      });
+      return;
+    }
+    void requestPwaInstall();
+  }, [pwa.installMethod]);
 
   return (
     <SidebarFooter className="p-2">
       <SidebarProviderUpdatePill />
       <SidebarUpdatePill />
       <SidebarMenu>
+        {pwa.installMethod ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+              onClick={handleInstallClick}
+            >
+              <DownloadIcon className="size-4" />
+              <span>Install Trunk</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : null}
         <SidebarMenuItem>
           <SidebarMenuButton
             size="sm"

@@ -1498,7 +1498,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   const reviewCommentSegments = parseReviewCommentMessageSegments(props.text);
   if (reviewCommentSegments.some((segment) => segment.kind === "review-comment")) {
     return (
-      <div className="space-y-3 text-sm leading-relaxed text-foreground">
+      <div className="space-y-3 text-base leading-relaxed text-foreground md:text-sm">
         {reviewCommentSegments.map((segment) =>
           segment.kind === "text" ? (
             segment.text.trim().length > 0 ? (
@@ -1567,7 +1567,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
         }
 
         return (
-          <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
+          <div className="whitespace-pre-wrap wrap-break-word text-base leading-relaxed text-foreground md:text-sm">
             {inlineNodes}
           </div>
         );
@@ -1605,7 +1605,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     }
 
     return (
-      <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
+      <div className="whitespace-pre-wrap wrap-break-word text-base leading-relaxed text-foreground md:text-sm">
         {inlineNodes}
       </div>
     );

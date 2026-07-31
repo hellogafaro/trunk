@@ -39,7 +39,7 @@ describe("sidebar interactive cursors", () => {
     expect(html).toContain('data-sidebar-state="collapsed"');
   });
 
-  it("keeps the sidebar trigger interactive inside Electron drag regions", () => {
+  it("uses the shared icon button size inside Electron drag regions", () => {
     const html = renderToStaticMarkup(
       <SidebarProvider>
         <SidebarTrigger />
@@ -47,7 +47,9 @@ describe("sidebar interactive cursors", () => {
     );
 
     expect(html).toContain("[-webkit-app-region:no-drag]");
-    expect(html).toContain("size-[var(--workspace-titlebar-control-size)]!");
+    expect(html).toContain("size-11");
+    expect(html).toContain("md:size-7");
+    expect(html).not.toContain("size-[var(--workspace-titlebar-control-size)]!");
   });
 
   it("uses a pointer cursor for menu buttons by default", () => {

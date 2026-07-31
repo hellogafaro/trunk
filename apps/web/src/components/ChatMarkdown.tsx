@@ -1538,7 +1538,7 @@ function ChatMarkdown({
   return (
     <div
       className={cn(
-        "chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80",
+        "chat-markdown w-full min-w-0 text-base leading-relaxed text-foreground/80 md:text-sm",
         className,
       )}
       onCopy={handleCopy}

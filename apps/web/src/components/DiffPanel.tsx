@@ -39,6 +39,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { Button } from "./ui/button";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Switch } from "./ui/switch";
 import {
@@ -131,7 +132,7 @@ const DIFF_PANEL_UNSAFE_CSS = `
   border-bottom: 1px solid var(--border) !important;
   align-items: center !important;
   font-family: var(--font-sans) !important;
-  font-size: 14px !important;
+  font-size: 15px !important;
   line-height: 1 !important;
   min-height: 32px !important;
   padding-block: 6px !important;
@@ -151,7 +152,7 @@ const DIFF_PANEL_UNSAFE_CSS = `
 [data-diffs-header] [data-additions-count],
 [data-diffs-header] [data-deletions-count] {
   font-family: var(--font-mono) !important;
-  font-size: 12px !important;
+  font-size: 13px !important;
   font-variant-numeric: tabular-nums;
   line-height: 1 !important;
 }
@@ -508,7 +509,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted/70 px-2 text-xs font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+            render={<Button className="max-w-full gap-1 text-xs" size="sm" variant="secondary" />}
             aria-label={`Diff scope: ${selectedScopeLabel}`}
           >
             <span className="truncate">{selectedScopeLabel}</span>
@@ -583,7 +584,13 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
               }}
             >
               <ComboboxTrigger
-                className="inline-flex min-w-0 max-w-48 items-center gap-1 overflow-hidden rounded-md px-1.5 py-1 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                render={
+                  <Button
+                    className="min-w-0 max-w-48 gap-1 overflow-hidden text-xs"
+                    size="sm"
+                    variant="ghost"
+                  />
+                }
                 aria-label={`Change comparison target. Currently ${selectedGitSource.baseRef}`}
               >
                 <span className="min-w-0 truncate">{selectedGitSource.baseRef}</span>
@@ -680,7 +687,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
         <ToggleGroup
           className="shrink-0"
           variant="outline"
-          size="xs"
+          size="sm"
           value={[diffRenderMode]}
           onValueChange={(value) => {
             const next = value[0];
@@ -702,7 +709,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
               <Toggle
                 aria-label={wordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
                 variant="outline"
-                size="xs"
+                size="sm"
                 pressed={wordWrap}
                 onPressedChange={(pressed) => {
                   setWordWrap(Boolean(pressed));
@@ -724,7 +731,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
                   diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"
                 }
                 variant="outline"
-                size="xs"
+                size="sm"
                 pressed={diffIgnoreWhitespace}
                 onPressedChange={(pressed) => {
                   setDiffIgnoreWhitespace(Boolean(pressed));

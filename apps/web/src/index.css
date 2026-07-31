@@ -6,12 +6,12 @@
 
 :root {
   --app-scrollbar-width: 6px;
-  --workspace-topbar-height: 52px;
+  --workspace-topbar-height: 48px;
   --workspace-controls-top: 0px;
   --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
   --workspace-native-controls-inset: 0px;
-  --workspace-titlebar-control-size: 1.75rem;
+  --workspace-titlebar-control-size: 2.75rem;
   --workspace-titlebar-control-gap: 0.75rem;
 }
 
@@ -23,7 +23,7 @@
 }
 
 .wco {
-  --workspace-topbar-height: env(titlebar-area-height, 52px);
+  --workspace-topbar-height: env(titlebar-area-height, 48px);
   --workspace-controls-top: env(titlebar-area-y, 0px);
   --workspace-controls-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
   --workspace-controls-right: calc(
@@ -32,6 +32,12 @@
   --workspace-native-controls-inset: calc(
     100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + 0.75rem
   );
+}
+
+@media (min-width: 48rem) {
+  :root {
+    --workspace-titlebar-control-size: 1.75rem;
+  }
 }
 
 @theme inline {
@@ -69,13 +75,13 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
-  /* Keep primary app copy and controls readable; reserve xs for metadata. */
-  --diff-font-size: var(--text-sm);
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 0.875rem;
-  --text-lg: 1rem;
-  --text-xl: 1.125rem;
+  /* Product type scale: readable at phone distance without losing desktop density. */
+  --diff-font-size: 0.8125rem;
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -93,6 +99,12 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+  @media (max-width: 47.999rem) {
+    button {
+      min-block-size: 2.75rem;
+      min-inline-size: 2.75rem;
+    }
   }
   :where([data-slot="menu-popup"], [data-slot="select-popup"], [data-slot="popover-popup"]):focus,
   :where(
@@ -113,7 +125,7 @@
 
 @layer components {
   .sidebar-brand {
-    display: none;
+    display: flex;
   }
 
   .sidebar-brand-stage {
@@ -121,6 +133,10 @@
   }
 
   @media (min-width: 48rem) {
+    .sidebar-brand {
+      display: none;
+    }
+
     @container sidebar-header (min-width: 13.5rem) {
       .sidebar-brand {
         display: flex;
@@ -153,7 +169,7 @@
   }
 
   .surface-subheader {
-    @apply flex h-10 min-h-10 shrink-0 items-center border-b border-border/60 bg-background;
+    @apply flex h-12 min-h-12 shrink-0 items-center border-b border-border/60 bg-background md:h-10 md:min-h-10;
   }
 
   .chat-composer-horizontal-inset {
@@ -198,6 +214,26 @@
     .chat-composer-horizontal-inset {
       padding-inline-start: calc(env(safe-area-inset-left) + 1.25rem);
       padding-inline-end: calc(env(safe-area-inset-right) + 1.25rem);
+    }
+  }
+
+  @media (max-width: 47.999rem) {
+    :where(
+      [data-slot="menu-item"],
+      [data-slot="menu-checkbox-item"],
+      [data-slot="menu-radio-item"],
+      [data-slot="combobox-item"],
+      [data-slot="select-item"],
+      [data-slot="sidebar-menu-button"],
+      [data-slot="sidebar-menu-sub-button"]
+    ) {
+      min-height: 2.75rem;
+    }
+
+    [data-slot="sidebar-menu-action"] {
+      width: 2.75rem;
+      min-width: 2.75rem;
+      height: 2.75rem;
     }
   }
 

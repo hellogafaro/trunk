@@ -1,12 +1,44 @@
 {
+  "id": "/",
   "name": "Trunk",
   "short_name": "Trunk",
   "description": "The best way to code with AI.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "categories": ["developer-tools", "productivity"],
   "background_color": "#161616",
   "theme_color": "#161616",
+  "shortcuts": [
+    {
+      "name": "Threads",
+      "short_name": "Threads",
+      "description": "Open your Trunk threads",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Routines",
+      "short_name": "Routines",
+      "description": "Open Trunk routines",
+      "url": "/routines",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
   "icons": [
     {
       "src": "/pwa-192x192.png",

@@ -8,6 +8,7 @@ import { cn } from "~/lib/utils";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
 
 import { useProjectEntriesQuery } from "./projectFilesQueryState";
+import { Button } from "../ui/button";
 
 interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
@@ -93,22 +94,24 @@ export default function FileBrowserPanel({
             {entriesQuery.data?.truncated ? " · partial" : ""}
           </div>
         </div>
-        <button
+        <Button
           type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          size="icon-sm"
+          variant="ghost"
           aria-label="Search workspace files"
           onClick={() => model.openSearch()}
         >
           <Search className="size-3.5" />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          size="icon-sm"
+          variant="ghost"
           aria-label="Refresh workspace files"
           onClick={entriesQuery.refresh}
         >
           <RefreshCw className={cn("size-3.5", entriesQuery.isPending && "animate-spin")} />
-        </button>
+        </Button>
       </div>
       {entriesQuery.error && entriesQuery.data === null ? (
         <div className="p-4 text-xs leading-relaxed text-destructive">{entriesQuery.error}</div>

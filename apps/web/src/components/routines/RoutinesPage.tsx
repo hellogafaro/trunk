@@ -515,7 +515,7 @@ export function RoutinesPage() {
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <h1 className="text-sm font-medium text-foreground">Routines</h1>
             <Button
-              size="xs"
+              size="sm"
               className="ml-auto [-webkit-app-region:no-drag]"
               onClick={startCreate}
             >

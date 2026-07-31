@@ -1,6 +1,7 @@
 import { Maximize2Icon, Minimize2Icon, PanelBottomIcon, PanelRightIcon } from "lucide-react";
 import { memo } from "react";
 
+import { useIsMobile } from "../../hooks/useMediaQuery";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -25,6 +26,32 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   onToggleTerminal,
   onToggleRightPanel,
 }: PanelLayoutControlsProps) {
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    const label = rightPanelOpen ? "Close workspace" : "Open workspace";
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toggle
+              className="shrink-0 [-webkit-app-region:no-drag]"
+              pressed={rightPanelOpen}
+              onPressedChange={onToggleRightPanel}
+              aria-label={label}
+              variant="ghost"
+              size="sm"
+              disabled={!rightPanelAvailable}
+            >
+              <PanelRightIcon className="size-5" />
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">{label}</TooltipPopup>
+      </Tooltip>
+    );
+  }
+
   return (
     <div
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"

@@ -53,7 +53,7 @@ export function PreviewMoreMenu({
           render={
             <MenuTrigger
               render={
-                <Button variant="ghost" size="icon-xs" type="button" aria-label="Preview menu" />
+                <Button variant="ghost" size="icon-sm" type="button" aria-label="Preview menu" />
               }
             />
           }

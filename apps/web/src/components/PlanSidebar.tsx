@@ -166,7 +166,7 @@ const PlanSidebar = memo(function PlanSidebar({
               <MenuTrigger
                 render={
                   <Button
-                    size="icon-xs"
+                    size="icon-sm"
                     variant="ghost"
                     className="text-muted-foreground/50 hover:text-foreground/70"
                     aria-label="Plan actions"

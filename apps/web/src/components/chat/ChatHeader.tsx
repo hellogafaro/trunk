@@ -62,7 +62,7 @@ export const ChatHeader = memo(function ChatHeader({
             render={
               <h2
                 aria-label={activeThreadTitle}
-                className="min-w-0 flex-1 truncate text-sm font-medium text-foreground"
+                className="min-w-0 flex-1 truncate text-base font-medium text-foreground md:text-sm"
               >
                 {activeThreadTitle}
               </h2>
@@ -74,7 +74,7 @@ export const ChatHeader = memo(function ChatHeader({
       <div
         data-chat-header-actions
         className={cn(
-          "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
+          "hidden shrink-0 items-center justify-end gap-2 md:flex @3xl/header-actions:gap-3",
           rightPanelOpen ? "pr-0" : "pr-16",
         )}
       >

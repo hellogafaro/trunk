@@ -1658,7 +1658,7 @@ export default function GitActionsControl({
       {!isRepo ? (
         <Button
           variant="outline"
-          size="xs"
+          size="sm"
           disabled={initAction.isPending}
           onClick={() => {
             void (async () => {
@@ -1693,7 +1693,7 @@ export default function GitActionsControl({
                   <Button
                     aria-disabled="true"
                     className="cursor-not-allowed border-e-0 opacity-64"
-                    size="xs"
+                    size="sm"
                     variant="outline"
                   />
                 }
@@ -1713,7 +1713,7 @@ export default function GitActionsControl({
           ) : (
             <Button
               variant="outline"
-              size="xs"
+              size="sm"
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
@@ -1732,7 +1732,7 @@ export default function GitActionsControl({
             }}
           >
             <MenuTrigger
-              render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
+              render={<Button aria-label="Git action options" size="icon-sm" variant="outline" />}
               disabled={isGitActionRunning}
             >
               <ChevronDownIcon aria-hidden="true" className="size-4" />
